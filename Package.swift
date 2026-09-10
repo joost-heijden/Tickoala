@@ -23,6 +23,7 @@ let package = Package(
         .executableTarget(
             name: "TickoalaApp",
             dependencies: ["TickoalaCore"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // De testsuite draait als los programma: de Command Line Tools leveren

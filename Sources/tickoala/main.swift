@@ -1,56 +1,56 @@
 import Foundation
-import WifiHoursCore
+import TickoalaCore
 
 let usage = """
-wifihours — lokale urenregistratie, gevoed door ControlPlane
+tickoala — lokale urenregistratie, gevoed door ControlPlane
 
 ControlPlane-adapter (dom, idempotent):
-  wifihours start --context <naam> [--at <tijd>]
-  wifihours stop  --context <naam> [--at <tijd>]
+  tickoala start --context <naam> [--at <tijd>]
+  tickoala stop  --context <naam> [--at <tijd>]
 
 Status en onderhoud:
-  wifihours status [--json]
-  wifihours tick                       stops afronden, vastgelopen blokken markeren
-  wifihours events [--limit 20]
-  wifihours db                         pad naar de database
+  tickoala status [--json]
+  tickoala tick                       stops afronden, vastgelopen blokken markeren
+  tickoala events [--limit 20]
+  tickoala db                         pad naar de database
 
 Profielen (een profiel mag aan meerdere wifinetwerken hangen):
-  wifihours profile list
-  wifihours profile add --name <naam> --context <ssid>[,ssid2,...]
-  wifihours profile edit --profile <naam|context> [--name x] [--active true|false]
-  wifihours profile context list   --profile <naam|context>
-  wifihours profile context add    --profile <naam|context> --context <ssid>[,ssid2,...]
-  wifihours profile context remove --profile <naam|context> --context <ssid>[,ssid2,...]
+  tickoala profile list
+  tickoala profile add --name <naam> --context <ssid>[,ssid2,...]
+  tickoala profile edit --profile <naam|context> [--name x] [--active true|false]
+  tickoala profile context list   --profile <naam|context>
+  tickoala profile context add    --profile <naam|context> --context <ssid>[,ssid2,...]
+  tickoala profile context remove --profile <naam|context> --context <ssid>[,ssid2,...]
 
 Projecten:
-  wifihours project list [--profile <naam>]
-  wifihours project add --profile <naam> --number <nummer> --name <projectnaam>
-  wifihours project select --profile <naam> --number <nummer>
-  wifihours project edit --profile <naam> --number <nummer> [--new-number y] [--name x] [--active true|false]
+  tickoala project list [--profile <naam>]
+  tickoala project add --profile <naam> --number <nummer> --name <projectnaam>
+  tickoala project select --profile <naam> --number <nummer>
+  tickoala project edit --profile <naam> --number <nummer> [--new-number y] [--name x] [--active true|false]
 
 Automatische pauzeaftrek (per klant):
-  wifihours break list
-  wifihours break set --profile <naam> [--enabled true|false] [--minutes 30] [--threshold 6:00]
+  tickoala break list
+  tickoala break set --profile <naam> [--enabled true|false] [--minutes 30] [--threshold 6:00]
                                        --threshold accepteert 6:00, 6u of 360 (minuten)
 
 Timer:
-  wifihours timer start|stop --profile <naam>
-  wifihours pause  --profile <naam>
-  wifihours resume --profile <naam>
+  tickoala timer start|stop --profile <naam>
+  tickoala pause  --profile <naam>
+  tickoala resume --profile <naam>
 
 Blokken corrigeren:
-  wifihours entry list [--period day|week|month] [--date <dag>] [--from <tijd> --to <tijd>] [--profile <naam>]
-  wifihours entry add --profile <naam> --number <projectnummer> --start <tijd> --end <tijd> [--note "..."]
-  wifihours entry edit --id <n> [--start <tijd>] [--end <tijd>] [--number <projectnummer>] [--status completed|open] [--note "..."]
-  wifihours entry delete --id <n>
+  tickoala entry list [--period day|week|month] [--date <dag>] [--from <tijd> --to <tijd>] [--profile <naam>]
+  tickoala entry add --profile <naam> --number <projectnummer> --start <tijd> --end <tijd> [--note "..."]
+  tickoala entry edit --id <n> [--start <tijd>] [--end <tijd>] [--number <projectnummer>] [--status completed|open] [--note "..."]
+  tickoala entry delete --id <n>
 
 Overzicht en export:
-  wifihours report [day|week|month] [--date <dag>] [--profile <naam>]
-  wifihours export [--period month] [--date <dag>] [--from <tijd> --to <tijd>] [--profile <naam>] [--out <bestand>]
+  tickoala report [day|week|month] [--date <dag>] [--profile <naam>]
+  tickoala export [--period month] [--date <dag>] [--from <tijd> --to <tijd>] [--profile <naam>] [--out <bestand>]
 
 Instellingen:
-  wifihours config list
-  wifihours config set <sleutel> <waarde>
+  tickoala config list
+  tickoala config set <sleutel> <waarde>
 """
 
 func makeTracker() throws -> Tracker {
@@ -65,7 +65,7 @@ func resolveProfile(_ arguments: Arguments, _ store: Store) throws -> Profile {
     let profiles = try store.profiles(includeInactive: false)
     if profiles.count == 1 { return profiles[0] }
     if profiles.isEmpty {
-        throw CLIError.failure("nog geen profiel aangemaakt — gebruik: wifihours profile add --name ... --context ...")
+        throw CLIError.failure("nog geen profiel aangemaakt — gebruik: tickoala profile add --name ... --context ...")
     }
     throw CLIError.usage("meerdere profielen; geef --profile <naam> op (\(profiles.map(\.name).joined(separator: ", ")))")
 }
@@ -190,7 +190,7 @@ func printStatus(_ arguments: Arguments) throws {
     }
 
     if status.profiles.isEmpty {
-        print("nog geen profiel aangemaakt — gebruik: wifihours profile add --name ... --context ...")
+        print("nog geen profiel aangemaakt — gebruik: tickoala profile add --name ... --context ...")
         return
     }
     print("\(status.mode.label)  \(status.menuBarTitle)")
@@ -211,7 +211,7 @@ func printStatus(_ arguments: Arguments) throws {
         if let attention = item.attention { print("    ! \(attention)") }
     }
     if status.openEntryCount > 0 {
-        print("  \(status.openEntryCount) blok(ken) met status 'open' wachten op correctie (wifihours entry list --period week)")
+        print("  \(status.openEntryCount) blok(ken) met status 'open' wachten op correctie (tickoala entry list --period week)")
     }
 }
 
@@ -265,7 +265,7 @@ func runProfile(_ arguments: Arguments) throws {
     case "context":
         try runProfileContext(arguments, tracker)
     default:
-        throw CLIError.usage("gebruik: wifihours profile list|add|edit|context")
+        throw CLIError.usage("gebruik: tickoala profile list|add|edit|context")
     }
 }
 
@@ -289,7 +289,7 @@ func runProfileContext(_ arguments: Arguments, _ tracker: Tracker) throws {
         }
         print("wifi-contexten van \(profile.name): \(updated.contextsLabel)")
     default:
-        throw CLIError.usage("gebruik: wifihours profile context list|add|remove --profile <naam> --context <ssid>[,ssid2,...]")
+        throw CLIError.usage("gebruik: tickoala profile context list|add|remove --profile <naam> --context <ssid>[,ssid2,...]")
     }
 }
 
@@ -352,7 +352,7 @@ func runProject(_ arguments: Arguments) throws {
             print("project bijgewerkt: \(updated.label)\(updated.active ? "" : "  [inactief]")")
         }
     default:
-        throw CLIError.usage("gebruik: wifihours project list|add|select|edit")
+        throw CLIError.usage("gebruik: tickoala project list|add|select|edit")
     }
 }
 
@@ -401,7 +401,7 @@ func runBreak(_ arguments: Arguments) throws {
         try tracker.store.updateBreakRule(profileId: profile.id, rule: rule)
         print("\(profile.name): \(rule.summary)")
     default:
-        throw CLIError.usage("gebruik: wifihours break list|set")
+        throw CLIError.usage("gebruik: tickoala break list|set")
     }
 }
 
@@ -418,7 +418,7 @@ func runTimer(_ arguments: Arguments) throws {
         let entry = try tracker.stop(profileId: profile.id)
         print(entry.map { "blok \($0.id) gestopt — \(Formatting.duration($0.duration()))" } ?? "er liep geen timer")
     default:
-        throw CLIError.usage("gebruik: wifihours timer start|stop --profile <naam>")
+        throw CLIError.usage("gebruik: tickoala timer start|stop --profile <naam>")
     }
 }
 
@@ -504,7 +504,7 @@ func runEntry(_ arguments: Arguments) throws {
         try tracker.store.deleteEntry(id: id)
         print("blok \(id) verwijderd")
     default:
-        throw CLIError.usage("gebruik: wifihours entry list|add|edit|delete")
+        throw CLIError.usage("gebruik: tickoala entry list|add|edit|delete")
     }
 }
 
@@ -558,7 +558,7 @@ func runReport(_ arguments: Arguments) throws {
         }
     }
     if report.runningCount > 0 { print("let op: \(report.runningCount) lopend blok meegeteld tot nu") }
-    if report.openCount > 0 { print("let op: \(report.openCount) blok(ken) met status 'open' — corrigeer met wifihours entry edit") }
+    if report.openCount > 0 { print("let op: \(report.openCount) blok(ken) met status 'open' — corrigeer met tickoala entry edit") }
 }
 
 // MARK: - Export
@@ -595,13 +595,13 @@ func runConfig(_ arguments: Arguments) throws {
         print("max-entry-seconds     \(settings.maxEntrySeconds)   daarna wordt een lopend blok 'open'")
     case "set":
         guard let key = arguments.word(2), let raw = arguments.word(3), let value = Int(raw) else {
-            throw CLIError.usage("gebruik: wifihours config set <sleutel> <waarde>")
+            throw CLIError.usage("gebruik: tickoala config set <sleutel> <waarde>")
         }
         guard value >= 0 else { throw CLIError.usage("waarde mag niet negatief zijn") }
         try tracker.store.setSetting(key: key, value: value)
         print("\(key) = \(value)")
     default:
-        throw CLIError.usage("gebruik: wifihours config list|set")
+        throw CLIError.usage("gebruik: tickoala config list|set")
     }
 }
 

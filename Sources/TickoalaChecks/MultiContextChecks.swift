@@ -1,5 +1,5 @@
 import Foundation
-import WifiHoursCore
+import TickoalaCore
 
 /// Eén klant kan meerdere wifinetwerken hebben (gast + personeel, of meerdere
 /// vestigingen). Deze checks dekken dat een profiel dan via elk van die
@@ -8,11 +8,11 @@ func multiContextChecks() {
     suite("Meerdere wifinetwerken per klant") {
         test("een profiel kan met meerdere contexten worden aangemaakt") {
             let fixture = try Fixture()
-            let profile = try fixture.store.createProfile(name: "Efteling", contexts: ["Efteling-Guest", "Efteling-Staff"])
+            let profile = try fixture.store.createProfile(name: "Acme", contexts: ["Acme-Guest", "Acme-Staff"])
 
-            expectEqual(Set(profile.contexts), Set(["Efteling-Guest", "Efteling-Staff"]))
-            expectEqual(try fixture.store.profile(context: "efteling-guest")?.id, profile.id, "matching is niet hoofdlettergevoelig")
-            expectEqual(try fixture.store.profile(context: "Efteling-Staff")?.id, profile.id)
+            expectEqual(Set(profile.contexts), Set(["Acme-Guest", "Acme-Staff"]))
+            expectEqual(try fixture.store.profile(context: "acme-guest")?.id, profile.id, "matching is niet hoofdlettergevoelig")
+            expectEqual(try fixture.store.profile(context: "Acme-Staff")?.id, profile.id)
         }
 
         test("een profiel zonder contexten wordt geweigerd") {
@@ -22,34 +22,34 @@ func multiContextChecks() {
 
         test("een tweede context toevoegen en verwijderen werkt") {
             let fixture = try Fixture()
-            let profile = try fixture.store.createProfile(name: "Efteling", contexts: ["Efteling-Guest"])
+            let profile = try fixture.store.createProfile(name: "Acme", contexts: ["Acme-Guest"])
 
-            let uitgebreid = try fixture.store.addContext(profileId: profile.id, context: "Efteling-Staff")
-            expectEqual(Set(uitgebreid.contexts), Set(["Efteling-Guest", "Efteling-Staff"]))
+            let uitgebreid = try fixture.store.addContext(profileId: profile.id, context: "Acme-Staff")
+            expectEqual(Set(uitgebreid.contexts), Set(["Acme-Guest", "Acme-Staff"]))
 
-            let verkleind = try fixture.store.removeContext(profileId: profile.id, context: "Efteling-Guest")
-            expectEqual(verkleind.contexts, ["Efteling-Staff"])
+            let verkleind = try fixture.store.removeContext(profileId: profile.id, context: "Acme-Guest")
+            expectEqual(verkleind.contexts, ["Acme-Staff"])
         }
 
         test("dezelfde context kan niet aan een tweede profiel gekoppeld worden") {
             let fixture = try Fixture()
-            let efteling = try fixture.store.createProfile(name: "Efteling", contexts: ["Efteling-Guest"])
-            let andere = try fixture.store.createProfile(name: "Ander park", contexts: ["Ander-Guest"])
+            let acme = try fixture.store.createProfile(name: "Acme", contexts: ["Acme-Guest"])
+            let andere = try fixture.store.createProfile(name: "Andere klant", contexts: ["Ander-Guest"])
 
             expectThrows({
-                _ = try fixture.store.addContext(profileId: andere.id, context: "Efteling-Guest")
+                _ = try fixture.store.addContext(profileId: andere.id, context: "Acme-Guest")
             }, "een context hoort maar bij één profiel")
-            expectEqual(try fixture.store.profile(context: "Efteling-Guest")?.id, efteling.id, "de koppeling bleef bij Efteling")
+            expectEqual(try fixture.store.profile(context: "Acme-Guest")?.id, acme.id, "de koppeling bleef bij Acme")
         }
 
         test("starten via elk van de gekoppelde netwerken opent hetzelfde profiel") {
             let fixture = try Fixture()
-            let profile = try fixture.store.createProfile(name: "Efteling", contexts: ["Efteling-Guest", "Efteling-Staff"])
+            let profile = try fixture.store.createProfile(name: "Acme", contexts: ["Acme-Guest", "Acme-Staff"])
             let project = try fixture.store.createProject(profileId: profile.id, number: "1", name: "Onderhoud")
             _ = try fixture.tracker.selectProject(profileId: profile.id, projectId: project.id)
 
             let outcome = try fixture.tracker.handle(
-                ContextEvent(context: "Efteling-Staff", kind: .start, at: at("2026-09-10 09:00")),
+                ContextEvent(context: "Acme-Staff", kind: .start, at: at("2026-09-10 09:00")),
                 now: at("2026-09-10 09:00")
             )
 
@@ -60,21 +60,21 @@ func multiContextChecks() {
 
         test("roamen tussen twee netwerken van dezelfde klant splitst het blok niet") {
             let fixture = try Fixture()
-            let profile = try fixture.store.createProfile(name: "Efteling", contexts: ["Efteling-Guest", "Efteling-Staff"])
+            let profile = try fixture.store.createProfile(name: "Acme", contexts: ["Acme-Guest", "Acme-Staff"])
             let project = try fixture.store.createProject(profileId: profile.id, number: "1", name: "Onderhoud")
             _ = try fixture.tracker.selectProject(profileId: profile.id, projectId: project.id)
             try fixture.store.setSetting(key: "stop-grace-seconds", value: 90)
 
             _ = try fixture.tracker.handle(
-                ContextEvent(context: "Efteling-Guest", kind: .start, at: at("2026-09-10 09:00")), now: at("2026-09-10 09:00")
+                ContextEvent(context: "Acme-Guest", kind: .start, at: at("2026-09-10 09:00")), now: at("2026-09-10 09:00")
             )
             // Loopt van het gastnetwerk naar het personeelsnetwerk: stop op de ene,
             // start op de andere, ruim binnen de wachttijd.
             _ = try fixture.tracker.handle(
-                ContextEvent(context: "Efteling-Guest", kind: .stop, at: at("2026-09-10 11:00")), now: at("2026-09-10 11:00")
+                ContextEvent(context: "Acme-Guest", kind: .stop, at: at("2026-09-10 11:00")), now: at("2026-09-10 11:00")
             )
             let terug = try fixture.tracker.handle(
-                ContextEvent(context: "Efteling-Staff", kind: .start, at: at("2026-09-10 11:00:30")), now: at("2026-09-10 11:00:30")
+                ContextEvent(context: "Acme-Staff", kind: .start, at: at("2026-09-10 11:00:30")), now: at("2026-09-10 11:00:30")
             )
 
             expectEqual(terug, .stopCancelled(entryId: 1), "de wisseling tussen netwerken telt als een korte onderbreking")
@@ -86,7 +86,7 @@ func multiContextChecks() {
 
         test("CSV-export toont alle gekoppelde contexten van het profiel") {
             let fixture = try Fixture()
-            let profile = try fixture.store.createProfile(name: "Efteling", contexts: ["Efteling-Guest", "Efteling-Staff"])
+            let profile = try fixture.store.createProfile(name: "Acme", contexts: ["Acme-Guest", "Acme-Staff"])
             let project = try fixture.store.createProject(profileId: profile.id, number: "1", name: "Onderhoud")
             _ = try fixture.store.createEntry(
                 profileId: profile.id, projectId: project.id,
@@ -95,7 +95,7 @@ func multiContextChecks() {
             )
 
             let csv = try CSVExport.export(store: fixture.store, from: at("2026-09-10"), to: at("2026-09-11"))
-            expect(csv.contains("Efteling-Guest; Efteling-Staff"), "beide contexten staan in de exportregel: \(csv)")
+            expect(csv.contains("Acme-Guest; Acme-Staff"), "beide contexten staan in de exportregel: \(csv)")
         }
     }
 }

@@ -1,8 +1,8 @@
 import SwiftUI
-import WifiHoursCore
+import TickoalaCore
 
 @main
-struct WifiHoursApp: App {
+struct TickoalaApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {

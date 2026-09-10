@@ -1,5 +1,5 @@
 import SwiftUI
-import WifiHoursCore
+import TickoalaCore
 
 /// Automatische pauzeaftrek per klant instellen.
 struct BreakWindow: View {

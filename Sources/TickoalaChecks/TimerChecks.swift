@@ -1,5 +1,5 @@
 import Foundation
-import WifiHoursCore
+import TickoalaCore
 
 func timerChecks() {
     suite("Timerlogica") {

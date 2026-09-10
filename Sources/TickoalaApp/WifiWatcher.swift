@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import CoreLocation
 import CoreWLAN
-import WifiHoursCore
+import TickoalaCore
 
 /// Houdt in de gaten op welk wifinetwerk de Mac zit en zet elke wisseling om in
 /// een start- of stopsignaal. Dit vervangt ControlPlane als bron van de events;
@@ -27,7 +27,7 @@ final class WifiWatcher: NSObject, ObservableObject {
             case .granted:
                 return nil
             case .unknown:
-                return "WifiHours heeft toegang tot Locatievoorzieningen nodig om de netwerknaam te kunnen zien."
+                return "Tickoala heeft toegang tot Locatievoorzieningen nodig om de netwerknaam te kunnen zien."
             case .denied:
                 return "Zonder toegang tot Locatievoorzieningen kan macOS de netwerknaam niet vrijgeven, "
                      + "dus start en stopt de registratie niet vanzelf."

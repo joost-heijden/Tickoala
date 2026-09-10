@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 import SwiftUI
-import WifiHoursCore
+import TickoalaCore
 
 /// Houdt de status vast die de menubalk en het overzicht tonen. Leest telkens
 /// opnieuw uit SQLite, zodat wijzigingen via het adaptercommando meteen zichtbaar zijn.

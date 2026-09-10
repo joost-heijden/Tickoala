@@ -35,18 +35,18 @@ public final class Store {
         try self.init(database: Database(path: path))
     }
 
-    /// Standaardlocatie: ~/Library/Application Support/WifiHours/wifihours.sqlite3,
-    /// te overschrijven met WIFIHOURS_DB (handig voor tests en probeersels).
+    /// Standaardlocatie: ~/Library/Application Support/Tickoala/tickoala.sqlite3,
+    /// te overschrijven met TICKOALA_DB (handig voor tests en probeersels).
     public static func defaultDatabasePath(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> String {
-        if let override = environment["WIFIHOURS_DB"], !override.isEmpty {
+        if let override = environment["TICKOALA_DB"], !override.isEmpty {
             let url = URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             return url.path
         }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("WifiHours", isDirectory: true)
+            .appendingPathComponent("Tickoala", isDirectory: true)
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        return base.appendingPathComponent("wifihours.sqlite3").path
+        return base.appendingPathComponent("tickoala.sqlite3").path
     }
 
     // MARK: - Profielen

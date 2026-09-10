@@ -1,5 +1,5 @@
 import SwiftUI
-import WifiHoursCore
+import TickoalaCore
 
 /// De inhoud van het menubalkmenu: status, projectwissel en snelle bediening.
 struct MenuContent: View {
@@ -9,7 +9,7 @@ struct MenuContent: View {
     var body: some View {
         if model.profiles.isEmpty {
             Text("Nog geen profiel ingesteld")
-            Text("Gebruik: wifihours profile add --name … --context …")
+            Text("Gebruik: tickoala profile add --name … --context …")
         }
 
         Section("Wifi") {
@@ -112,7 +112,7 @@ struct MenuContent: View {
 
         Divider()
 
-        Button("Stop WifiHours") { NSApp.terminate(nil) }
+        Button("Stop Tickoala") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 

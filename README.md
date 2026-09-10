@@ -1,243 +1,243 @@
-# WifiHours
+# Tickoala
 
-Lokale urenregistratie voor macOS. De app ziet zelf op welk wifinetwerk de Mac
-zit, vertaalt elke wisseling naar een start- of stopgebeurtenis en houdt de uren
-bij in een SQLite-bestand op de eigen Mac. Geen account, geen server, geen
-netwerkverbinding nodig.
+**Automatic work-hours tracking for macOS, based on the Wi-Fi network you're on.**
 
-## Opbouw
+![platform](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey)
+![swift](https://img.shields.io/badge/swift-6.0-orange)
+![license](https://img.shields.io/badge/license-MIT-blue)
+![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
 
-| Deel | Wat het doet |
+Walk into a client's office, your Mac joins their Wi-Fi, and the timer starts.
+Leave, and it stops. No buttons, no browser tab, no account, no server — just a
+menu bar icon and a SQLite file on your own Mac.
+
+Built for consultants and contractors who work at more than one client and keep
+forgetting to start a timer.
+
+```
+Working  3:42
+  Acme [Acme-Guest] — Working   project: 2401 — Data migration
+  today 6:15 · week 28:30   (net; break today -0:30)
+```
+
+## Why
+
+Most time trackers want an account, a subscription and your data. The ones that
+don't still need you to remember to press start. Your Mac already knows where you
+are — it's connected to the client's Wi-Fi. Tickoala just uses that.
+
+- **Nothing leaves your Mac.** No account, no sync, no telemetry, no network
+  access at all for the core features.
+- **It never invents time.** If your Mac was asleep, the block is flagged for you
+  to correct rather than silently guessed.
+- **Your raw data stays raw.** Break deduction and totals are calculated on top of
+  the recorded blocks, never by editing them.
+
+## Features
+
+- **Automatic start/stop** when you join or leave a client's Wi-Fi network
+- **Multiple networks per client** — guest network, staff network, several
+  offices; roaming between them doesn't split your work block
+- **Multiple clients**, each with their own projects and settings
+- **Projects** with number and name, switchable from the menu bar mid-session
+- **Automatic break deduction** per client — e.g. subtract 30 minutes on any day
+  you worked 6 hours or more, with the duration and the threshold set separately
+- **Short dropouts don't end your day** — a configurable grace period means a
+  flaky access point won't close your block
+- **Manual control** — pause, resume, stop, and correct or add blocks by hand
+- **Day / week / month totals**, per project and per day
+- **CSV export** for invoicing
+- **Full command-line interface** for everything the app does
+
+## Requirements
+
+- macOS 13 or later (developed and tested on macOS 26)
+- Xcode Command Line Tools (`xcode-select --install`)
+- No other dependencies — zero third-party packages
+
+## Install
+
+```bash
+git clone https://github.com/joost-heijden/Tickoala.git
+cd Tickoala
+./scripts/build-app.sh
+cp -R build/Tickoala.app /Applications/
+open /Applications/Tickoala.app
+```
+
+Optionally put the CLI on your `PATH`:
+
+```bash
+ln -sf /Applications/Tickoala.app/Contents/Helpers/tickoala /usr/local/bin/tickoala
+```
+
+To start it at login: System Settings → General → Login Items → add
+`Tickoala.app`.
+
+### Location Services
+
+macOS only reveals the name of the Wi-Fi network to apps that have **Location
+Services** permission. Tickoala asks for this on first launch. Without it macOS
+returns `<redacted>`, which is indistinguishable from "no Wi-Fi", so the app
+deliberately sends no signals at all rather than guessing — the menu bar tells you
+and offers a button to fix it.
+
+Your location is never requested, stored or transmitted. Only the network name is
+read, and only to match it against the clients you configured.
+
+> The app is ad-hoc signed locally, so macOS may ask again after you rebuild it.
+
+## Getting started
+
+```bash
+# One client, one or more of their Wi-Fi networks
+tickoala profile add --name "Acme" --context "Acme-Guest,Acme-Staff"
+
+# Projects for that client
+tickoala project add --profile "Acme" --number 2401 --name "Data migration"
+
+# Optional: subtract 30 minutes on days of 6 hours or more
+tickoala break set --profile "Acme" --minutes 30 --threshold 6:00
+```
+
+All of this can also be done from the menu bar: **Manage projects…**, **Break
+settings…** and **Overview and corrections…**.
+
+Not sure what a network is called? Connect to it — the menu bar shows the current
+network and, if it isn't linked yet, offers to attach it to a client on the spot.
+
+## How it works
+
+```
+Wi-Fi network changes
+        ↓
+watcher turns it into a start/stop signal
+        ↓
+tracker validates it, applies the active project, writes to SQLite
+        ↓
+menu bar shows status and elapsed time
+```
+
+The signal source is deliberately dumb: it only reports "joined X" or "left X".
+All the judgement lives in the tracker, which is what makes the behaviour
+predictable:
+
+| Situation | Behaviour |
 | --- | --- |
-| `WifiHoursCore` | datamodel, timerregels, totalen, CSV-export |
-| `wifihours` | het adaptercommando en de volledige bediening vanaf de opdrachtregel |
-| `WifiHoursApp` | de menubalk-app: wifi-detectie, overzicht, projecten en correcties |
-| `WifiHoursChecks` | de testsuite |
+| Unknown network | nothing happens, just a log line |
+| No project selected yet | no start; the menu bar asks you to pick one |
+| Second start while already running | no second block |
+| Repeated signal within the dedupe window | ignored (default 30s) |
+| Leaving | stop is scheduled, final only after a grace period (default 90s) |
+| Brief dropout within that period | the scheduled stop is cancelled, block continues |
+| Roaming between two networks of one client | treated as a brief dropout |
+| Leaving with no timer running | log line only; never an empty or negative block |
+| Two client networks active at once | nothing is stopped automatically; you choose |
+| Mac asleep or shut down | no events invented; a block running over 16h is marked `open` for correction |
+| No Location Services permission | no signals at all; the menu bar asks for access |
 
-De signaalbron is bewust dom: die geeft alleen `start` of `stop` met een
-netwerknaam door. De tracker beslist of dat signaal geldig is, voorkomt dubbele
-blokken en bewaart de bron en context van elk event. Daardoor is de bron
-uitwisselbaar: de app doet het zelf, en het adaptercommando kan hetzelfde
-signaal geven vanuit een extern programma.
+A block always ends at the moment of the stop signal, not when the grace period
+expired.
 
-## Bouwen
-
-```bash
-./scripts/build-app.sh          # bouwt build/WifiHours.app plus het adaptercommando
-open build/WifiHours.app        # start de menubalk-app
-```
-
-Zet het adaptercommando eventueel binnen handbereik:
+Because the source is just an event feed, it's replaceable. A CLI adapter is
+included if you'd rather drive it from something else:
 
 ```bash
-ln -sf "$PWD/build/WifiHours.app/Contents/Helpers/wifihours" /usr/local/bin/wifihours
+tickoala start --context "Acme-Guest"
+tickoala stop  --context "Acme-Guest"
 ```
 
-Wil je de app bij het inloggen starten: Systeeminstellingen → Algemeen →
-Inloggen → Openen bij inloggen → `build/WifiHours.app` toevoegen (of de app eerst
-naar `/Applications` verplaatsen).
+## Break deduction
 
-## Inrichten
+Set per client: how much break to subtract, and from how many hours it applies.
+Both are configured separately, and it's off by default.
 
-Een profiel (organisatie/klant) mag aan meerdere wifinetwerken hangen —
-bijvoorbeeld een gast- en een personeelsnetwerk bij dezelfde klant, of meerdere
-vestigingen. `--context` accepteert een kommagescheiden lijst; extra netwerken
-kunnen ook later nog toegevoegd worden.
+- applies **per client per day**, not per block — pausing during the day doesn't
+  cause it to be subtracted twice
+- the threshold is **inclusive**: set to 6:00, a day of exactly 6 hours already has
+  the break subtracted
+- below the threshold nothing is subtracted
+- never subtracts more than you actually worked, so a day can't go negative
+
+This is a **calculation on top of your raw blocks**. Time entries are never
+modified, so you can change or disable the rule at any time — including
+retroactively. Totals, the menu bar and the export show net hours; the per-project
+breakdown stays gross, because a break belongs to a day rather than to a project.
+
+In the CSV export the deduction appears as its own row with a negative duration,
+so the duration column adds up to your net hours. Use `--gross` to leave it out.
+
+## Command line
 
 ```bash
-wifihours profile add --name "Efteling" --context "Efteling-Guest,Efteling-Staff"
-wifihours profile add --name "Organisatie B" --context "Kantoor B"
-
-# een netwerk later nog toevoegen of ontkoppelen
-wifihours profile context add    --profile "Efteling" --context "Efteling-Magazijn"
-wifihours profile context remove --profile "Efteling" --context "Efteling-Guest"
-wifihours profile context list   --profile "Efteling"
-
-wifihours project add --profile "Efteling" --number 2401 --name "Migratie datawarehouse"
-wifihours project add --profile "Efteling" --number 2402 --name "Onderhoud"
-wifihours project select --profile "Efteling" --number 2401
+tickoala status                 # also --json
+tickoala report week            # or day / month, with --date and --profile
+tickoala entry list --period week
+tickoala entry add --number 2401 --start "2026-09-10 09:00" --end "2026-09-10 17:00"
+tickoala entry edit --id 12 --end "2026-09-10 16:30"
+tickoala export --period month --out ~/Desktop/hours-september.csv
+tickoala events                 # what was received and what happened with it
+tickoala config list            # grace periods and thresholds
+tickoala db                     # path to the database
 ```
 
-`--context` is exact de SSID (netwerknaam) zoals ControlPlane die doorgeeft.
-Eén netwerk hoort maar bij één profiel; projectnummers zijn uniek binnen één
-profiel, hetzelfde nummer mag bij een ander profiel wel.
+`tickoala help` lists everything.
 
-## Wifi-detectie en toestemming
+## Your data
 
-De app kijkt elke paar seconden welk wifinetwerk actief is. Wisselt dat, dan
-gaat er een stopsignaal naar het oude netwerk en een startsignaal naar het
-nieuwe.
+Everything lives in
+`~/Library/Application Support/Tickoala/tickoala.sqlite3` (override with the
+`TICKOALA_DB` environment variable). It holds time entries, client names, network
+names, projects, notes and a log of received events. No location data, no network
+traffic.
 
-Sinds macOS Sonoma geeft het systeem de netwerknaam alleen vrij aan programma's
-met toestemming voor **Locatievoorzieningen**. Zonder die toestemming levert
-macOS `<redacted>` op, wat niet te onderscheiden is van "geen wifi". Bij de
-eerste start vraagt WifiHours die toestemming daarom; zolang die er niet is,
-worden er bewust géén signalen gestuurd (anders zou elk moment als "vertrokken"
-tellen). De menubalk laat dat dan zien met een knop om het te regelen.
+Backing up is copying that one file.
 
-Er wordt geen locatie opgevraagd, opgeslagen of verstuurd — alleen de naam van
-het netwerk.
-
-Zit je op een netwerk dat nog nergens bij hoort, dan toont het menu dat met
-"(niet gekoppeld)" en kun je het ter plekke aan een klant hangen.
-
-> Let op: de app wordt lokaal ad-hoc ondertekend. Na een herbouw kan macOS de
-> toestemming opnieuw vragen.
-
-## ControlPlane (optioneel, en momenteel stuk)
-
-Het adaptercommando bestaat nog, zodat een extern programma dezelfde signalen
-kan geven:
+## Development
 
 ```bash
-scripts/controlplane-event.sh start "Efteling-Guest"
-scripts/controlplane-event.sh stop  "Efteling-Guest"
+swift build && .build/debug/TickoalaChecks
 ```
 
-Het script faalt nooit richting de aanroeper; alles komt in
-`~/Library/Logs/WifiHours-adapter.log`. Wat er verwerkt is, staat in
-`wifihours events`.
+The suite covers start, stop, pause, resume, duplicate events, brief dropouts, two
+clients at once, multiple networks per client, project linking, switching and
+renumbering, unique project numbers, break deduction, restarting with an open
+timer, day/week/month totals and CSV export, and runs the real CLI as a separate
+process.
 
-**ControlPlane 2.0.0 werkt niet op macOS 26.** Het is gebouwd tegen de
-macOS 10.6-SDK en crasht direct bij het opstarten:
+It runs as a plain executable rather than through `swift test`: XCTest and
+swift-testing ship with full Xcode, not with the Command Line Tools, and this
+project deliberately builds with just the CLT.
 
-```
-*** Terminating app due to uncaught exception 'NSInvalidArgumentException',
-reason: '-[NSToolbarItem setAccessibilityLabel:]: unrecognized selector'
-```
-
-Daarom detecteert de app het wifinetwerk nu zelf. Wie ControlPlane (of iets
-anders) tóch wil gebruiken, richt er per SSID een context mee in die bij
-activeren en verlaten bovenstaand script aanroept met die SSID als parameter.
-
-## Wat de tracker met een signaal doet
-
-| Situatie | Gedrag |
+| Target | Purpose |
 | --- | --- |
-| Onbekend wifinetwerk | niets automatisch, alleen een logregel |
-| Geen toestemming voor Locatievoorzieningen | geen signalen; de menubalk vraagt erom |
-| Nog geen project gekozen | geen start, wel een melding in de menubalk |
-| Tweede start terwijl de timer loopt | geen nieuw blok |
-| Herhaald event binnen het tijdvenster | genegeerd (standaard 30 seconden) |
-| Vertrek | stop wordt gepland; pas na de wachttijd definitief (standaard 90 seconden) |
-| Korte wifi-uitval binnen die wachttijd | de geplande stop vervalt, het blok loopt door |
-| Vertrek zonder lopende timer | alleen een logregel, geen leeg of negatief blok |
-| Twee werkcontexten tegelijk | er wordt niets gestopt; de app vraagt om een keuze |
-| Slaapstand of afsluiten | er worden geen gebeurtenissen verzonnen; een blok dat langer dan 16 uur loopt krijgt de status `open` en vraagt om correctie |
+| `TickoalaCore` | data model, timer rules, totals, CSV export |
+| `TickoalaApp` | menu bar app: Wi-Fi detection, overview, projects, corrections |
+| `tickoala` | command-line interface and adapter |
+| `TickoalaChecks` | the test suite |
 
-Het einde van een blok is altijd het moment van het stopsignaal, niet het moment
-waarop de wachttijd afliep.
+## Known limitations
 
-## Automatische pauzeaftrek
+- Reading the Wi-Fi network name requires Location Services permission on macOS 14
+  and later. There is no way around this for unsandboxed apps.
+- The app is ad-hoc signed, so Gatekeeper warns on first launch and macOS may
+  re-ask for permission after a rebuild.
+- Time is attributed to whichever project is active when a block starts. Switching
+  projects mid-session closes the block and opens a new one, so historical time
+  stays with the right project.
+- If you cross the break threshold while the timer is running, today's total drops
+  by the break amount at that moment. Correct, but visible.
 
-Per klant in te stellen: hoeveel pauze er van een werkdag af gaat, en vanaf
-hoeveel gewerkte uren dat geldt. Beide zijn los instelbaar; standaard staat de
-regel uit.
+## The name
 
-```bash
-wifihours break list
-wifihours break set --profile "Efteling" --minutes 30 --threshold 6:00
-wifihours break set --profile "Efteling" --enabled false
-```
+A koala barely moves and stays put for hours — which is exactly the behaviour
+this thing measures. Add the tick of a clock and you get Tickoala.
 
-In de app: menubalk → **Pauze-instellingen…**
+## Contributing
 
-De regels:
+Issues and pull requests are welcome. Please run `.build/debug/TickoalaChecks`
+before submitting; the suite is fast and has no external dependencies.
 
-- de aftrek geldt **per klant per dag**, niet per blok — pauzeer je tussendoor,
-  dan wordt er nog steeds maar één keer afgetrokken;
-- de drempel telt **inclusief**: staat hij op 6:00, dan gaat bij precies 6 uur de
-  pauze er al af;
-- onder de drempel gaat er niets af;
-- er gaat nooit meer af dan er die dag gewerkt is, dus een dag wordt niet negatief.
+## License
 
-Belangrijk: dit is een **rekenregel over de ruwe blokken heen**. Je
-tijdregistraties worden er niet door aangepast, dus je kunt de regel altijd
-aanpassen of uitzetten — ook met terugwerkende kracht. Dag-, week- en
-maandtotalen, de menubalk en de export tonen netto; de verdeling per project
-blijft bruto, omdat pauze aan een dag hangt en niet aan een project.
-
-In de CSV-export komt de aftrek als een aparte regel met een negatieve duur
-(`status = pauze`, `bron = regel`), zodat de duur-kolom optelt tot de netto
-uren. Met `wifihours export --bruto` blijven alleen de ruwe blokken over.
-
-## Menubalk
-
-De menubalk toont `Werkend`, `Pauze`, `Gestopt` of `Aandacht nodig`, met bij een
-lopende timer de verstreken tijd. Per organisatie staan in het menu het actieve
-project (`nummer — naam`) met een snelle projectwissel, de dag- en weektotalen en
-knoppen voor pauzeren, hervatten en stoppen.
-
-Pauzeren sluit het lopende blok af, hervatten begint een nieuw blok. Een
-handmatige pauze wint van een automatisch startsignaal: kom je terug op kantoor
-terwijl je op pauze staat, dan blijft de pauze staan tot je zelf hervat.
-
-Een projectwissel tijdens het werk sluit het lopende blok af en begint een nieuw
-blok op het nieuwe project, zodat tijd bij het juiste project blijft staan.
-
-**Projecten beheren…** (⌘P) opent een venster waarin je per organisatie
-projecten toevoegt, hernummert, hernoemt, activeert of deactiveert, en het
-actieve project kiest. Het eerste project van een organisatie wordt meteen het
-actieve project — zonder actief project start de tracker namelijk niet
-automatisch bij binnenkomst.
-
-**Overzicht en correcties…** opent een venster met het dag-, week- of
-maandoverzicht: totalen per project, alle blokken, het corrigeren van begin,
-einde, project en notitie, blokken toevoegen of verwijderen, en CSV-export van de
-getoonde periode.
-
-## Opdrachtregel
-
-```bash
-wifihours status                 # ook --json
-wifihours report week            # of day / month, met --date en --profile
-wifihours break set --profile "Efteling" --minutes 30 --threshold 6:00
-wifihours entry list --period week
-wifihours entry add --number 2401 --start "2026-09-10 09:00" --end "2026-09-10 17:00" --note "vergeten te starten"
-wifihours entry edit --id 12 --end "2026-09-10 16:30"
-wifihours export --period month --out ~/Bureaublad/uren-september.csv
-wifihours events                 # wat ControlPlane heeft doorgegeven en wat ermee gebeurde
-wifihours config list            # wachttijden en drempels
-wifihours config set stop-grace-seconds 120
-wifihours db                     # pad naar de database
-```
-
-`wifihours help` geeft de volledige lijst.
-
-## Gegevens en privacy
-
-Alles staat in `~/Library/Application Support/WifiHours/wifihours.sqlite3` (te
-overschrijven met de omgevingsvariabele `WIFIHOURS_DB`). Opgeslagen worden:
-tijdregistraties, profielnamen, ControlPlane-contextnamen, projecten, notities en
-een log van de ontvangen events. Geen locatiegegevens, geen netwerkverkeer.
-
-Back-up maken is een kwestie van dat ene bestand kopiëren (samen met de
-`-wal`- en `-shm`-bestanden, of na `wifihours status` als de app niet draait).
-
-## Tests
-
-```bash
-swift build && .build/debug/WifiHoursChecks
-```
-
-De suite dekt start, stop, pauze, hervatten, dubbele events, korte wifi-uitval,
-twee contexten tegelijk, meerdere wifinetwerken per klant, projectkoppeling,
--wissel en hernummeren, unieke projectnummers, automatische pauzeaftrek,
-herstarten met een open timer, dag-/week-/maandtotalen en CSV-export, en draait
-het echte adaptercommando als los proces.
-
-De suite draait als gewoon programma en niet via `swift test`: XCTest en
-swift-testing zitten alleen in de volledige Xcode, niet in de Command Line Tools.
-Is Xcode geïnstalleerd, dan kunnen de checks één op één naar swift-testing.
-
-## Handmatig te testen op de Mac
-
-Dit deel vraagt om echte wifi en ControlPlane:
-
-- binnenkomen bij een klant (start, juiste profiel, juiste project);
-- vertrekken (stop na de wachttijd, juiste eindtijd);
-- korte wifi-uitval (blok loopt door, geen tweede blok);
-- roamen tussen twee netwerken van dezelfde klant (geen tweede blok);
-- slaapstand over de nacht (blok wordt `open`, geen verzonnen einde);
-- twee klanten kort na elkaar (waarschuwing, geen automatische stop);
-- toestemming voor Locatievoorzieningen intrekken (geen valse stopsignalen).
+MIT — see [LICENSE](LICENSE).

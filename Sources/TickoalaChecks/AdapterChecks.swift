@@ -1,20 +1,20 @@
 import Foundation
-import WifiHoursCore
+import TickoalaCore
 
 /// Draait het echte adaptercommando, precies zoals ControlPlane dat zou doen.
 private func runCLI(_ arguments: [String], database: String) throws -> (status: Int32, output: String) {
     let binary = URL(fileURLWithPath: CommandLine.arguments[0])
         .deletingLastPathComponent()
-        .appendingPathComponent("wifihours")
+        .appendingPathComponent("tickoala")
     guard FileManager.default.isExecutableFile(atPath: binary.path) else {
-        throw MissingValue(description: "wifihours niet gevonden op \(binary.path) — draai eerst 'swift build'")
+        throw MissingValue(description: "tickoala niet gevonden op \(binary.path) — draai eerst 'swift build'")
     }
 
     let process = Process()
     process.executableURL = binary
     process.arguments = arguments
     var environment = ProcessInfo.processInfo.environment
-    environment["WIFIHOURS_DB"] = database
+    environment["TICKOALA_DB"] = database
     process.environment = environment
 
     let pipe = Pipe()
@@ -29,7 +29,7 @@ private func runCLI(_ arguments: [String], database: String) throws -> (status: 
 func adapterChecks() {
     suite("ControlPlane-adapter") {
         test("start en stop met expliciete tijden schrijven één afgerond blok") {
-            let database = NSTemporaryDirectory() + "wifihours-cli-\(UUID().uuidString).sqlite3"
+            let database = NSTemporaryDirectory() + "tickoala-cli-\(UUID().uuidString).sqlite3"
             defer { Fixture.remove(database) }
 
             _ = try runCLI(["profile", "add", "--name", "Organisatie A", "--context", "Kantoor A"], database: database)
@@ -53,7 +53,7 @@ func adapterChecks() {
         }
 
         test("een onbekende context laat het commando gewoon slagen") {
-            let database = NSTemporaryDirectory() + "wifihours-cli-\(UUID().uuidString).sqlite3"
+            let database = NSTemporaryDirectory() + "tickoala-cli-\(UUID().uuidString).sqlite3"
             defer { Fixture.remove(database) }
 
             let resultaat = try runCLI(["start", "--context", "Café"], database: database)
@@ -63,7 +63,7 @@ func adapterChecks() {
         }
 
         test("een ontbrekend argument geeft exitcode 2 met uitleg") {
-            let database = NSTemporaryDirectory() + "wifihours-cli-\(UUID().uuidString).sqlite3"
+            let database = NSTemporaryDirectory() + "tickoala-cli-\(UUID().uuidString).sqlite3"
             defer { Fixture.remove(database) }
 
             let resultaat = try runCLI(["start"], database: database)
@@ -73,7 +73,7 @@ func adapterChecks() {
         }
 
         test("status --json geeft machinaal leesbare uitvoer") {
-            let database = NSTemporaryDirectory() + "wifihours-cli-\(UUID().uuidString).sqlite3"
+            let database = NSTemporaryDirectory() + "tickoala-cli-\(UUID().uuidString).sqlite3"
             defer { Fixture.remove(database) }
 
             _ = try runCLI(["profile", "add", "--name", "Organisatie A", "--context", "Kantoor A"], database: database)
@@ -92,7 +92,7 @@ func adapterChecks() {
         }
 
         test("het adaptercommando is idempotent bij herhaling") {
-            let database = NSTemporaryDirectory() + "wifihours-cli-\(UUID().uuidString).sqlite3"
+            let database = NSTemporaryDirectory() + "tickoala-cli-\(UUID().uuidString).sqlite3"
             defer { Fixture.remove(database) }
 
             _ = try runCLI(["profile", "add", "--name", "Organisatie A", "--context", "Kantoor A"], database: database)
@@ -108,8 +108,8 @@ func adapterChecks() {
         }
 
         test("export schrijft een bestand weg") {
-            let database = NSTemporaryDirectory() + "wifihours-cli-\(UUID().uuidString).sqlite3"
-            let csvPad = NSTemporaryDirectory() + "wifihours-export-\(UUID().uuidString).csv"
+            let database = NSTemporaryDirectory() + "tickoala-cli-\(UUID().uuidString).sqlite3"
+            let csvPad = NSTemporaryDirectory() + "tickoala-export-\(UUID().uuidString).csv"
             defer {
                 Fixture.remove(database)
                 try? FileManager.default.removeItem(atPath: csvPad)
@@ -127,7 +127,7 @@ func adapterChecks() {
         }
 
         test("een blok bijwerken via de opdrachtregel corrigeert de duur") {
-            let database = NSTemporaryDirectory() + "wifihours-cli-\(UUID().uuidString).sqlite3"
+            let database = NSTemporaryDirectory() + "tickoala-cli-\(UUID().uuidString).sqlite3"
             defer { Fixture.remove(database) }
 
             _ = try runCLI(["profile", "add", "--name", "Organisatie A", "--context", "Kantoor A"], database: database)

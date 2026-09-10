@@ -1,5 +1,5 @@
 import SwiftUI
-import WifiHoursCore
+import TickoalaCore
 
 /// Dag-, week- en maandoverzicht met correcties.
 struct OverviewWindow: View {

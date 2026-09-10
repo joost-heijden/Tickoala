@@ -1,5 +1,5 @@
 import Foundation
-import WifiHoursCore
+import TickoalaCore
 
 /// Elke check krijgt een eigen databasebestand, zodat ze los van elkaar draaien.
 final class Fixture {
@@ -10,7 +10,7 @@ final class Fixture {
     let profileB: Profile
 
     init() throws {
-        path = NSTemporaryDirectory() + "wifihours-check-\(UUID().uuidString).sqlite3"
+        path = NSTemporaryDirectory() + "tickoala-check-\(UUID().uuidString).sqlite3"
         store = try Store(path: path)
         tracker = Tracker(store: store)
         profileA = try store.createProfile(name: "Organisatie A", contexts: ["Kantoor A"])

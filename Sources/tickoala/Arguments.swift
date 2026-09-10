@@ -1,5 +1,5 @@
 import Foundation
-import WifiHoursCore
+import TickoalaCore
 
 enum CLIError: Error, CustomStringConvertible {
     case usage(String)

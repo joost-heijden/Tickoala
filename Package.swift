@@ -2,34 +2,34 @@
 import PackageDescription
 
 let package = Package(
-    name: "WifiHours",
+    name: "Tickoala",
     platforms: [.macOS(.v13)],
     products: [
-        .library(name: "WifiHoursCore", targets: ["WifiHoursCore"]),
-        .executable(name: "wifihours", targets: ["wifihours"]),
-        .executable(name: "WifiHoursApp", targets: ["WifiHoursApp"]),
-        .executable(name: "WifiHoursChecks", targets: ["WifiHoursChecks"]),
+        .library(name: "TickoalaCore", targets: ["TickoalaCore"]),
+        .executable(name: "tickoala", targets: ["tickoala"]),
+        .executable(name: "TickoalaApp", targets: ["TickoalaApp"]),
+        .executable(name: "TickoalaChecks", targets: ["TickoalaChecks"]),
     ],
     targets: [
         .target(
-            name: "WifiHoursCore",
+            name: "TickoalaCore",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
-            name: "wifihours",
-            dependencies: ["WifiHoursCore"],
+            name: "tickoala",
+            dependencies: ["TickoalaCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
-            name: "WifiHoursApp",
-            dependencies: ["WifiHoursCore"],
+            name: "TickoalaApp",
+            dependencies: ["TickoalaCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // De testsuite draait als los programma: de Command Line Tools leveren
         // geen XCTest of swift-testing, alleen de volledige Xcode doet dat.
         .executableTarget(
-            name: "WifiHoursChecks",
-            dependencies: ["WifiHoursCore"],
+            name: "TickoalaChecks",
+            dependencies: ["TickoalaCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

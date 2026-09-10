@@ -20,11 +20,11 @@ fi
 # Zoek het adaptercommando: eerst naast dit script, dan in de app, dan in PATH.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 for candidate in \
-    "$here/../build/WifiHours.app/Contents/Helpers/wifihours" \
-    "/Applications/WifiHours.app/Contents/Helpers/wifihours" \
-    "$here/../.build/release/wifihours" \
-    "$here/../.build/debug/wifihours" \
-    "$(command -v wifihours 2>/dev/null || true)"
+    "$here/../build/Tickoala.app/Contents/Helpers/tickoala" \
+    "/Applications/Tickoala.app/Contents/Helpers/tickoala" \
+    "$here/../.build/release/tickoala" \
+    "$here/../.build/debug/tickoala" \
+    "$(command -v tickoala 2>/dev/null || true)"
 do
     if [ -n "$candidate" ] && [ -x "$candidate" ]; then
         binary="$candidate"
@@ -33,11 +33,11 @@ do
 done
 
 if [ -z "${binary:-}" ]; then
-    echo "wifihours niet gevonden — draai eerst scripts/build-app.sh" >&2
+    echo "tickoala niet gevonden — draai eerst scripts/build-app.sh" >&2
     exit 1
 fi
 
-log="${HOME}/Library/Logs/WifiHours-adapter.log"
+log="${HOME}/Library/Logs/Tickoala-adapter.log"
 mkdir -p "$(dirname "$log")"
 # Nooit falen richting ControlPlane: alles gaat naar het logbestand.
 "$binary" "$kind" --context "$context" >>"$log" 2>&1 || echo "$(date '+%F %T') adapter faalde: $kind $context" >>"$log"

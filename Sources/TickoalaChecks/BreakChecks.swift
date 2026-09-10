@@ -1,5 +1,5 @@
 import Foundation
-import WifiHoursCore
+import TickoalaCore
 
 /// De automatische pauzeaftrek is een rekenregel over de ruwe blokken heen:
 /// tijdregistraties worden er nooit door aangepast.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bouwt WifiHours.app (menubalk-app zonder Dock-icoon) plus het adaptercommando.
+# Bouwt Tickoala.app (menubalk-app zonder Dock-icoon) plus het adaptercommando.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,15 +9,15 @@ configuration="${1:-release}"
 swift build -c "$configuration"
 binaries="$(swift build -c "$configuration" --show-bin-path)"
 
-app="$root/build/WifiHours.app"
+app="$root/build/Tickoala.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
 
-cp "$binaries/WifiHoursApp" "$app/Contents/MacOS/WifiHours"
+cp "$binaries/TickoalaApp" "$app/Contents/MacOS/Tickoala"
 # Het adaptercommando reist mee, zodat ControlPlane één vast pad kan gebruiken.
-# Let op: het bestandssysteem is hoofdletterongevoelig, dus 'wifihours' kan niet
-# naast 'WifiHours' in Contents/MacOS staan.
-cp "$binaries/wifihours" "$app/Contents/Helpers/wifihours"
+# Let op: het bestandssysteem is hoofdletterongevoelig, dus 'tickoala' kan niet
+# naast 'Tickoala' in Contents/MacOS staan.
+cp "$binaries/tickoala" "$app/Contents/Helpers/tickoala"
 
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -25,13 +25,13 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>WifiHours</string>
+    <string>Tickoala</string>
     <key>CFBundleDisplayName</key>
-    <string>WifiHours</string>
+    <string>Tickoala</string>
     <key>CFBundleIdentifier</key>
-    <string>local.wifihours.app</string>
+    <string>local.tickoala.app</string>
     <key>CFBundleExecutable</key>
-    <string>WifiHours</string>
+    <string>Tickoala</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -47,9 +47,9 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
          toestemming voor Locatievoorzieningen. Zonder deze twee sleutels toont
          het systeem de vraag niet eens. Er wordt geen locatie opgeslagen. -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>WifiHours gebruikt dit alleen om de naam van het wifinetwerk te zien, zodat de urenregistratie vanzelf start en stopt bij een klant. Er wordt geen locatie opgeslagen of verstuurd.</string>
+    <string>Tickoala gebruikt dit alleen om de naam van het wifinetwerk te zien, zodat de urenregistratie vanzelf start en stopt bij een klant. Er wordt geen locatie opgeslagen of verstuurd.</string>
     <key>NSLocationUsageDescription</key>
-    <string>WifiHours gebruikt dit alleen om de naam van het wifinetwerk te zien, zodat de urenregistratie vanzelf start en stopt bij een klant. Er wordt geen locatie opgeslagen of verstuurd.</string>
+    <string>Tickoala gebruikt dit alleen om de naam van het wifinetwerk te zien, zodat de urenregistratie vanzelf start en stopt bij een klant. Er wordt geen locatie opgeslagen of verstuurd.</string>
 </dict>
 </plist>
 PLIST
@@ -58,4 +58,4 @@ PLIST
 codesign --force --sign - --timestamp=none "$app" >/dev/null 2>&1 || true
 
 echo "gebouwd: $app"
-echo "adapter: $app/Contents/Helpers/wifihours"
+echo "adapter: $app/Contents/Helpers/tickoala"

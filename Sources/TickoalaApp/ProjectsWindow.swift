@@ -1,5 +1,5 @@
 import SwiftUI
-import WifiHoursCore
+import TickoalaCore
 
 /// Projectbeheer per organisatie: toevoegen, hernoemen, activeren en het
 /// actieve project kiezen. Projectnummers zijn uniek binnen één organisatie.
@@ -65,7 +65,7 @@ struct ProjectsWindow: View {
             Spacer()
             Text("Nog geen organisatie ingesteld.")
                 .font(.headline)
-            Text("Voeg er een toe met:\nwifihours profile add --name \"…\" --context \"SSID\"")
+            Text("Voeg er een toe met:\ntickoala profile add --name \"…\" --context \"SSID\"")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

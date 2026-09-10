@@ -1,5 +1,5 @@
 import Foundation
-import WifiHoursCore
+import TickoalaCore
 
 func persistenceChecks() {
     suite("Opslag en herstart") {
@@ -35,7 +35,7 @@ func persistenceChecks() {
         }
 
         test("het schema wordt maar één keer aangelegd") {
-            let path = NSTemporaryDirectory() + "wifihours-check-\(UUID().uuidString).sqlite3"
+            let path = NSTemporaryDirectory() + "tickoala-check-\(UUID().uuidString).sqlite3"
             defer { Fixture.remove(path) }
             let eerste = try Store(path: path)
             _ = try eerste.createProfile(name: "Organisatie A", contexts: ["Kantoor A"])

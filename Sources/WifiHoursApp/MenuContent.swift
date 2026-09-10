@@ -1,0 +1,95 @@
+import SwiftUI
+import WifiHoursCore
+
+/// De inhoud van het menubalkmenu: status, projectwissel en snelle bediening.
+struct MenuContent: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        if model.profiles.isEmpty {
+            Text("Nog geen profiel ingesteld")
+            Text("Gebruik: wifihours profile add --name … --context …")
+        }
+
+        ForEach(model.profiles, id: \.profile.id) { item in
+            Section(item.profile.name) {
+                Text(headline(for: item))
+                Text("Vandaag \(Formatting.duration(item.todayTotal))  ·  Week \(Formatting.duration(item.weekTotal))")
+
+                if let attention = item.attention {
+                    Text("⚠︎ \(attention)")
+                    Button("Melding wissen") { model.clearAttention(profileId: item.profile.id) }
+                }
+
+                Menu("Project: \(item.project?.label ?? "geen")") {
+                    let projects = model.projects(for: item.profile.id)
+                    if projects.isEmpty {
+                        Text("Geen actieve projecten")
+                    }
+                    ForEach(projects) { project in
+                        Button(project.id == item.project?.id ? "✓ \(project.label)" : "   \(project.label)") {
+                            model.selectProject(profileId: item.profile.id, projectId: project.id)
+                        }
+                    }
+                }
+
+                if item.runningEntry != nil {
+                    Button("Pauzeer") { model.pause(profileId: item.profile.id) }
+                    Button("Stop") { model.stop(profileId: item.profile.id) }
+                } else if item.mode == .paused {
+                    Button("Hervat") { model.resume(profileId: item.profile.id) }
+                } else {
+                    Button("Start") { model.start(profileId: item.profile.id) }
+                        .disabled(item.project == nil)
+                }
+            }
+        }
+
+        Divider()
+
+        Button("Overzicht en correcties…") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "overzicht")
+        }
+        .keyboardShortcut("o")
+
+        Button("Exporteer CSV…") { exportCSV() }
+            .keyboardShortcut("e")
+
+        if let error = model.errorMessage {
+            Divider()
+            Text("Fout: \(error)")
+        }
+
+        Divider()
+
+        Button("Stop WifiHours") { NSApp.terminate(nil) }
+            .keyboardShortcut("q")
+    }
+
+    private func headline(for item: ProfileStatus) -> String {
+        switch item.mode {
+        case .working:
+            let pending = item.pendingStopAt.map { " (stop vanaf \(Formatting.clock($0)))" } ?? ""
+            return "\(item.mode.label) \(Formatting.duration(item.elapsedCurrent))\(pending)"
+        case .paused, .stopped, .attention:
+            return item.mode.label
+        }
+    }
+
+    private func exportCSV() {
+        guard let csv = model.exportCSV() else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = model.suggestedExportName()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.message = "Exporteer de getoonde periode (\(model.period.label.lowercased()))"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try csv.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            model.errorMessage = "Kon niet exporteren: \(error)"
+        }
+    }
+}

@@ -1,0 +1,173 @@
+import Foundation
+
+/// Een organisatie/profiel dat aan één ControlPlane-context hangt.
+public struct Profile: Equatable, Identifiable, Sendable {
+    public var id: Int64
+    public var name: String
+    public var contextName: String
+    public var active: Bool
+
+    public init(id: Int64, name: String, contextName: String, active: Bool = true) {
+        self.id = id
+        self.name = name
+        self.contextName = contextName
+        self.active = active
+    }
+}
+
+/// Een project binnen een organisatie. Het nummer is uniek binnen het profiel.
+public struct Project: Equatable, Identifiable, Sendable {
+    public var id: Int64
+    public var profileId: Int64
+    public var number: String
+    public var name: String
+    public var active: Bool
+
+    public init(id: Int64, profileId: Int64, number: String, name: String, active: Bool = true) {
+        self.id = id
+        self.profileId = profileId
+        self.number = number
+        self.name = name
+        self.active = active
+    }
+
+    /// Weergave in de menubalk: `nummer — naam`.
+    public var label: String { "\(number) — \(name)" }
+}
+
+public enum EntryStatus: String, Sendable {
+    /// Timer loopt op dit moment.
+    case running
+    /// Blok is netjes afgesloten.
+    case completed
+    /// Blok mist een geloofwaardig einde en vraagt om correctie.
+    case open
+}
+
+public enum EntrySource: String, Sendable {
+    case controlplane
+    case manual
+}
+
+/// Eén werkblok. Pauzeren sluit een blok af, hervatten maakt een nieuw blok.
+public struct TimeEntry: Equatable, Identifiable, Sendable {
+    public var id: Int64
+    public var profileId: Int64
+    public var projectId: Int64?
+    public var startedAt: Date
+    public var endedAt: Date?
+    public var status: EntryStatus
+    public var source: EntrySource
+    public var note: String?
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: Int64,
+        profileId: Int64,
+        projectId: Int64?,
+        startedAt: Date,
+        endedAt: Date?,
+        status: EntryStatus,
+        source: EntrySource,
+        note: String?,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.profileId = profileId
+        self.projectId = projectId
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.status = status
+        self.source = source
+        self.note = note
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    /// Duur van het blok; voor een lopend blok gemeten tot `now`.
+    public func duration(now: Date = Date()) -> TimeInterval {
+        let end = endedAt ?? (status == .running ? now : startedAt)
+        return max(0, end.timeIntervalSince(startedAt))
+    }
+}
+
+/// Losse status per profiel: gekozen project, pauze en uitgestelde stop.
+public struct ProfileState: Equatable, Sendable {
+    public var profileId: Int64
+    public var activeProjectId: Int64?
+    public var paused: Bool
+    public var pendingStopAt: Date?
+    public var pendingStopEntryId: Int64?
+    public var attention: String?
+
+    public init(
+        profileId: Int64,
+        activeProjectId: Int64? = nil,
+        paused: Bool = false,
+        pendingStopAt: Date? = nil,
+        pendingStopEntryId: Int64? = nil,
+        attention: String? = nil
+    ) {
+        self.profileId = profileId
+        self.activeProjectId = activeProjectId
+        self.paused = paused
+        self.pendingStopAt = pendingStopAt
+        self.pendingStopEntryId = pendingStopEntryId
+        self.attention = attention
+    }
+}
+
+public enum EventKind: String, Sendable {
+    case start
+    case stop
+}
+
+/// Een binnenkomend contextsignaal van de adapter.
+public struct ContextEvent: Equatable, Sendable {
+    public var context: String
+    public var kind: EventKind
+    public var at: Date
+    public var source: EntrySource
+
+    public init(context: String, kind: EventKind, at: Date = Date(), source: EntrySource = .controlplane) {
+        self.context = context
+        self.kind = kind
+        self.at = at
+        self.source = source
+    }
+}
+
+/// Wat de tracker met een event heeft gedaan. Alles wordt gelogd, ook het negeren.
+public enum EventOutcome: Equatable, Sendable {
+    case started(entryId: Int64)
+    case alreadyRunning(entryId: Int64)
+    case ignoredDuplicate
+    case ignoredUnknownContext
+    case ignoredInactiveProfile
+    case needsProject(profileId: Int64)
+    case conflict(runningProfileId: Int64)
+    case stopScheduled(effectiveAt: Date)
+    case stopped(entryId: Int64)
+    case stopCancelled(entryId: Int64)
+    case noRunningTimer
+    case pausedManually
+
+    public var summary: String {
+        switch self {
+        case .started(let id): return "gestart (blok \(id))"
+        case .alreadyRunning(let id): return "timer liep al (blok \(id))"
+        case .ignoredDuplicate: return "genegeerd: dubbel event"
+        case .ignoredUnknownContext: return "genegeerd: onbekende context"
+        case .ignoredInactiveProfile: return "genegeerd: profiel niet actief"
+        case .needsProject: return "geen actief project gekozen"
+        case .conflict: return "conflict: andere werkcontext is al actief"
+        case .stopScheduled(let at): return "stop gepland op \(Formatting.timestamp(at))"
+        case .stopped(let id): return "gestopt (blok \(id))"
+        case .stopCancelled(let id): return "korte onderbreking, timer loopt door (blok \(id))"
+        case .noRunningTimer: return "geen lopende timer"
+        case .pausedManually: return "handmatige pauze actief, timer blijft staan"
+        }
+    }
+}

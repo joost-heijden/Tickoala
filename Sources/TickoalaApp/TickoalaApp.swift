@@ -10,7 +10,7 @@ struct TickoalaApp: App {
         MenuBarExtra {
             MenuContent(model: model)
         } label: {
-            TickoalaMenuBarIcon(isActive: model.status?.mode == .working)
+            TickoalaMenuBarIcon(mode: model.status?.mode ?? .stopped)
         }
         .menuBarExtraStyle(.menu)
 
@@ -32,27 +32,66 @@ struct TickoalaApp: App {
 }
 
 private struct TickoalaMenuBarIcon: View {
-    let isActive: Bool
+    let mode: TrackerMode
+
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         if let image = menuBarImage {
             Image(nsImage: image)
-                .renderingMode(.template)
+                .renderingMode(.original)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 18, height: 18)
+                .accessibilityLabel(accessibilityLabel)
         } else {
-            Image(systemName: isActive ? "clock.fill" : "circle")
+            Image(systemName: fallbackSymbol)
+                .accessibilityLabel(accessibilityLabel)
         }
     }
 
     private var menuBarImage: NSImage? {
-        let resourceName = isActive ? "tickoala-menu-active" : "tickoala-menu-idle"
-        guard let url = Bundle.module.url(forResource: resourceName, withExtension: "svg"),
-              let image = NSImage(contentsOf: url) else {
+        guard let url = Bundle.module.url(
+            forResource: resourceName,
+            withExtension: "svg"
+        ) else {
             return nil
         }
-        image.isTemplate = true
-        return image
+        return NSImage(contentsOf: url)
+    }
+
+    private var resourceName: String {
+        "tickoala-menu-\(modeName)-\(themeName)"
+    }
+
+    private var modeName: String {
+        switch mode {
+        case .working: "working"
+        case .paused: "paused"
+        case .stopped: "stopped"
+        case .attention: "attention"
+        }
+    }
+
+    private var themeName: String {
+        colorScheme == .dark ? "dark" : "light"
+    }
+
+    private var fallbackSymbol: String {
+        switch mode {
+        case .working: "clock.fill"
+        case .paused: "pause.circle.fill"
+        case .stopped: "circle"
+        case .attention: "exclamationmark.circle.fill"
+        }
+    }
+
+    private var accessibilityLabel: Text {
+        switch mode {
+        case .working: Text("Tickoala registreert uren")
+        case .paused: Text("Tickoala is gepauzeerd")
+        case .stopped: Text("Tickoala is gestopt")
+        case .attention: Text("Tickoala heeft aandacht nodig")
+        }
     }
 }

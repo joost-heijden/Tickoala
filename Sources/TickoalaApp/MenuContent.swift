@@ -37,6 +37,19 @@ struct MenuContent: View {
             if let outcome = model.lastWifiOutcome {
                 Text(outcome)
             }
+
+            if let selection = model.pendingWifiProjectSelection {
+                Divider()
+                Text("Meerdere projecten voor \(selection.ssid)")
+                    .font(.headline)
+                Text("Kies het juiste project om te starten.")
+                ForEach(selection.projects) { project in
+                    Button(project.label) {
+                        model.chooseWifiProject(selection, projectId: project.id)
+                    }
+                }
+                Button("Annuleren") { model.cancelWifiProjectSelection() }
+            }
         }
 
         Divider()

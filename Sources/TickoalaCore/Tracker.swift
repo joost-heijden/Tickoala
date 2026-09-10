@@ -140,25 +140,30 @@ public final class Tracker {
             return .conflict(runningProfileId: other.profileId)
         }
 
-        guard let projectId = state.activeProjectId,
-              let project = try store.project(id: projectId),
-              project.active else {
-            try setAttention("Kies eerst een project voor \(profile.name).", on: [profile.id])
-            return .needsProject(profileId: profile.id)
+        if let projectId = state.activeProjectId,
+           let project = try store.project(id: projectId),
+           project.active {
+            let entry = try store.createEntry(
+                profileId: profile.id,
+                projectId: project.id,
+                startedAt: event.at,
+                endedAt: nil,
+                status: .running,
+                source: event.source,
+                note: nil
+            )
+            state.attention = nil
+            try store.save(state)
+            return .started(entryId: entry.id)
         }
 
-        let entry = try store.createEntry(
-            profileId: profile.id,
-            projectId: project.id,
-            startedAt: event.at,
-            endedAt: nil,
-            status: .running,
-            source: event.source,
-            note: nil
-        )
-        state.attention = nil
-        try store.save(state)
-        return .started(entryId: entry.id)
+        let activeProjects = try store.projects(profileId: profile.id, includeInactive: false)
+        if activeProjects.count > 1 {
+            return .needsProjectChoice(profileId: profile.id, projectIds: activeProjects.map(\.id))
+        }
+
+        try setAttention("Kies eerst een project voor \(profile.name).", on: [profile.id])
+        return .needsProject(profileId: profile.id)
     }
 
     private func handleStop(profile: Profile, event: ContextEvent, settings: TrackerSettings, now: Date) throws -> EventOutcome {
@@ -436,6 +441,7 @@ public final class Tracker {
         case .ignoredUnknownContext: return "unknown_context"
         case .ignoredInactiveProfile: return "inactive_profile"
         case .needsProject: return "needs_project"
+        case .needsProjectChoice: return "needs_project_choice"
         case .conflict: return "conflict"
         case .stopScheduled: return "stop_scheduled"
         case .stopped: return "stopped"

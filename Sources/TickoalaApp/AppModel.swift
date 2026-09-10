@@ -30,6 +30,8 @@ final class AppModel: ObservableObject {
     let wifi = WifiWatcher()
     /// Wat het laatste netwerksignaal opleverde, voor uitleg in het menu.
     @Published private(set) var lastWifiOutcome: String?
+    /// Een binnenkomst waarbij de organisatie meerdere actieve projecten heeft.
+    @Published private(set) var pendingWifiProjectSelection: WifiProjectSelection?
 
     private var tracker: Tracker?
     private var timer: Timer?
@@ -40,6 +42,13 @@ final class AppModel: ObservableObject {
         var profileName: String
         var projectLabel: String
         var id: Int64 { entry.id }
+    }
+
+    struct WifiProjectSelection: Equatable {
+        var profileId: Int64
+        var ssid: String
+        var eventAt: Date
+        var projects: [Project]
     }
 
     init() {
@@ -71,6 +80,22 @@ final class AppModel: ObservableObject {
         do {
             let outcome = try tracker.handle(event)
             lastWifiOutcome = "\(Formatting.clock(event.at))  \(event.context) \(event.kind.rawValue): \(outcome.summary)"
+
+            switch outcome {
+            case .needsProjectChoice(let profileId, let projectIds):
+                let projects = projectIds.compactMap { try? tracker.store.project(id: $0) }
+                if projects.count > 1 {
+                    pendingWifiProjectSelection = WifiProjectSelection(
+                        profileId: profileId,
+                        ssid: event.context,
+                        eventAt: event.at,
+                        projects: projects
+                    )
+                }
+            default:
+                pendingWifiProjectSelection = nil
+            }
+
             refresh()
         } catch {
             errorMessage = "\(error)"
@@ -121,6 +146,24 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = "\(error)"
         }
+    }
+
+    func chooseWifiProject(_ selection: WifiProjectSelection, projectId: Int64) {
+        guard let tracker else { return }
+        guard selection.projects.contains(where: { $0.id == projectId }) else { return }
+        do {
+            _ = try tracker.selectProject(profileId: selection.profileId, projectId: projectId, now: selection.eventAt)
+            _ = try tracker.start(profileId: selection.profileId, now: selection.eventAt, source: .wifi)
+            pendingWifiProjectSelection = nil
+            lastWifiOutcome = "\(Formatting.clock(selection.eventAt))  \(selection.ssid) start: timer gestart"
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func cancelWifiProjectSelection() {
+        pendingWifiProjectSelection = nil
     }
 
     // MARK: - Projectbeheer
@@ -203,6 +246,9 @@ final class AppModel: ObservableObject {
     // MARK: - Bediening
 
     func selectProject(profileId: Int64, projectId: Int64) {
+        if pendingWifiProjectSelection?.profileId == profileId {
+            pendingWifiProjectSelection = nil
+        }
         perform { try $0.selectProject(profileId: profileId, projectId: projectId) }
     }
 
@@ -211,14 +257,17 @@ final class AppModel: ObservableObject {
     }
 
     func resume(profileId: Int64) {
+        pendingWifiProjectSelection = nil
         perform { try $0.resume(profileId: profileId) }
     }
 
     func start(profileId: Int64) {
+        pendingWifiProjectSelection = nil
         perform { try $0.start(profileId: profileId) }
     }
 
     func stop(profileId: Int64) {
+        pendingWifiProjectSelection = nil
         perform { try $0.stop(profileId: profileId) }
     }
 

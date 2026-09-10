@@ -129,5 +129,33 @@ func projectChecks() {
             let project = try fixture.project(fixture.profileA, number: "2401", name: "Migratie datawarehouse")
             expectEqual(project.label, "2401 — Migratie datawarehouse")
         }
+
+        test("meerdere actieve projecten vragen om een keuze") {
+            let fixture = try Fixture()
+            let project1 = try fixture.store.createProject(profileId: fixture.profileA.id, number: "2401", name: "Migratie")
+            let project2 = try fixture.store.createProject(profileId: fixture.profileA.id, number: "2402", name: "Onderhoud")
+
+            let outcome = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+
+            if case .needsProjectChoice(let profileId, let projectIds) = outcome {
+                expectEqual(profileId, fixture.profileA.id)
+                expectEqual(projectIds.count, 2)
+                expect(projectIds.contains(project1.id), "project1 moet in de lijst staan")
+                expect(projectIds.contains(project2.id), "project2 moet in de lijst staan")
+            } else {
+                Harness.record("verwachtte needsProjectChoice, kreeg \(outcome)")
+            }
+
+            expect(try fixture.store.runningEntry(profileId: fixture.profileA.id) == nil, "er mag geen timer lopen")
+        }
+
+        test("één actief project zonder actief project geeft needsProject") {
+            let fixture = try Fixture()
+            _ = try fixture.store.createProject(profileId: fixture.profileA.id, number: "2401", name: "Migratie")
+
+            let outcome = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+
+            expectEqual(outcome, .needsProject(profileId: fixture.profileA.id))
+        }
     }
 }

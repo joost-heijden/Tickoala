@@ -201,6 +201,7 @@ public enum EventOutcome: Equatable, Sendable {
     case ignoredUnknownContext
     case ignoredInactiveProfile
     case needsProject(profileId: Int64)
+    case needsProjectChoice(profileId: Int64, projectIds: [Int64])
     case conflict(runningProfileId: Int64)
     case stopScheduled(effectiveAt: Date)
     case stopped(entryId: Int64)
@@ -216,6 +217,7 @@ public enum EventOutcome: Equatable, Sendable {
         case .ignoredUnknownContext: return "genegeerd: onbekende context"
         case .ignoredInactiveProfile: return "genegeerd: profiel niet actief"
         case .needsProject: return "geen actief project gekozen"
+        case .needsProjectChoice: return "kies een project om te starten"
         case .conflict: return "conflict: andere werkcontext is al actief"
         case .stopScheduled(let at): return "stop gepland op \(Formatting.timestamp(at))"
         case .stopped(let id): return "gestopt (blok \(id))"

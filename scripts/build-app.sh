@@ -43,6 +43,13 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
     <!-- Menubalk-app: geen Dock-icoon, geen menubalk bovenin. -->
     <key>LSUIElement</key>
     <true/>
+    <!-- macOS geeft de naam van het wifinetwerk alleen vrij aan programma's met
+         toestemming voor Locatievoorzieningen. Zonder deze twee sleutels toont
+         het systeem de vraag niet eens. Er wordt geen locatie opgeslagen. -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>WifiHours gebruikt dit alleen om de naam van het wifinetwerk te zien, zodat de urenregistratie vanzelf start en stopt bij een klant. Er wordt geen locatie opgeslagen of verstuurd.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>WifiHours gebruikt dit alleen om de naam van het wifinetwerk te zien, zodat de urenregistratie vanzelf start en stopt bij een klant. Er wordt geen locatie opgeslagen of verstuurd.</string>
 </dict>
 </plist>
 PLIST

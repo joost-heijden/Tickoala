@@ -1,9 +1,9 @@
 # WifiHours
 
-Lokale urenregistratie voor macOS. ControlPlane detecteert de werkcontext (het
-wifi-netwerk), WifiHours vertaalt dat naar start- en stopgebeurtenissen en houdt
-de uren bij in een SQLite-bestand op de eigen Mac. Geen account, geen server,
-geen netwerkverbinding nodig.
+Lokale urenregistratie voor macOS. De app ziet zelf op welk wifinetwerk de Mac
+zit, vertaalt elke wisseling naar een start- of stopgebeurtenis en houdt de uren
+bij in een SQLite-bestand op de eigen Mac. Geen account, geen server, geen
+netwerkverbinding nodig.
 
 ## Opbouw
 
@@ -11,12 +11,14 @@ geen netwerkverbinding nodig.
 | --- | --- |
 | `WifiHoursCore` | datamodel, timerregels, totalen, CSV-export |
 | `wifihours` | het adaptercommando en de volledige bediening vanaf de opdrachtregel |
-| `WifiHoursApp` | de menubalk-app met overzicht en correcties |
+| `WifiHoursApp` | de menubalk-app: wifi-detectie, overzicht, projecten en correcties |
 | `WifiHoursChecks` | de testsuite |
 
-De adapter is bewust dom: hij geeft alleen `start` of `stop` met een contextnaam
-door. De tracker beslist of dat signaal geldig is, voorkomt dubbele blokken en
-bewaart de bron en context van elk event.
+De signaalbron is bewust dom: die geeft alleen `start` of `stop` met een
+netwerknaam door. De tracker beslist of dat signaal geldig is, voorkomt dubbele
+blokken en bewaart de bron en context van elk event. Daardoor is de bron
+uitwisselbaar: de app doet het zelf, en het adaptercommando kan hetzelfde
+signaal geven vanuit een extern programma.
 
 ## Bouwen
 
@@ -60,47 +62,60 @@ wifihours project select --profile "Efteling" --number 2401
 Eén netwerk hoort maar bij één profiel; projectnummers zijn uniek binnen één
 profiel, hetzelfde nummer mag bij een ander profiel wel.
 
-## ControlPlane koppelen
+## Wifi-detectie en toestemming
 
-ControlPlane matcht op één SSID per context-regel. Heeft een klant meerdere
-netwerken, maak dan per SSID een aparte ControlPlane-context aan en laat de
-acties van elke context precies díe SSID-naam doorgeven aan de adapter — de
-tracker herkent zelf dat het om hetzelfde profiel gaat, via de koppeling die
-hierboven is ingericht.
+De app kijkt elke paar seconden welk wifinetwerk actief is. Wisselt dat, dan
+gaat er een stopsignaal naar het oude netwerk en een startsignaal naar het
+nieuwe.
 
-1. Maak in ControlPlane per SSID een context aan, bijvoorbeeld `Efteling-Guest`
-   en `Efteling-Staff`.
-2. Koppel er telkens een regel aan: **Wi-Fi network** met die ene SSID.
-3. Voeg per context twee acties toe (Actions → Run Shell Script), met als
-   parameter de SSID van díe context:
+Sinds macOS Sonoma geeft het systeem de netwerknaam alleen vrij aan programma's
+met toestemming voor **Locatievoorzieningen**. Zonder die toestemming levert
+macOS `<redacted>` op, wat niet te onderscheiden is van "geen wifi". Bij de
+eerste start vraagt WifiHours die toestemming daarom; zolang die er niet is,
+worden er bewust géén signalen gestuurd (anders zou elk moment als "vertrokken"
+tellen). De menubalk laat dat dan zien met een knop om het te regelen.
 
-   | Context | Wanneer | Script | Parameter |
-   | --- | --- | --- | --- |
-   | `Efteling-Guest` | Bij activeren | `/pad/naar/WifiHours/scripts/controlplane-event.sh` | `start "Efteling-Guest"` |
-   | `Efteling-Guest` | Bij verlaten | `/pad/naar/WifiHours/scripts/controlplane-event.sh` | `stop "Efteling-Guest"` |
-   | `Efteling-Staff` | Bij activeren | `/pad/naar/WifiHours/scripts/controlplane-event.sh` | `start "Efteling-Staff"` |
-   | `Efteling-Staff` | Bij verlaten | `/pad/naar/WifiHours/scripts/controlplane-event.sh` | `stop "Efteling-Staff"` |
+Er wordt geen locatie opgevraagd, opgeslagen of verstuurd — alleen de naam van
+het netwerk.
 
-   Kan een actie geen argumenten meegeven, maak dan twee kleine wrappers per SSID:
+Zit je op een netwerk dat nog nergens bij hoort, dan toont het menu dat met
+"(niet gekoppeld)" en kun je het ter plekke aan een klant hangen.
 
-   ```bash
-   #!/bin/bash
-   exec /pad/naar/WifiHours/scripts/controlplane-event.sh start "Efteling-Guest"
-   ```
+> Let op: de app wordt lokaal ad-hoc ondertekend. Na een herbouw kan macOS de
+> toestemming opnieuw vragen.
 
-   Roamt de Mac tussen `Efteling-Guest` en `Efteling-Staff` (bijvoorbeeld tussen
-   twee ruimtes), dan ziet de tracker dat als een korte onderbreking binnen
-   dezelfde klant: het lopende blok loopt gewoon door in plaats van te splitsen.
+## ControlPlane (optioneel, en momenteel stuk)
 
-Het adapterscript faalt nooit richting ControlPlane; alles komt in
-`~/Library/Logs/WifiHours-adapter.log`. De verwerkte events staan ook in de
-database: `wifihours events`.
+Het adaptercommando bestaat nog, zodat een extern programma dezelfde signalen
+kan geven:
+
+```bash
+scripts/controlplane-event.sh start "Efteling-Guest"
+scripts/controlplane-event.sh stop  "Efteling-Guest"
+```
+
+Het script faalt nooit richting de aanroeper; alles komt in
+`~/Library/Logs/WifiHours-adapter.log`. Wat er verwerkt is, staat in
+`wifihours events`.
+
+**ControlPlane 2.0.0 werkt niet op macOS 26.** Het is gebouwd tegen de
+macOS 10.6-SDK en crasht direct bij het opstarten:
+
+```
+*** Terminating app due to uncaught exception 'NSInvalidArgumentException',
+reason: '-[NSToolbarItem setAccessibilityLabel:]: unrecognized selector'
+```
+
+Daarom detecteert de app het wifinetwerk nu zelf. Wie ControlPlane (of iets
+anders) tóch wil gebruiken, richt er per SSID een context mee in die bij
+activeren en verlaten bovenstaand script aanroept met die SSID als parameter.
 
 ## Wat de tracker met een signaal doet
 
 | Situatie | Gedrag |
 | --- | --- |
-| Onbekende wifi-context | niets automatisch, alleen een logregel |
+| Onbekend wifinetwerk | niets automatisch, alleen een logregel |
+| Geen toestemming voor Locatievoorzieningen | geen signalen; de menubalk vraagt erom |
 | Nog geen project gekozen | geen start, wel een melding in de menubalk |
 | Tweede start terwijl de timer loopt | geen nieuw blok |
 | Herhaald event binnen het tijdvenster | genegeerd (standaard 30 seconden) |
@@ -219,8 +234,10 @@ Is Xcode geïnstalleerd, dan kunnen de checks één op één naar swift-testing.
 
 Dit deel vraagt om echte wifi en ControlPlane:
 
-- binnenkomen op kantoor A en B (start, juiste profiel, juiste project);
+- binnenkomen bij een klant (start, juiste profiel, juiste project);
 - vertrekken (stop na de wachttijd, juiste eindtijd);
 - korte wifi-uitval (blok loopt door, geen tweede blok);
+- roamen tussen twee netwerken van dezelfde klant (geen tweede blok);
 - slaapstand over de nacht (blok wordt `open`, geen verzonnen einde);
-- beide kantoren kort na elkaar (waarschuwing, geen automatische stop).
+- twee klanten kort na elkaar (waarschuwing, geen automatische stop);
+- toestemming voor Locatievoorzieningen intrekken (geen valse stopsignalen).

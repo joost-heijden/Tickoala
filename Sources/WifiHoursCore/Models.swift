@@ -96,6 +96,9 @@ public enum EntryStatus: String, Sendable {
 }
 
 public enum EntrySource: String, Sendable {
+    /// De app zag zelf een wisseling van wifinetwerk.
+    case wifi
+    /// Aangeleverd door een extern hulpprogramma via het adaptercommando.
     case controlplane
     case manual
 }

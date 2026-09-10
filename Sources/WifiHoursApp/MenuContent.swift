@@ -12,6 +12,35 @@ struct MenuContent: View {
             Text("Gebruik: wifihours profile add --name … --context …")
         }
 
+        Section("Wifi") {
+            if let explanation = model.wifi.access.explanation {
+                Text("⚠︎ \(explanation)")
+                Button("Toegang tot Locatievoorzieningen regelen…") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    model.wifi.requestAccess()
+                }
+            } else if let ssid = model.wifi.currentSSID {
+                Text("Netwerk: \(ssid)\(model.isKnownNetwork(ssid) ? "" : " (niet gekoppeld)")")
+                if !model.isKnownNetwork(ssid) {
+                    Menu("Koppel \(ssid) aan…") {
+                        ForEach(model.profiles, id: \.profile.id) { item in
+                            Button(item.profile.name) {
+                                model.linkCurrentNetwork(to: item.profile.id)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("Geen wifiverbinding")
+            }
+
+            if let outcome = model.lastWifiOutcome {
+                Text(outcome)
+            }
+        }
+
+        Divider()
+
         ForEach(model.profiles, id: \.profile.id) { item in
             Section(item.profile.name) {
                 Text(headline(for: item))

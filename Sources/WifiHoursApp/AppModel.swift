@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 import WifiHoursCore
@@ -25,8 +26,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var overviewTotal: TimeInterval = 0
     @Published private(set) var overviewByProject: [ProjectTotal] = []
 
+    /// Bron van de start/stop-signalen: de app kijkt zelf naar het wifinetwerk.
+    let wifi = WifiWatcher()
+    /// Wat het laatste netwerksignaal opleverde, voor uitleg in het menu.
+    @Published private(set) var lastWifiOutcome: String?
+
     private var tracker: Tracker?
     private var timer: Timer?
+    private var wifiObserver: AnyCancellable?
 
     struct EntryRow: Identifiable {
         var entry: TimeEntry
@@ -44,6 +51,29 @@ final class AppModel: ObservableObject {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
+        }
+
+        // Elke wisseling van wifinetwerk wordt een gewoon contextsignaal; de tracker
+        // beslist zelf of er iets moet gebeuren.
+        wifi.onEvent = { [weak self] event in
+            self?.handle(event)
+        }
+        // De watcher publiceert los van dit model, dus even doorgeven aan de views.
+        wifiObserver = wifi.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.objectWillChange.send() }
+        }
+        wifi.start()
+    }
+
+    /// Verwerkt een netwerksignaal en onthoudt de uitkomst voor in het menu.
+    private func handle(_ event: ContextEvent) {
+        guard let tracker else { return }
+        do {
+            let outcome = try tracker.handle(event)
+            lastWifiOutcome = "\(Formatting.clock(event.at))  \(event.context) \(event.kind.rawValue): \(outcome.summary)"
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
         }
     }
 
@@ -72,6 +102,25 @@ final class AppModel: ObservableObject {
             errorMessage = "\(error)"
         }
         reloadOverview()
+    }
+
+    // MARK: - Wifi
+
+    /// Hoort dit netwerk al bij een klant?
+    func isKnownNetwork(_ ssid: String) -> Bool {
+        profiles.contains { $0.profile.contexts.contains { $0.caseInsensitiveCompare(ssid) == .orderedSame } }
+    }
+
+    /// Koppelt het netwerk waar de Mac nu op zit aan een klant, zodat de
+    /// volgende binnenkomst wél automatisch start.
+    func linkCurrentNetwork(to profileId: Int64) {
+        guard let tracker, let ssid = wifi.currentSSID else { return }
+        do {
+            _ = try tracker.store.addContext(profileId: profileId, context: ssid)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
     }
 
     // MARK: - Projectbeheer

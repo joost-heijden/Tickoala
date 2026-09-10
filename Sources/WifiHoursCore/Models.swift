@@ -1,17 +1,23 @@
 import Foundation
 
-/// Een organisatie/profiel dat aan één ControlPlane-context hangt.
+/// Een organisatie/profiel. Kan aan meerdere ControlPlane-contexten (wifinetwerken)
+/// hangen, bijvoorbeeld een gast- en een personeelsnetwerk bij dezelfde klant.
 public struct Profile: Equatable, Identifiable, Sendable {
     public var id: Int64
     public var name: String
-    public var contextName: String
+    public var contexts: [String]
     public var active: Bool
 
-    public init(id: Int64, name: String, contextName: String, active: Bool = true) {
+    public init(id: Int64, name: String, contexts: [String], active: Bool = true) {
         self.id = id
         self.name = name
-        self.contextName = contextName
+        self.contexts = contexts
         self.active = active
+    }
+
+    /// Weergave in lijsten: alle gekoppelde wifi-contexten op een rij.
+    public var contextsLabel: String {
+        contexts.isEmpty ? "(geen wifi-context)" : contexts.joined(separator: ", ")
     }
 }
 

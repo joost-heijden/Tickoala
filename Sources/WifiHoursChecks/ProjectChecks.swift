@@ -19,7 +19,7 @@ func projectChecks() {
         test("een contextnaam hoort bij precies één profiel") {
             let fixture = try Fixture()
             expectThrows({
-                _ = try fixture.store.createProfile(name: "Organisatie C", contextName: "Kantoor A")
+                _ = try fixture.store.createProfile(name: "Organisatie C", contexts: ["Kantoor A"])
             }, "twee profielen op dezelfde context mag niet")
         }
 

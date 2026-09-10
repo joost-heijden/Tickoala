@@ -13,8 +13,8 @@ final class Fixture {
         path = NSTemporaryDirectory() + "wifihours-check-\(UUID().uuidString).sqlite3"
         store = try Store(path: path)
         tracker = Tracker(store: store)
-        profileA = try store.createProfile(name: "Organisatie A", contextName: "Kantoor A")
-        profileB = try store.createProfile(name: "Organisatie B", contextName: "Kantoor B")
+        profileA = try store.createProfile(name: "Organisatie A", contexts: ["Kantoor A"])
+        profileB = try store.createProfile(name: "Organisatie B", contexts: ["Kantoor B"])
     }
 
     deinit {

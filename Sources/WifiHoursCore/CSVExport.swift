@@ -45,7 +45,9 @@ public enum CSVExport {
             lines.append(row([
                 String(entry.id),
                 profile?.name ?? "",
-                profile?.contextName ?? "",
+                // De contextkolom toont alle wifi-contexten van het profiel, niet per se
+                // de specifieke SSID die dit blok startte (die staat in het eventlog).
+                profile?.contexts.joined(separator: "; ") ?? "",
                 project?.number ?? "",
                 project?.name ?? "",
                 Formatting.day(entry.startedAt),

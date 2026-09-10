@@ -14,10 +14,13 @@ Status en onderhoud:
   wifihours events [--limit 20]
   wifihours db                         pad naar de database
 
-Profielen:
+Profielen (een profiel mag aan meerdere wifinetwerken hangen):
   wifihours profile list
-  wifihours profile add --name <naam> --context <controlplane-context>
-  wifihours profile edit --profile <naam|context> [--name x] [--context y] [--active true|false]
+  wifihours profile add --name <naam> --context <ssid>[,ssid2,...]
+  wifihours profile edit --profile <naam|context> [--name x] [--active true|false]
+  wifihours profile context list   --profile <naam|context>
+  wifihours profile context add    --profile <naam|context> --context <ssid>[,ssid2,...]
+  wifihours profile context remove --profile <naam|context> --context <ssid>[,ssid2,...]
 
 Projecten:
   wifihours project list [--profile <naam>]
@@ -164,7 +167,7 @@ func printStatus(_ arguments: Arguments) throws {
         for item in status.profiles {
             let fields: [String] = [
                 "\"profiel\":\"\(jsonEscape(item.profile.name))\"",
-                "\"context\":\"\(jsonEscape(item.profile.contextName))\"",
+                "\"contexten\":\(jsonArray(item.profile.contexts))",
                 "\"modus\":\"\(item.mode.rawValue)\"",
                 "\"project\":\(item.project.map { "\"\(jsonEscape($0.label))\"" } ?? "null")",
                 "\"blok_seconden\":\(Int(item.elapsedCurrent))",
@@ -184,7 +187,7 @@ func printStatus(_ arguments: Arguments) throws {
     }
     print("\(status.mode.label)  \(status.menuBarTitle)")
     for item in status.profiles {
-        var line = "  \(item.profile.name) [\(item.profile.contextName)] — \(item.mode.label)"
+        var line = "  \(item.profile.name) [\(item.profile.contextsLabel)] — \(item.mode.label)"
         line += "  project: \(item.project?.label ?? "geen")"
         if let running = item.runningEntry {
             line += "  loopt sinds \(Formatting.clock(running.startedAt)) (\(Formatting.duration(item.elapsedCurrent)))"
@@ -205,6 +208,24 @@ func jsonEscape(_ value: String) -> String {
     value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
 }
 
+func jsonArray(_ values: [String]) -> String {
+    "[" + values.map { "\"\(jsonEscape($0))\"" }.joined(separator: ",") + "]"
+}
+
+/// Splitst een --context-optie met komma's in losse, opgeschoonde wifi-namen
+/// en filtert lege of herhaalde waarden eruit.
+func contextsList(_ raw: String) -> [String] {
+    var seen = Set<String>()
+    var result: [String] = []
+    for piece in raw.split(separator: ",") {
+        let trimmed = piece.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !seen.contains(trimmed.lowercased()) else { continue }
+        seen.insert(trimmed.lowercased())
+        result.append(trimmed)
+    }
+    return result
+}
+
 // MARK: - Profielen
 
 func runProfile(_ arguments: Arguments) throws {
@@ -216,22 +237,48 @@ func runProfile(_ arguments: Arguments) throws {
         for profile in profiles {
             let state = try tracker.store.state(profileId: profile.id)
             let project = try state.activeProjectId.flatMap { try tracker.store.project(id: $0) }
-            print("\(profile.id)  \(profile.name)  context: \(profile.contextName)  actief project: \(project?.label ?? "geen")\(profile.active ? "" : "  [inactief]")")
+            print("\(profile.id)  \(profile.name)  contexten: \(profile.contextsLabel)  actief project: \(project?.label ?? "geen")\(profile.active ? "" : "  [inactief]")")
         }
     case "add":
-        let profile = try tracker.store.createProfile(name: try arguments.require("name"), contextName: try arguments.require("context"))
-        print("profiel \(profile.id) aangemaakt: \(profile.name) → context \(profile.contextName)")
+        let contexts = contextsList(try arguments.require("context"))
+        let profile = try tracker.store.createProfile(name: try arguments.require("name"), contexts: contexts)
+        print("profiel \(profile.id) aangemaakt: \(profile.name) → \(profile.contextsLabel)")
     case "edit":
         let profile = try resolveProfile(arguments, tracker.store)
         try tracker.store.updateProfile(
             id: profile.id,
             name: arguments.string("name"),
-            contextName: arguments.string("context"),
             active: boolOption(arguments, "active")
         )
         print("profiel \(profile.id) bijgewerkt")
+    case "context":
+        try runProfileContext(arguments, tracker)
     default:
-        throw CLIError.usage("gebruik: wifihours profile list|add|edit")
+        throw CLIError.usage("gebruik: wifihours profile list|add|edit|context")
+    }
+}
+
+func runProfileContext(_ arguments: Arguments, _ tracker: Tracker) throws {
+    let profile = try resolveProfile(arguments, tracker.store)
+    switch arguments.word(2) ?? "list" {
+    case "list":
+        let contexts = try tracker.store.contexts(profileId: profile.id)
+        if contexts.isEmpty { print("(geen wifi-contexten gekoppeld)"); return }
+        for context in contexts { print(context) }
+    case "add":
+        var updated = profile
+        for context in contextsList(try arguments.require("context")) {
+            updated = try tracker.store.addContext(profileId: profile.id, context: context)
+        }
+        print("wifi-contexten van \(profile.name): \(updated.contextsLabel)")
+    case "remove":
+        var updated = profile
+        for context in contextsList(try arguments.require("context")) {
+            updated = try tracker.store.removeContext(profileId: profile.id, context: context)
+        }
+        print("wifi-contexten van \(profile.name): \(updated.contextsLabel)")
+    default:
+        throw CLIError.usage("gebruik: wifihours profile context list|add|remove --profile <naam> --context <ssid>[,ssid2,...]")
     }
 }
 

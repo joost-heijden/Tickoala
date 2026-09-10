@@ -37,35 +37,60 @@ naar `/Applications` verplaatsen).
 
 ## Inrichten
 
+Een profiel (organisatie/klant) mag aan meerdere wifinetwerken hangen —
+bijvoorbeeld een gast- en een personeelsnetwerk bij dezelfde klant, of meerdere
+vestigingen. `--context` accepteert een kommagescheiden lijst; extra netwerken
+kunnen ook later nog toegevoegd worden.
+
 ```bash
-wifihours profile add --name "Organisatie A" --context "Kantoor A"
+wifihours profile add --name "Efteling" --context "Efteling-Guest,Efteling-Staff"
 wifihours profile add --name "Organisatie B" --context "Kantoor B"
 
-wifihours project add --profile "Organisatie A" --number 2401 --name "Migratie datawarehouse"
-wifihours project add --profile "Organisatie A" --number 2402 --name "Onderhoud"
-wifihours project select --profile "Organisatie A" --number 2401
+# een netwerk later nog toevoegen of ontkoppelen
+wifihours profile context add    --profile "Efteling" --context "Efteling-Magazijn"
+wifihours profile context remove --profile "Efteling" --context "Efteling-Guest"
+wifihours profile context list   --profile "Efteling"
+
+wifihours project add --profile "Efteling" --number 2401 --name "Migratie datawarehouse"
+wifihours project add --profile "Efteling" --number 2402 --name "Onderhoud"
+wifihours project select --profile "Efteling" --number 2401
 ```
 
-`--context` is exact de naam van de context in ControlPlane. Projectnummers zijn
-uniek binnen één organisatie; hetzelfde nummer mag bij de andere organisatie wel.
+`--context` is exact de SSID (netwerknaam) zoals ControlPlane die doorgeeft.
+Eén netwerk hoort maar bij één profiel; projectnummers zijn uniek binnen één
+profiel, hetzelfde nummer mag bij een ander profiel wel.
 
 ## ControlPlane koppelen
 
-1. Maak in ControlPlane per organisatie een context aan, bijvoorbeeld `Kantoor A`.
-2. Koppel er een regel aan: **Wi-Fi network** met de SSID van dat kantoor.
-3. Voeg twee acties toe aan die context (Actions → Run Shell Script):
+ControlPlane matcht op één SSID per context-regel. Heeft een klant meerdere
+netwerken, maak dan per SSID een aparte ControlPlane-context aan en laat de
+acties van elke context precies díe SSID-naam doorgeven aan de adapter — de
+tracker herkent zelf dat het om hetzelfde profiel gaat, via de koppeling die
+hierboven is ingericht.
 
-   | Wanneer | Script | Parameter |
-   | --- | --- | --- |
-   | Bij activeren | `/pad/naar/WifiHours/scripts/controlplane-event.sh` | `start "Kantoor A"` |
-   | Bij verlaten | `/pad/naar/WifiHours/scripts/controlplane-event.sh` | `stop "Kantoor A"` |
+1. Maak in ControlPlane per SSID een context aan, bijvoorbeeld `Efteling-Guest`
+   en `Efteling-Staff`.
+2. Koppel er telkens een regel aan: **Wi-Fi network** met die ene SSID.
+3. Voeg per context twee acties toe (Actions → Run Shell Script), met als
+   parameter de SSID van díe context:
 
-   Kan een actie geen argumenten meegeven, maak dan twee kleine wrappers:
+   | Context | Wanneer | Script | Parameter |
+   | --- | --- | --- | --- |
+   | `Efteling-Guest` | Bij activeren | `/pad/naar/WifiHours/scripts/controlplane-event.sh` | `start "Efteling-Guest"` |
+   | `Efteling-Guest` | Bij verlaten | `/pad/naar/WifiHours/scripts/controlplane-event.sh` | `stop "Efteling-Guest"` |
+   | `Efteling-Staff` | Bij activeren | `/pad/naar/WifiHours/scripts/controlplane-event.sh` | `start "Efteling-Staff"` |
+   | `Efteling-Staff` | Bij verlaten | `/pad/naar/WifiHours/scripts/controlplane-event.sh` | `stop "Efteling-Staff"` |
+
+   Kan een actie geen argumenten meegeven, maak dan twee kleine wrappers per SSID:
 
    ```bash
    #!/bin/bash
-   exec /pad/naar/WifiHours/scripts/controlplane-event.sh start "Kantoor A"
+   exec /pad/naar/WifiHours/scripts/controlplane-event.sh start "Efteling-Guest"
    ```
+
+   Roamt de Mac tussen `Efteling-Guest` en `Efteling-Staff` (bijvoorbeeld tussen
+   twee ruimtes), dan ziet de tracker dat als een korte onderbreking binnen
+   dezelfde klant: het lopende blok loopt gewoon door in plaats van te splitsen.
 
 Het adapterscript faalt nooit richting ControlPlane; alles komt in
 `~/Library/Logs/WifiHours-adapter.log`. De verwerkte events staan ook in de

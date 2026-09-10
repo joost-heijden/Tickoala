@@ -51,55 +51,122 @@ public final class Store {
 
     // MARK: - Profielen
 
+    /// Maakt een profiel met één of meer gekoppelde wifi-contexten.
     @discardableResult
-    public func createProfile(name: String, contextName: String) throws -> Profile {
-        if try profile(context: contextName) != nil {
-            throw TrackerError.duplicateContext(contextName)
+    public func createProfile(name: String, contexts: [String]) throws -> Profile {
+        guard !contexts.isEmpty else {
+            throw TrackerError.invalidRange("een profiel heeft minstens één wifi-context nodig")
+        }
+        for context in contexts {
+            if try profile(context: context) != nil {
+                throw TrackerError.duplicateContext(context)
+            }
         }
         let id = try database.run(
-            "INSERT INTO profiles (name, context_name, active, created_at) VALUES (?, ?, 1, ?);",
-            [.text(name), .text(contextName), .int(Int64(Date().timeIntervalSince1970))]
+            "INSERT INTO profiles (name, active, created_at) VALUES (?, 1, ?);",
+            [.text(name), .int(Int64(Date().timeIntervalSince1970))]
         )
         try database.run("INSERT INTO profile_state (profile_id) VALUES (?);", [.int(id)])
-        return Profile(id: id, name: name, contextName: contextName)
+        for context in contexts {
+            try database.run(
+                "INSERT INTO profile_contexts (profile_id, context_name, created_at) VALUES (?, ?, ?);",
+                [.int(id), .text(context), .int(Int64(Date().timeIntervalSince1970))]
+            )
+        }
+        return Profile(id: id, name: name, contexts: contexts)
     }
 
     public func profiles(includeInactive: Bool = true) throws -> [Profile] {
         let sql = includeInactive
             ? "SELECT * FROM profiles ORDER BY name;"
             : "SELECT * FROM profiles WHERE active = 1 ORDER BY name;"
-        return try database.query(sql).map(Self.profile(from:))
+        var result: [Profile] = []
+        for row in try database.query(sql) {
+            var profile = Self.profile(from: row)
+            profile.contexts = try contexts(profileId: profile.id)
+            result.append(profile)
+        }
+        return result
     }
 
     public func profile(id: Int64) throws -> Profile? {
-        try database.query("SELECT * FROM profiles WHERE id = ?;", [.int(id)]).first.map(Self.profile(from:))
+        guard let row = try database.query("SELECT * FROM profiles WHERE id = ?;", [.int(id)]).first else { return nil }
+        var profile = Self.profile(from: row)
+        profile.contexts = try contexts(profileId: profile.id)
+        return profile
     }
 
     public func profile(context: String) throws -> Profile? {
-        try database.query("SELECT * FROM profiles WHERE context_name = ? COLLATE NOCASE;", [.text(context)])
-            .first.map(Self.profile(from:))
+        let rows = try database.query(
+            """
+            SELECT profiles.* FROM profiles
+            JOIN profile_contexts ON profile_contexts.profile_id = profiles.id
+            WHERE profile_contexts.context_name = ? COLLATE NOCASE
+            LIMIT 1;
+            """,
+            [.text(context)]
+        )
+        guard let row = rows.first else { return nil }
+        var profile = Self.profile(from: row)
+        profile.contexts = try contexts(profileId: profile.id)
+        return profile
     }
 
-    /// Zoekt op naam of op context, zodat de CLI beide accepteert.
+    /// Zoekt op naam of op wifi-context, zodat de CLI beide accepteert.
     public func profile(matching needle: String) throws -> Profile {
         if let byContext = try profile(context: needle) { return byContext }
         let rows = try database.query("SELECT * FROM profiles WHERE name = ? COLLATE NOCASE;", [.text(needle)])
         guard let row = rows.first else { throw TrackerError.unknownProfile(needle) }
-        return Self.profile(from: row)
+        var profile = Self.profile(from: row)
+        profile.contexts = try contexts(profileId: profile.id)
+        return profile
     }
 
-    public func updateProfile(id: Int64, name: String? = nil, contextName: String? = nil, active: Bool? = nil) throws {
-        if let contextName, let existing = try profile(context: contextName), existing.id != id {
-            throw TrackerError.duplicateContext(contextName)
-        }
+    public func updateProfile(id: Int64, name: String? = nil, active: Bool? = nil) throws {
         var assignments: [String] = []
         var parameters: [SQLValue] = []
         if let name { assignments.append("name = ?"); parameters.append(.text(name)) }
-        if let contextName { assignments.append("context_name = ?"); parameters.append(.text(contextName)) }
         if let active { assignments.append("active = ?"); parameters.append(.int(active ? 1 : 0)) }
         guard !assignments.isEmpty else { return }
         parameters.append(.int(id))
         try database.run("UPDATE profiles SET \(assignments.joined(separator: ", ")) WHERE id = ?;", parameters)
+    }
+
+    // MARK: - Wifi-contexten
+
+    public func contexts(profileId: Int64) throws -> [String] {
+        try database.query(
+            "SELECT context_name FROM profile_contexts WHERE profile_id = ? ORDER BY context_name COLLATE NOCASE;",
+            [.int(profileId)]
+        ).compactMap { $0.string("context_name") }
+    }
+
+    /// Koppelt een extra wifi-context aan een bestaand profiel.
+    @discardableResult
+    public func addContext(profileId: Int64, context: String) throws -> Profile {
+        let trimmed = context.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { throw TrackerError.invalidRange("een wifi-context mag niet leeg zijn") }
+        if let existing = try profile(context: trimmed), existing.id != profileId {
+            throw TrackerError.duplicateContext(trimmed)
+        }
+        try database.run(
+            "INSERT OR IGNORE INTO profile_contexts (profile_id, context_name, created_at) VALUES (?, ?, ?);",
+            [.int(profileId), .text(trimmed), .int(Int64(Date().timeIntervalSince1970))]
+        )
+        guard let profile = try profile(id: profileId) else { throw TrackerError.unknownProfile(String(profileId)) }
+        return profile
+    }
+
+    /// Ontkoppelt een wifi-context. Een profiel mag zonder contexten komen te zitten;
+    /// het start dan alleen nog via handmatige bediening.
+    @discardableResult
+    public func removeContext(profileId: Int64, context: String) throws -> Profile {
+        try database.run(
+            "DELETE FROM profile_contexts WHERE profile_id = ? AND context_name = ? COLLATE NOCASE;",
+            [.int(profileId), .text(context)]
+        )
+        guard let profile = try profile(id: profileId) else { throw TrackerError.unknownProfile(String(profileId)) }
+        return profile
     }
 
     // MARK: - Projecten
@@ -366,11 +433,12 @@ public final class Store {
 
     // MARK: - Rijen omzetten
 
+    /// Contexten worden apart opgehaald; hier staat een lege lijst tot de aanroeper die vult.
     static func profile(from row: Row) -> Profile {
         Profile(
             id: row.int("id") ?? 0,
             name: row.string("name") ?? "",
-            contextName: row.string("context_name") ?? "",
+            contexts: [],
             active: row.bool("active")
         )
     }

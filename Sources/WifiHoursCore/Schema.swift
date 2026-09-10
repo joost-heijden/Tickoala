@@ -7,10 +7,21 @@ enum Schema {
         CREATE TABLE profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
-            context_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
             active INTEGER NOT NULL DEFAULT 1,
             created_at INTEGER NOT NULL
         );
+
+        -- Eén-op-veel: een profiel kan aan meerdere wifinetwerken hangen
+        -- (bijvoorbeeld een gast- en een personeelsnetwerk bij dezelfde klant).
+        -- Eén context hoort maar bij één profiel.
+        CREATE TABLE profile_contexts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            context_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            created_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX idx_profile_contexts_profile ON profile_contexts (profile_id);
 
         CREATE TABLE projects (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

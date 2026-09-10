@@ -26,7 +26,12 @@ Projecten:
   wifihours project list [--profile <naam>]
   wifihours project add --profile <naam> --number <nummer> --name <projectnaam>
   wifihours project select --profile <naam> --number <nummer>
-  wifihours project edit --profile <naam> --number <nummer> [--name x] [--active true|false]
+  wifihours project edit --profile <naam> --number <nummer> [--new-number y] [--name x] [--active true|false]
+
+Automatische pauzeaftrek (per klant):
+  wifihours break list
+  wifihours break set --profile <naam> [--enabled true|false] [--minutes 30] [--threshold 6:00]
+                                       --threshold accepteert 6:00, 6u of 360 (minuten)
 
 Timer:
   wifihours timer start|stop --profile <naam>
@@ -139,6 +144,9 @@ func run() throws {
             print("hervat — nieuw blok \(entry.id) om \(Formatting.clock(entry.startedAt))")
         }
 
+    case "break":
+        try runBreak(arguments)
+
     case "entry":
         try runEntry(arguments)
 
@@ -196,6 +204,9 @@ func printStatus(_ arguments: Arguments) throws {
             line += "  stop gepland vanaf \(Formatting.clock(pending))"
         }
         line += "  vandaag \(Formatting.duration(item.todayTotal))  week \(Formatting.duration(item.weekTotal))"
+        if item.todayBreak > 0 || item.weekBreak > 0 {
+            line += "  (netto; pauze vandaag -\(Formatting.duration(item.todayBreak)), week -\(Formatting.duration(item.weekBreak)))"
+        }
         print(line)
         if let attention = item.attention { print("    ! \(attention)") }
     }
@@ -303,12 +314,16 @@ func runProject(_ arguments: Arguments) throws {
         }
     case "add":
         let profile = try resolveProfile(arguments, tracker.store)
-        let project = try tracker.store.createProject(
+        let project = try tracker.createProject(
             profileId: profile.id,
             number: try arguments.require("number"),
             name: try arguments.require("name")
         )
-        print("project toegevoegd aan \(profile.name): \(project.label)")
+        var message = "project toegevoegd aan \(profile.name): \(project.label)"
+        if try tracker.store.state(profileId: profile.id).activeProjectId == project.id {
+            message += " (meteen als actief project gezet)"
+        }
+        print(message)
     case "select":
         let profile = try resolveProfile(arguments, tracker.store)
         let number = try arguments.require("number")
@@ -327,10 +342,66 @@ func runProject(_ arguments: Arguments) throws {
         guard let project = try tracker.store.project(profileId: profile.id, number: number) else {
             throw TrackerError.unknownProject(number)
         }
-        try tracker.store.updateProject(id: project.id, name: arguments.string("name"), active: boolOption(arguments, "active"))
-        print("project \(number) bijgewerkt")
+        try tracker.store.updateProject(
+            id: project.id,
+            number: arguments.string("new-number"),
+            name: arguments.string("name"),
+            active: boolOption(arguments, "active")
+        )
+        if let updated = try tracker.store.project(id: project.id) {
+            print("project bijgewerkt: \(updated.label)\(updated.active ? "" : "  [inactief]")")
+        }
     default:
         throw CLIError.usage("gebruik: wifihours project list|add|select|edit")
+    }
+}
+
+// MARK: - Pauzeaftrek
+
+/// Leest een drempel als `6:00`, `6u`, `6` (uren) of `360m` (minuten).
+func parseMinutes(_ raw: String) throws -> Int {
+    let text = raw.trimmingCharacters(in: .whitespaces).lowercased()
+    if text.contains(":") {
+        let parts = text.split(separator: ":")
+        guard parts.count == 2, let hours = Int(parts[0]), let minutes = Int(parts[1]), minutes < 60 else {
+            throw CLIError.usage("kan tijd niet lezen: '\(raw)' (gebruik bijvoorbeeld 6:00)")
+        }
+        return hours * 60 + minutes
+    }
+    if text.hasSuffix("m"), let minutes = Int(text.dropLast()) { return minutes }
+    if text.hasSuffix("u"), let hours = Int(text.dropLast()) { return hours * 60 }
+    guard let value = Int(text) else {
+        throw CLIError.usage("kan tijd niet lezen: '\(raw)' (gebruik 6:00, 6u of 360)")
+    }
+    // Kaal getal: kleine waarden zijn vrijwel zeker uren, grote zijn minuten.
+    return value <= 24 ? value * 60 : value
+}
+
+func runBreak(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    switch arguments.word(1) ?? "list" {
+    case "list":
+        let profiles = try tracker.store.profiles()
+        if profiles.isEmpty { print("nog geen profielen"); return }
+        for profile in profiles {
+            print("\(profile.name): \(profile.breakRule.summary)")
+        }
+    case "set":
+        let profile = try resolveProfile(arguments, tracker.store)
+        var rule = profile.breakRule
+        if let enabled = boolOption(arguments, "enabled") { rule.enabled = enabled }
+        if let minutes = arguments.string("minutes") {
+            rule.minutes = try parseMinutes(minutes.allSatisfy(\.isNumber) ? "\(minutes)m" : minutes)
+            // Een pauzeduur instellen betekent vrijwel altijd: zet hem ook aan.
+            if boolOption(arguments, "enabled") == nil { rule.enabled = rule.minutes > 0 }
+        }
+        if let threshold = arguments.string("threshold") {
+            rule.thresholdMinutes = try parseMinutes(threshold)
+        }
+        try tracker.store.updateBreakRule(profileId: profile.id, rule: rule)
+        print("\(profile.name): \(rule.summary)")
+    default:
+        throw CLIError.usage("gebruik: wifihours break list|set")
     }
 }
 
@@ -460,17 +531,30 @@ func runReport(_ arguments: Arguments) throws {
 
     let end = Formatting.calendar.date(byAdding: .second, value: -1, to: report.range.end) ?? report.range.end
     print("\(period.label): \(Formatting.day(report.range.start)) t/m \(Formatting.day(end))\(profile.map { " — \($0.name)" } ?? "")")
-    print("totaal: \(Formatting.duration(report.total))  (\(Formatting.decimalHours(report.total)) uur)")
+    if report.breakDeduction > 0 {
+        print("gewerkt: \(Formatting.duration(report.total))  (\(Formatting.decimalHours(report.total)) uur)")
+        print("pauze:  -\(Formatting.duration(report.breakDeduction))")
+        print("totaal: \(Formatting.duration(report.netTotal))  (\(Formatting.decimalHours(report.netTotal)) uur)")
+    } else {
+        print("totaal: \(Formatting.duration(report.total))  (\(Formatting.decimalHours(report.total)) uur)")
+    }
     if !report.byProject.isEmpty {
         print("per project:")
         for item in report.byProject {
             print("  \(Formatting.duration(item.total).padding(toLength: 7, withPad: " ", startingAt: 0)) \(item.label)")
         }
     }
+    if report.breakDeduction > 0 {
+        print("(pauze hangt aan een dag, niet aan een project; de projectregels hierboven zijn bruto)")
+    }
     if period != .day, !report.byDay.isEmpty {
         print("per dag:")
         for item in report.byDay {
-            print("  \(Formatting.day(item.day))  \(Formatting.duration(item.total))")
+            var line = "  \(Formatting.day(item.day))  \(Formatting.duration(item.net))"
+            if item.breakDeduction > 0 {
+                line += "  (gewerkt \(Formatting.duration(item.total)), pauze -\(Formatting.duration(item.breakDeduction)))"
+            }
+            print(line)
         }
     }
     if report.runningCount > 0 { print("let op: \(report.runningCount) lopend blok meegeteld tot nu") }
@@ -483,7 +567,13 @@ func runExport(_ arguments: Arguments) throws {
     let tracker = try makeTracker()
     let window = try resolveWindow(arguments, defaultPeriod: .month)
     let profile = arguments.string("profile") != nil ? try resolveProfile(arguments, tracker.store) : nil
-    let csv = try CSVExport.export(store: tracker.store, from: window.start, to: window.end, profileId: profile?.id)
+    let csv = try CSVExport.export(
+        store: tracker.store,
+        from: window.start,
+        to: window.end,
+        profileId: profile?.id,
+        includeBreaks: !arguments.flag("bruto")
+    )
     if let path = arguments.string("out") {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         try csv.write(to: url, atomically: true, encoding: .utf8)

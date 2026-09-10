@@ -132,6 +132,22 @@ public final class Store {
         try database.run("UPDATE profiles SET \(assignments.joined(separator: ", ")) WHERE id = ?;", parameters)
     }
 
+    /// Legt de pauzeregel van een klant vast.
+    public func updateBreakRule(profileId: Int64, rule: BreakRule) throws {
+        guard rule.minutes >= 0, rule.thresholdMinutes >= 0 else {
+            throw TrackerError.invalidRange("pauzeduur en drempel mogen niet negatief zijn")
+        }
+        try database.run(
+            "UPDATE profiles SET break_enabled = ?, break_minutes = ?, break_threshold_minutes = ? WHERE id = ?;",
+            [
+                .int(rule.enabled ? 1 : 0),
+                .int(Int64(rule.minutes)),
+                .int(Int64(rule.thresholdMinutes)),
+                .int(profileId),
+            ]
+        )
+    }
+
     // MARK: - Wifi-contexten
 
     public func contexts(profileId: Int64) throws -> [String] {
@@ -201,9 +217,17 @@ public final class Store {
         ).first.map(Self.project(from:))
     }
 
-    public func updateProject(id: Int64, name: String? = nil, active: Bool? = nil) throws {
+    public func updateProject(id: Int64, number: String? = nil, name: String? = nil, active: Bool? = nil) throws {
+        guard let existing = try project(id: id) else { throw TrackerError.unknownProject(String(id)) }
+        // Het nummer blijft uniek binnen de organisatie, ook bij hernummeren.
+        if let number, number.caseInsensitiveCompare(existing.number) != .orderedSame {
+            if try project(profileId: existing.profileId, number: number) != nil {
+                throw TrackerError.duplicateProjectNumber(number)
+            }
+        }
         var assignments: [String] = []
         var parameters: [SQLValue] = []
+        if let number { assignments.append("number = ?"); parameters.append(.text(number)) }
         if let name { assignments.append("name = ?"); parameters.append(.text(name)) }
         if let active { assignments.append("active = ?"); parameters.append(.int(active ? 1 : 0)) }
         guard !assignments.isEmpty else { return }
@@ -439,7 +463,12 @@ public final class Store {
             id: row.int("id") ?? 0,
             name: row.string("name") ?? "",
             contexts: [],
-            active: row.bool("active")
+            active: row.bool("active"),
+            breakRule: BreakRule(
+                enabled: row.bool("break_enabled"),
+                minutes: Int(row.int("break_minutes") ?? Int64(BreakRule.default.minutes)),
+                thresholdMinutes: Int(row.int("break_threshold_minutes") ?? Int64(BreakRule.default.thresholdMinutes))
+            )
         )
     }
 

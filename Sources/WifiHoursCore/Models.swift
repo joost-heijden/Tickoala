@@ -1,5 +1,42 @@
 import Foundation
 
+/// Automatische pauzeaftrek per klant. De aftrek is een rekenregel over de ruwe
+/// blokken heen: tijdregistraties worden er nooit door aangepast, zodat de regel
+/// altijd aan te passen of uit te zetten is.
+public struct BreakRule: Equatable, Sendable {
+    /// Staat de automatische aftrek aan voor deze klant?
+    public var enabled: Bool
+    /// Hoeveel pauze er per gewerkte dag van de uren af gaat.
+    public var minutes: Int
+    /// De drempel: er wordt pas afgetrokken vanaf dit aantal gewerkte minuten op een dag.
+    /// Los instelbaar van de pauzeduur zelf.
+    public var thresholdMinutes: Int
+
+    /// Standaard uit; 30 minuten pauze vanaf 6 uur werk op een dag.
+    public static let `default` = BreakRule(enabled: false, minutes: 30, thresholdMinutes: 360)
+
+    public init(enabled: Bool, minutes: Int, thresholdMinutes: Int) {
+        self.enabled = enabled
+        self.minutes = minutes
+        self.thresholdMinutes = thresholdMinutes
+    }
+
+    /// Aftrek voor één dag waarop `worked` seconden geregistreerd staan.
+    /// De drempel telt inclusief: bij precies 6 uur gaat de pauze er al af.
+    /// Er gaat nooit meer af dan er die dag gewerkt is, dus een dag wordt niet negatief.
+    public func deduction(forDayTotal worked: TimeInterval) -> TimeInterval {
+        guard enabled, minutes > 0, worked > 0 else { return 0 }
+        guard worked >= TimeInterval(thresholdMinutes) * 60 else { return 0 }
+        return min(TimeInterval(minutes) * 60, worked)
+    }
+
+    /// Korte omschrijving voor lijsten en menu's.
+    public var summary: String {
+        guard enabled, minutes > 0 else { return "geen automatische pauzeaftrek" }
+        return "\(minutes) min pauze vanaf \(Formatting.duration(TimeInterval(thresholdMinutes) * 60)) per dag"
+    }
+}
+
 /// Een organisatie/profiel. Kan aan meerdere ControlPlane-contexten (wifinetwerken)
 /// hangen, bijvoorbeeld een gast- en een personeelsnetwerk bij dezelfde klant.
 public struct Profile: Equatable, Identifiable, Sendable {
@@ -7,12 +44,20 @@ public struct Profile: Equatable, Identifiable, Sendable {
     public var name: String
     public var contexts: [String]
     public var active: Bool
+    public var breakRule: BreakRule
 
-    public init(id: Int64, name: String, contexts: [String], active: Bool = true) {
+    public init(
+        id: Int64,
+        name: String,
+        contexts: [String],
+        active: Bool = true,
+        breakRule: BreakRule = .default
+    ) {
         self.id = id
         self.name = name
         self.contexts = contexts
         self.active = active
+        self.breakRule = breakRule
     }
 
     /// Weergave in lijsten: alle gekoppelde wifi-contexten op een rij.

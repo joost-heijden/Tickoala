@@ -8,6 +8,7 @@ import WifiHoursCore
 final class AppModel: ObservableObject {
     @Published private(set) var status: TrackerStatus?
     @Published private(set) var projectsPerProfile: [Int64: [Project]] = [:]
+    @Published private(set) var allProjectsPerProfile: [Int64: [Project]] = [:]
     @Published var errorMessage: String?
 
     // Overzichtsvenster
@@ -58,16 +59,96 @@ final class AppModel: ObservableObject {
         do {
             try tracker.tick()
             status = try tracker.status()
-            var projects: [Int64: [Project]] = [:]
+            var actief: [Int64: [Project]] = [:]
+            var alle: [Int64: [Project]] = [:]
             for item in try tracker.store.profiles(includeInactive: false) {
-                projects[item.id] = try tracker.store.projects(profileId: item.id, includeInactive: false)
+                actief[item.id] = try tracker.store.projects(profileId: item.id, includeInactive: false)
+                alle[item.id] = try tracker.store.projects(profileId: item.id, includeInactive: true)
             }
-            projectsPerProfile = projects
+            projectsPerProfile = actief
+            allProjectsPerProfile = alle
             errorMessage = nil
         } catch {
             errorMessage = "\(error)"
         }
         reloadOverview()
+    }
+
+    // MARK: - Projectbeheer
+
+    /// Alle projecten van een profiel, ook de gedeactiveerde. Voor het beheerscherm.
+    func allProjects(for profileId: Int64) -> [Project] {
+        allProjectsPerProfile[profileId] ?? []
+    }
+
+    /// Maakt een project aan. Geeft `false` terug als het niet lukte, bijvoorbeeld
+    /// omdat het nummer al bestaat binnen deze organisatie.
+    @discardableResult
+    func addProject(profileId: Int64, number: String, name: String) -> Bool {
+        guard let tracker else { return false }
+        let number = number.trimmingCharacters(in: .whitespaces)
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard !number.isEmpty, !name.isEmpty else {
+            errorMessage = "Vul zowel een projectnummer als een projectnaam in."
+            return false
+        }
+        do {
+            try tracker.createProject(profileId: profileId, number: number, name: name)
+            refresh()
+            return true
+        } catch {
+            errorMessage = "\(error)"
+            return false
+        }
+    }
+
+    /// Nummer en naam samen bewaren. Geeft `false` terug als het nummer al bestaat
+    /// binnen deze organisatie, zodat het formulier open kan blijven.
+    @discardableResult
+    func updateProject(id: Int64, number: String, name: String) -> Bool {
+        guard let tracker else { return false }
+        let number = number.trimmingCharacters(in: .whitespaces)
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard !number.isEmpty, !name.isEmpty else {
+            errorMessage = "Projectnummer en projectnaam mogen niet leeg zijn."
+            return false
+        }
+        do {
+            try tracker.store.updateProject(id: id, number: number, name: name)
+            refresh()
+            return true
+        } catch {
+            errorMessage = "\(error)"
+            return false
+        }
+    }
+
+    // MARK: - Pauzeaftrek
+
+    func updateBreakRule(profileId: Int64, rule: BreakRule) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.updateBreakRule(profileId: profileId, rule: rule)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// Deactiveren laat bestaande tijdregistraties staan; het project verdwijnt
+    /// alleen uit de keuzelijsten.
+    func setProjectActive(id: Int64, active: Bool) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.updateProject(id: id, active: active)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func activeProjectId(for profileId: Int64) -> Int64? {
+        profiles.first(where: { $0.profile.id == profileId })?.project?.id
     }
 
     // MARK: - Bediening

@@ -4,6 +4,7 @@ import Foundation
 timerChecks()
 projectChecks()
 multiContextChecks()
+breakChecks()
 persistenceChecks()
 reportChecks()
 adapterChecks()

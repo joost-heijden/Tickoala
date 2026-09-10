@@ -70,6 +70,60 @@ func projectChecks() {
             }, "projecten blijven binnen hun eigen organisatie")
         }
 
+        test("het eerste project van een organisatie wordt meteen het actieve project") {
+            let fixture = try Fixture()
+
+            let eerste = try fixture.tracker.createProject(profileId: fixture.profileA.id, number: "2401", name: "Migratie")
+            expectEqual(try fixture.store.state(profileId: fixture.profileA.id).activeProjectId, eerste.id)
+
+            // Een tweede project mag de lopende keuze niet zomaar overnemen.
+            let tweede = try fixture.tracker.createProject(profileId: fixture.profileA.id, number: "2402", name: "Onderhoud")
+            expectEqual(try fixture.store.state(profileId: fixture.profileA.id).activeProjectId, eerste.id,
+                        "het actieve project blijft staan bij \(tweede.number)")
+        }
+
+        test("een nieuw project start meteen automatisch bij binnenkomst") {
+            let fixture = try Fixture()
+            _ = try fixture.tracker.createProject(profileId: fixture.profileA.id, number: "2401", name: "Migratie")
+
+            let outcome = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+
+            expect(outcome.isStarted, "zonder losse projectkeuze moet dit al werken, kreeg \(outcome)")
+        }
+
+        test("een projectnummer is achteraf te wijzigen") {
+            let fixture = try Fixture()
+            let project = try fixture.store.createProject(profileId: fixture.profileA.id, number: "001", name: "AI Platform")
+            _ = try fixture.store.createProject(profileId: fixture.profileA.id, number: "002", name: "Onderhoud")
+
+            try fixture.store.updateProject(id: project.id, number: "2401", name: "AI Platform")
+            expectEqual(try fixture.store.project(id: project.id)?.label, "2401 — AI Platform")
+            expect(try fixture.store.project(profileId: fixture.profileA.id, number: "001") == nil, "het oude nummer is vrij")
+
+            // Hernummeren naar een bestaand nummer mag niet.
+            expectThrows({
+                try fixture.store.updateProject(id: project.id, number: "002")
+            }, "botsing met een bestaand projectnummer")
+            expectEqual(try fixture.store.project(id: project.id)?.number, "2401", "het nummer bleef staan")
+
+            // Dezelfde waarde opnieuw opslaan mag wel.
+            try fixture.store.updateProject(id: project.id, number: "2401", name: "AI-platform")
+            expectEqual(try fixture.store.project(id: project.id)?.name, "AI-platform")
+        }
+
+        test("hernummeren laat bestaande tijdregistraties intact") {
+            let fixture = try Fixture()
+            let project = try fixture.tracker.createProject(profileId: fixture.profileA.id, number: "001", name: "AI Platform")
+            _ = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+            _ = try fixture.tracker.stop(profileId: fixture.profileA.id, now: at("2026-09-10 17:00"))
+
+            try fixture.store.updateProject(id: project.id, number: "2401")
+
+            let entry = try expectNotNil(try fixture.entries().first)
+            expectEqual(entry.projectId, project.id, "het blok hangt nog aan hetzelfde project")
+            expectEqual(entry.duration(), 8 * 3600)
+        }
+
         test("het label voor de menubalk is 'nummer — naam'") {
             let fixture = try Fixture()
             let project = try fixture.project(fixture.profileA, number: "2401", name: "Migratie datawarehouse")

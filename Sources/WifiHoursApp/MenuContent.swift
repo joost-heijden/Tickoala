@@ -16,6 +16,9 @@ struct MenuContent: View {
             Section(item.profile.name) {
                 Text(headline(for: item))
                 Text("Vandaag \(Formatting.duration(item.todayTotal))  ·  Week \(Formatting.duration(item.weekTotal))")
+                if item.todayBreak > 0 {
+                    Text("Netto, pauze vandaag -\(Formatting.duration(item.todayBreak))")
+                }
 
                 if let attention = item.attention {
                     Text("⚠︎ \(attention)")
@@ -31,6 +34,11 @@ struct MenuContent: View {
                         Button(project.id == item.project?.id ? "✓ \(project.label)" : "   \(project.label)") {
                             model.selectProject(profileId: item.profile.id, projectId: project.id)
                         }
+                    }
+                    Divider()
+                    Button("Projecten beheren…") {
+                        NSApp.activate(ignoringOtherApps: true)
+                        openWindow(id: "projecten")
                     }
                 }
 
@@ -53,6 +61,17 @@ struct MenuContent: View {
             openWindow(id: "overzicht")
         }
         .keyboardShortcut("o")
+
+        Button("Projecten beheren…") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "projecten")
+        }
+        .keyboardShortcut("p")
+
+        Button("Pauze-instellingen…") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "pauze")
+        }
 
         Button("Exporteer CSV…") { exportCSV() }
             .keyboardShortcut("e")

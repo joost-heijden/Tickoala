@@ -4,6 +4,7 @@ import WifiHoursCore
 /// Dag-, week- en maandoverzicht met correcties.
 struct OverviewWindow: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
     @State private var selection: Int64?
     @State private var addingFor: Int64?
 
@@ -41,14 +42,15 @@ struct OverviewWindow: View {
     private struct ProfileBox: Identifiable { var id: Int64 }
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Picker("", selection: $model.period) {
                 ForEach(ReportPeriod.allCases, id: \.self) { period in
                     Text(period.label).tag(period)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(width: 200)
+            .frame(width: 190)
+            .fixedSize()
 
             Button {
                 model.shiftPeriod(-1)
@@ -56,16 +58,21 @@ struct OverviewWindow: View {
                 Image(systemName: "chevron.left")
             }
             Button("Vandaag") { model.anchor = Date() }
+                .fixedSize()
             Button {
                 model.shiftPeriod(1)
             } label: {
                 Image(systemName: "chevron.right")
             }
 
+            // Één regel, en mag krimpen voordat de knoppen dat doen.
             Text(rangeLabel)
                 .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(-1)
 
-            Spacer()
+            Spacer(minLength: 8)
 
             Picker("", selection: $model.profileFilter) {
                 Text("Alle organisaties").tag(Int64?.none)
@@ -73,7 +80,8 @@ struct OverviewWindow: View {
                     Text(item.profile.name).tag(Int64?.some(item.profile.id))
                 }
             }
-            .frame(width: 200)
+            .frame(width: 180)
+            .fixedSize()
         }
         .padding(10)
     }
@@ -84,8 +92,8 @@ struct OverviewWindow: View {
             TableColumn("Start") { Text(Formatting.clock($0.entry.startedAt)) }.width(50)
             TableColumn("Einde") { Text($0.entry.endedAt.map(Formatting.clock) ?? "—") }.width(50)
             TableColumn("Duur") { Text(Formatting.duration($0.entry.duration())) }.width(60)
-            TableColumn("Organisatie") { Text($0.profileName) }.width(120)
-            TableColumn("Project") { Text($0.projectLabel) }
+            TableColumn("Organisatie") { Text($0.profileName) }.width(min: 100, ideal: 120)
+            TableColumn("Project") { Text($0.projectLabel) }.width(min: 160, ideal: 220)
             TableColumn("Status") { row in
                 Text(row.entry.status.rawValue)
                     .foregroundStyle(row.entry.status == .open ? Color.orange : .secondary)
@@ -108,12 +116,19 @@ struct OverviewWindow: View {
 
             Spacer()
 
+            Button("Projecten…") {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "projecten")
+            }
+            .fixedSize()
+
             Menu("Blok toevoegen") {
                 ForEach(model.profiles, id: \.profile.id) { item in
                     Button(item.profile.name) { addingFor = item.profile.id }
                 }
             }
             .frame(width: 160)
+            .fixedSize()
         }
         .padding(10)
     }

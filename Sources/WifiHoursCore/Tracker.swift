@@ -33,9 +33,16 @@ public struct ProfileStatus: Sendable {
     public var runningEntry: TimeEntry?
     public var pendingStopAt: Date?
     public var elapsedCurrent: TimeInterval
+    /// Netto, dus na aftrek van de automatische pauze.
     public var todayTotal: TimeInterval
     public var weekTotal: TimeInterval
+    /// Wat er vandaag/deze week automatisch is afgetrokken; 0 als de regel uitstaat.
+    public var todayBreak: TimeInterval
+    public var weekBreak: TimeInterval
     public var attention: String?
+
+    public var todayRaw: TimeInterval { todayTotal + todayBreak }
+    public var weekRaw: TimeInterval { weekTotal + weekBreak }
 }
 
 public struct TrackerStatus: Sendable {
@@ -226,6 +233,19 @@ public final class Tracker {
         _ = try flagStaleEntries(now: now)
     }
 
+    // MARK: - Projecten
+
+    /// Maakt een project. Heeft het profiel nog geen actief project, dan wordt dit
+    /// het actieve project — anders zou de tracker bij binnenkomst nog steeds niet starten.
+    @discardableResult
+    public func createProject(profileId: Int64, number: String, name: String) throws -> Project {
+        let project = try store.createProject(profileId: profileId, number: number, name: name)
+        if try store.state(profileId: profileId).activeProjectId == nil {
+            _ = try selectProject(profileId: profileId, projectId: project.id)
+        }
+        return project
+    }
+
     // MARK: - Handmatige bediening
 
     @discardableResult
@@ -319,8 +339,6 @@ public final class Tracker {
 
     public func status(now: Date = Date()) throws -> TrackerStatus {
         var statuses: [ProfileStatus] = []
-        let today = Reporting.range(.day, containing: now)
-        let week = Reporting.range(.week, containing: now)
 
         for profile in try store.profiles(includeInactive: false) {
             let state = try store.state(profileId: profile.id)
@@ -338,11 +356,12 @@ public final class Tracker {
                 mode = .stopped
             }
 
-            let todayTotal = try store.entries(from: today.start, to: today.end, profileId: profile.id)
-                .reduce(0) { $0 + $1.duration(now: now) }
-            let weekTotal = try store.entries(from: week.start, to: week.end, profileId: profile.id)
-                .reduce(0) { $0 + $1.duration(now: now) }
-
+            let todayReport = try Reporting.report(
+                store: store, period: .day, containing: now, profileId: profile.id, now: now
+            )
+            let weekReport = try Reporting.report(
+                store: store, period: .week, containing: now, profileId: profile.id, now: now
+            )
             statuses.append(ProfileStatus(
                 profile: profile,
                 project: project,
@@ -350,8 +369,10 @@ public final class Tracker {
                 runningEntry: running,
                 pendingStopAt: state.pendingStopAt,
                 elapsedCurrent: running?.duration(now: now) ?? 0,
-                todayTotal: todayTotal,
-                weekTotal: weekTotal,
+                todayTotal: todayReport.netTotal,
+                weekTotal: weekReport.netTotal,
+                todayBreak: todayReport.breakDeduction,
+                weekBreak: weekReport.breakDeduction,
                 attention: state.attention
             ))
         }

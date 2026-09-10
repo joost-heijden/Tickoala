@@ -9,27 +9,37 @@ public enum CSVExport {
 
     /// Exporteert alle blokken die in [from, to) beginnen. Een lopend of open blok
     /// krijgt een leeg einde en de duur tot `now`, met de status erbij.
+    ///
+    /// Staat er automatische pauzeaftrek aan, dan komt er per klant per dag een
+    /// extra regel met een negatieve duur. De duur-kolom telt daardoor op tot de
+    /// netto uren; met `includeBreaks: false` krijg je puur de ruwe blokken.
     public static func export(
         store: Store,
         from: Date,
         to: Date,
         profileId: Int64? = nil,
-        now: Date = Date()
+        now: Date = Date(),
+        includeBreaks: Bool = true
     ) throws -> String {
         guard from < to else { throw TrackerError.invalidRange("de begindatum moet voor de einddatum liggen") }
 
         var profileCache: [Int64: Profile] = [:]
         var projectCache: [Int64: Project] = [:]
-        var lines = [row(header)]
+        let calendar = Formatting.calendar
+
+        func profile(_ id: Int64) throws -> Profile? {
+            if let cached = profileCache[id] { return cached }
+            let loaded = try store.profile(id: id)
+            if let loaded { profileCache[id] = loaded }
+            return loaded
+        }
+
+        // Regels krijgen een sorteersleutel, zodat de pauzeregel netjes achter de
+        // blokken van diezelfde klant op diezelfde dag terechtkomt.
+        var rows: [(day: Date, profileName: String, order: Int, fields: [String])] = []
 
         for entry in try store.entries(from: from, to: to, profileId: profileId) {
-            let profile: Profile?
-            if let cached = profileCache[entry.profileId] {
-                profile = cached
-            } else {
-                profile = try store.profile(id: entry.profileId)
-                if let profile { profileCache[entry.profileId] = profile }
-            }
+            let profile = try profile(entry.profileId)
 
             var project: Project?
             if let projectId = entry.projectId {
@@ -42,25 +52,66 @@ public enum CSVExport {
             }
 
             let duration = entry.duration(now: now)
-            lines.append(row([
-                String(entry.id),
-                profile?.name ?? "",
-                // De contextkolom toont alle wifi-contexten van het profiel, niet per se
-                // de specifieke SSID die dit blok startte (die staat in het eventlog).
-                profile?.contexts.joined(separator: "; ") ?? "",
-                project?.number ?? "",
-                project?.name ?? "",
-                Formatting.day(entry.startedAt),
-                Formatting.clock(entry.startedAt),
-                entry.endedAt.map(Formatting.clock) ?? "",
-                Formatting.decimalHours(duration),
-                String(Int(duration.rounded() / 60)),
-                entry.status.rawValue,
-                entry.source.rawValue,
-                entry.note ?? "",
-            ]))
+            rows.append((
+                day: calendar.startOfDay(for: entry.startedAt),
+                profileName: profile?.name ?? "",
+                order: Int(entry.startedAt.timeIntervalSince1970),
+                fields: [
+                    String(entry.id),
+                    profile?.name ?? "",
+                    // De contextkolom toont alle wifi-contexten van het profiel, niet per se
+                    // de specifieke SSID die dit blok startte (die staat in het eventlog).
+                    profile?.contexts.joined(separator: "; ") ?? "",
+                    project?.number ?? "",
+                    project?.name ?? "",
+                    Formatting.day(entry.startedAt),
+                    Formatting.clock(entry.startedAt),
+                    entry.endedAt.map(Formatting.clock) ?? "",
+                    Formatting.decimalHours(duration),
+                    String(Int(duration.rounded() / 60)),
+                    entry.status.rawValue,
+                    entry.source.rawValue,
+                    entry.note ?? "",
+                ]
+            ))
         }
-        return lines.joined(separator: "\n") + "\n"
+
+        if includeBreaks {
+            let deductions = try Reporting.breakDeductions(
+                store: store, from: from, to: to, profileId: profileId, now: now, calendar: calendar
+            )
+            for (key, seconds) in deductions {
+                let profile = try profile(key.profileId)
+                rows.append((
+                    day: key.day,
+                    profileName: profile?.name ?? "",
+                    order: Int.max,
+                    fields: [
+                        "",
+                        profile?.name ?? "",
+                        profile?.contexts.joined(separator: "; ") ?? "",
+                        "",
+                        "",
+                        Formatting.day(key.day),
+                        "",
+                        "",
+                        "-" + Formatting.decimalHours(seconds),
+                        "-" + String(Int(seconds.rounded() / 60)),
+                        "pauze",
+                        "regel",
+                        profile.map { "automatische pauzeaftrek (\($0.breakRule.summary))" } ?? "automatische pauzeaftrek",
+                    ]
+                ))
+            }
+        }
+
+        rows.sort {
+            if $0.day != $1.day { return $0.day < $1.day }
+            if $0.profileName != $1.profileName { return $0.profileName < $1.profileName }
+            return $0.order < $1.order
+        }
+
+        return ([row(header)] + rows.map { row($0.fields) }).joined(separator: "\n") + "\n"
     }
 
     static func row(_ fields: [String]) -> String {

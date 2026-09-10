@@ -73,7 +73,15 @@ enum Schema {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+        """,
+
+        // Automatische pauzeaftrek per klant. Staat standaard uit, zodat bestaande
+        // registraties ongewijzigd blijven tot de regel bewust wordt aangezet.
         """
+        ALTER TABLE profiles ADD COLUMN break_enabled INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE profiles ADD COLUMN break_minutes INTEGER NOT NULL DEFAULT 30;
+        ALTER TABLE profiles ADD COLUMN break_threshold_minutes INTEGER NOT NULL DEFAULT 360;
+        """,
     ]
 
     static func migrate(_ database: Database) throws {

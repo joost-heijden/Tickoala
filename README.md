@@ -113,6 +113,39 @@ database: `wifihours events`.
 Het einde van een blok is altijd het moment van het stopsignaal, niet het moment
 waarop de wachttijd afliep.
 
+## Automatische pauzeaftrek
+
+Per klant in te stellen: hoeveel pauze er van een werkdag af gaat, en vanaf
+hoeveel gewerkte uren dat geldt. Beide zijn los instelbaar; standaard staat de
+regel uit.
+
+```bash
+wifihours break list
+wifihours break set --profile "Efteling" --minutes 30 --threshold 6:00
+wifihours break set --profile "Efteling" --enabled false
+```
+
+In de app: menubalk → **Pauze-instellingen…**
+
+De regels:
+
+- de aftrek geldt **per klant per dag**, niet per blok — pauzeer je tussendoor,
+  dan wordt er nog steeds maar één keer afgetrokken;
+- de drempel telt **inclusief**: staat hij op 6:00, dan gaat bij precies 6 uur de
+  pauze er al af;
+- onder de drempel gaat er niets af;
+- er gaat nooit meer af dan er die dag gewerkt is, dus een dag wordt niet negatief.
+
+Belangrijk: dit is een **rekenregel over de ruwe blokken heen**. Je
+tijdregistraties worden er niet door aangepast, dus je kunt de regel altijd
+aanpassen of uitzetten — ook met terugwerkende kracht. Dag-, week- en
+maandtotalen, de menubalk en de export tonen netto; de verdeling per project
+blijft bruto, omdat pauze aan een dag hangt en niet aan een project.
+
+In de CSV-export komt de aftrek als een aparte regel met een negatieve duur
+(`status = pauze`, `bron = regel`), zodat de duur-kolom optelt tot de netto
+uren. Met `wifihours export --bruto` blijven alleen de ruwe blokken over.
+
 ## Menubalk
 
 De menubalk toont `Werkend`, `Pauze`, `Gestopt` of `Aandacht nodig`, met bij een
@@ -127,6 +160,12 @@ terwijl je op pauze staat, dan blijft de pauze staan tot je zelf hervat.
 Een projectwissel tijdens het werk sluit het lopende blok af en begint een nieuw
 blok op het nieuwe project, zodat tijd bij het juiste project blijft staan.
 
+**Projecten beheren…** (⌘P) opent een venster waarin je per organisatie
+projecten toevoegt, hernummert, hernoemt, activeert of deactiveert, en het
+actieve project kiest. Het eerste project van een organisatie wordt meteen het
+actieve project — zonder actief project start de tracker namelijk niet
+automatisch bij binnenkomst.
+
 **Overzicht en correcties…** opent een venster met het dag-, week- of
 maandoverzicht: totalen per project, alle blokken, het corrigeren van begin,
 einde, project en notitie, blokken toevoegen of verwijderen, en CSV-export van de
@@ -137,6 +176,7 @@ getoonde periode.
 ```bash
 wifihours status                 # ook --json
 wifihours report week            # of day / month, met --date en --profile
+wifihours break set --profile "Efteling" --minutes 30 --threshold 6:00
 wifihours entry list --period week
 wifihours entry add --number 2401 --start "2026-09-10 09:00" --end "2026-09-10 17:00" --note "vergeten te starten"
 wifihours entry edit --id 12 --end "2026-09-10 16:30"
@@ -166,7 +206,8 @@ swift build && .build/debug/WifiHoursChecks
 ```
 
 De suite dekt start, stop, pauze, hervatten, dubbele events, korte wifi-uitval,
-twee contexten tegelijk, projectkoppeling en -wissel, unieke projectnummers,
+twee contexten tegelijk, meerdere wifinetwerken per klant, projectkoppeling,
+-wissel en hernummeren, unieke projectnummers, automatische pauzeaftrek,
 herstarten met een open timer, dag-/week-/maandtotalen en CSV-export, en draait
 het echte adaptercommando als los proces.
 

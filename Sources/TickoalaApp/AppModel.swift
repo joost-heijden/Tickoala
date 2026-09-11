@@ -364,13 +364,29 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func deleteEntry(id: Int64) {
-        guard let tracker else { return }
+    @discardableResult
+    func duplicateEntry(id: Int64) -> Int64? {
+        guard let tracker else { return nil }
+        do {
+            let duplicate = try tracker.store.duplicateEntry(id: id)
+            refresh()
+            return duplicate.id
+        } catch {
+            errorMessage = "\(error)"
+            return nil
+        }
+    }
+
+    @discardableResult
+    func deleteEntry(id: Int64) -> Bool {
+        guard let tracker else { return false }
         do {
             try tracker.store.deleteEntry(id: id)
             refresh()
+            return true
         } catch {
             errorMessage = "\(error)"
+            return false
         }
     }
 

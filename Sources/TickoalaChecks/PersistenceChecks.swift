@@ -71,5 +71,59 @@ func persistenceChecks() {
             expect(try fixture.entries().isEmpty, "het blok is verwijderd")
             expectThrows({ try fixture.store.deleteEntry(id: 1) }, "een onbekend blok geeft een fout")
         }
+
+        test("blokken kunnen worden gedupliceerd") {
+            let fixture = try Fixture()
+            try fixture.project(fixture.profileA)
+            _ = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+            _ = try fixture.tracker.stop(profileId: fixture.profileA.id, now: at("2026-09-10 12:00"))
+            try fixture.store.updateEntry(id: 1, note: .some("nagekomen overleg"))
+
+            let origineel = try expectNotNil(try fixture.store.entry(id: 1))
+            let kopie = try expectNotNil(try fixture.store.duplicateEntry(id: 1))
+
+            expect(kopie.id != origineel.id, "een kopie krijgt een nieuw id")
+            expectEqual(kopie.profileId, origineel.profileId)
+            expectEqual(kopie.projectId, origineel.projectId)
+            expectEqual(kopie.startedAt, origineel.startedAt)
+            expectEqual(kopie.endedAt, origineel.endedAt)
+            expectEqual(kopie.status, origineel.status)
+            expectEqual(kopie.source, origineel.source)
+            expectEqual(kopie.note, origineel.note)
+            expectEqual(try fixture.entries().count, 2, "het origineel blijft staan")
+        }
+
+        test("een lopend blok kan niet worden gedupliceerd") {
+            let fixture = try Fixture()
+            try fixture.project(fixture.profileA)
+            _ = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+
+            expectThrows({ _ = try fixture.store.duplicateEntry(id: 1) }, "een lopend blok wordt geweigerd")
+            expectEqual(try fixture.entries().count, 1, "er wordt geen kopie aangemaakt")
+        }
+
+        test("een open blok kan wel worden gedupliceerd") {
+            let fixture = try Fixture()
+            try fixture.project(fixture.profileA)
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id,
+                projectId: nil,
+                startedAt: at("2026-09-10 09:00"),
+                endedAt: nil,
+                status: .open,
+                source: .manual,
+                note: nil
+            )
+
+            let kopie = try expectNotNil(try fixture.store.duplicateEntry(id: 1))
+            expectEqual(kopie.status, .open)
+            expect(kopie.endedAt == nil, "een open blok houdt geen einde")
+            expectEqual(try fixture.entries().count, 2)
+        }
+
+        test("een onbekend blok kan niet worden gedupliceerd") {
+            let fixture = try Fixture()
+            expectThrows({ _ = try fixture.store.duplicateEntry(id: 42) }, "een onbekend blok wordt geweigerd")
+        }
     }
 }

@@ -389,6 +389,22 @@ public final class Store {
         try database.run("DELETE FROM time_entries WHERE id = ?;", [.int(id)])
     }
 
+    public func duplicateEntry(id: Int64) throws -> TimeEntry {
+        guard let entry = try self.entry(id: id) else { throw TrackerError.unknownEntry(id) }
+        guard entry.status != .running else {
+            throw TrackerError.invalidRange("een lopend blok kan niet worden gedupliceerd")
+        }
+        return try createEntry(
+            profileId: entry.profileId,
+            projectId: entry.projectId,
+            startedAt: entry.startedAt,
+            endedAt: entry.endedAt,
+            status: entry.status,
+            source: entry.source,
+            note: entry.note
+        )
+    }
+
     // MARK: - Eventlog
 
     /// Legt het event vast. Geeft `false` terug als de sleutel al bestond (herhaling).

@@ -7,6 +7,11 @@ struct OverviewWindow: View {
     @Environment(\.openWindow) private var openWindow
     @State private var selection: Int64?
     @State private var addingFor: Int64?
+    /// Sneltoetsen mogen alleen vuren als de tabel de actieve kant is; staat de
+    /// cursor in het correctieformulier, dan wint dat formulier.
+    @FocusState private var tableFocused: Bool
+    @State private var confirmDelete = false
+    @State private var deleteTarget: Int64?
 
     var body: some View {
         HSplitView {
@@ -34,6 +39,24 @@ struct OverviewWindow: View {
             }
         }
         .frame(minWidth: 900, minHeight: 460)
+        // Een verdwenen blok (andere periode, weggegooid) mag niet geselecteerd
+        // blijven staan; anders wijst het formulier naar iets dat er niet meer is.
+        .onChange(of: model.overviewEntries.map { $0.id }) { ids in
+            if let selection, !ids.contains(selection) {
+                self.selection = nil
+            }
+        }
+        .confirmationDialog("Blok \(deleteTarget ?? 0) verwijderen?", isPresented: $confirmDelete) {
+            Button("Verwijderen", role: .destructive) {
+                if let id = deleteTarget, model.deleteEntry(id: id) {
+                    selection = nil
+                    deleteTarget = nil
+                }
+            }
+            Button("Annuleren", role: .cancel) { deleteTarget = nil }
+        } message: {
+            Text("Deze actie kan niet ongedaan worden gemaakt.")
+        }
         .sheet(item: Binding(get: { addingFor.map(ProfileBox.init) }, set: { addingFor = $0?.id })) { box in
             AddEntrySheet(model: model, profileId: box.id) { addingFor = nil }
         }
@@ -82,12 +105,33 @@ struct OverviewWindow: View {
             }
             .frame(width: 180)
             .fixedSize()
+
+            Divider()
+
+            Button {
+                duplicateSelectedEntry()
+            } label: {
+                Image(systemName: "plus.on.rectangle")
+                    .accessibilityLabel("Dupliceer")
+            }
+            .help("Dupliceer het geselecteerde blok (⌘D)")
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(!canDuplicate || !tableFocused)
+
+            Button {
+                deleteSelectedEntry()
+            } label: {
+                Image(systemName: "trash")
+                    .accessibilityLabel("Verwijder")
+            }
+            .help("Verwijder het geselecteerde blok (Delete)")
+            .disabled(!canDelete || !tableFocused)
         }
         .padding(10)
     }
 
     private var table: some View {
-        Table(model.overviewEntries, selection: $selection) {
+        Table(of: AppModel.EntryRow.self, selection: $selection) {
             TableColumn("Datum") { Text(Formatting.day($0.entry.startedAt)) }.width(90)
             TableColumn("Start") { Text(Formatting.clock($0.entry.startedAt)) }.width(50)
             TableColumn("Einde") { Text($0.entry.endedAt.map(Formatting.clock) ?? "—") }.width(50)
@@ -100,7 +144,23 @@ struct OverviewWindow: View {
             }.width(80)
             TableColumn("Bron") { Text($0.entry.source.rawValue).foregroundStyle(.secondary) }.width(90)
             TableColumn("Notitie") { Text($0.entry.note ?? "") }
+        } rows: {
+            ForEach(model.overviewEntries) { row in
+                TableRow(row)
+                    .contextMenu {
+                        Button("Bewerk") { selection = row.id }
+                        Button("Dupliceer") { duplicateSelectedEntry(row.id) }
+                            .disabled(row.entry.status == .running)
+                        Divider()
+                        Button("Verwijder", role: .destructive) { requestDelete(row.id) }
+                    }
+            }
         }
+        // Alleen met de tabel als eerste aanspreekpunt werken Delete en ⌘D; anders
+        // zou Backspace in de notitie een hele regel wissen.
+        .focusable()
+        .focused($tableFocused)
+        .onDeleteCommand { deleteSelectedEntry() }
     }
 
     private var footer: some View {
@@ -116,7 +176,7 @@ struct OverviewWindow: View {
 
             Spacer()
 
-            Button("Projecten…") {
+            Button("Projecten") {
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "projecten")
             }
@@ -140,6 +200,42 @@ struct OverviewWindow: View {
         case .day: return Formatting.day(range.start)
         case .week, .month: return "\(Formatting.day(range.start)) t/m \(Formatting.day(last))"
         }
+    }
+
+    private var selectedRow: AppModel.EntryRow? {
+        guard let selection else { return nil }
+        return model.overviewEntries.first(where: { $0.id == selection })
+    }
+
+    /// Een lopend blok heeft nog geen einde en kan dus niet worden gekopieerd.
+    private var canDuplicate: Bool {
+        selectedRow.map { $0.entry.status != .running } ?? false
+    }
+
+    private var canDelete: Bool { selectedRow != nil }
+
+    /// Dupliceren vanaf het toetsenbord of de knoppen: alleen als de tabel de
+    /// actieve kant is, zodat ⌘D niet afgaat terwijl het formulier focus heeft.
+    private func duplicateSelectedEntry() {
+        guard tableFocused, let id = selectedRow?.id else { return }
+        duplicateSelectedEntry(id)
+    }
+
+    private func duplicateSelectedEntry(_ id: Int64) {
+        guard let duplicateID = model.duplicateEntry(id: id) else { return }
+        selection = duplicateID
+    }
+
+    private func deleteSelectedEntry() {
+        guard tableFocused, let id = selectedRow?.id else { return }
+        requestDelete(id)
+    }
+
+    /// Verwijderen is onomkeerbaar, dus eerst een bevestiging.
+    private func requestDelete(_ id: Int64) {
+        guard model.overviewEntries.contains(where: { $0.id == id }) else { return }
+        deleteTarget = id
+        confirmDelete = true
     }
 }
 

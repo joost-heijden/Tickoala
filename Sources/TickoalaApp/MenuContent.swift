@@ -16,14 +16,14 @@ struct MenuContent: View {
         Section("Wifi") {
             if let explanation = model.wifi.access.explanation {
                 Text("⚠︎ \(explanation)")
-                Button("Toegang tot Locatievoorzieningen regelen…") {
+                Button("Toegang tot Locatievoorzieningen regelen") {
                     NSApp.activate(ignoringOtherApps: true)
                     model.wifi.requestAccess()
                 }
             } else if let ssid = model.wifi.currentSSID {
                 Text("Netwerk: \(ssid)\(model.isKnownNetwork(ssid) ? "" : " (niet gekoppeld)")")
                 if !model.isKnownNetwork(ssid) {
-                    Menu("Koppel \(ssid) aan…") {
+                    Menu("Koppel \(ssid) aan") {
                         ForEach(model.profiles, id: \.profile.id) { item in
                             Button(item.profile.name) {
                                 model.linkCurrentNetwork(to: item.profile.id)
@@ -79,7 +79,7 @@ struct MenuContent: View {
                         }
                     }
                     Divider()
-                    Button("Projecten beheren…") {
+                    Button("Projecten beheren") {
                         NSApp.activate(ignoringOtherApps: true)
                         openWindow(id: "projecten")
                     }
@@ -99,24 +99,24 @@ struct MenuContent: View {
 
         Divider()
 
-        Button("Overzicht en correcties…") {
+        Button("Overzicht en correcties") {
             NSApp.activate(ignoringOtherApps: true)
             openWindow(id: "overzicht")
         }
         .keyboardShortcut("o")
 
-        Button("Projecten beheren…") {
+        Button("Projecten beheren") {
             NSApp.activate(ignoringOtherApps: true)
             openWindow(id: "projecten")
         }
         .keyboardShortcut("p")
 
-        Button("Pauze-instellingen…") {
+        Button("Pauze-instellingen") {
             NSApp.activate(ignoringOtherApps: true)
             openWindow(id: "pauze")
         }
 
-        Button("Exporteer CSV…") { exportCSV() }
+        Button("Exporteer CSV") { exportCSV() }
             .keyboardShortcut("e")
 
         if let error = model.errorMessage {

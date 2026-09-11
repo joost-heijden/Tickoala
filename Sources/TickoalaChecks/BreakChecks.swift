@@ -182,7 +182,7 @@ func breakChecks() {
             let row = try expectNotNil(status.profiles.first(where: { $0.profile.id == fixture.profileA.id }))
             expectEqual(row.todayTotal, 7.5 * 3600, "net")
             expectEqual(row.todayBreak, 30 * 60)
-            expectEqual(row.todayRaw, 8 * 3600, "gross stays retrievable")
+            expectEqual(row.todayTotal + row.todayBreak, 8 * 3600, "gross stays retrievable")
         }
 
         test("export puts the break as a separate row with a negative duration") {

@@ -40,9 +40,6 @@ public struct ProfileStatus: Sendable {
     public var todayBreak: TimeInterval
     public var weekBreak: TimeInterval
     public var attention: String?
-
-    public var todayRaw: TimeInterval { todayTotal + todayBreak }
-    public var weekRaw: TimeInterval { weekTotal + weekBreak }
 }
 
 public struct TrackerStatus: Sendable {

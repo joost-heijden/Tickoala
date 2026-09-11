@@ -314,12 +314,12 @@ struct EntryEditor: View {
 
         // By default a half hour of break around the middle, so something sensible
         // is there immediately without the user having to calculate.
-        let begin = row.entry.startedAt
-        let end = row.entry.endedAt ?? begin.addingTimeInterval(3600)
-        let middle = begin.addingTimeInterval(end.timeIntervalSince(begin) / 2)
-        let length = min(30 * 60, max(0, end.timeIntervalSince(middle)))
-        _pauseStart = State(initialValue: middle)
-        _pauseEnd = State(initialValue: middle.addingTimeInterval(length))
+        let breakWindow = defaultBreak(
+            start: row.entry.startedAt,
+            end: row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600)
+        )
+        _pauseStart = State(initialValue: breakWindow.start)
+        _pauseEnd = State(initialValue: breakWindow.end)
     }
 
     var body: some View {
@@ -425,9 +425,9 @@ struct AddEntrySheet: View {
         // immediately without the user having to calculate.
         let begin = Formatting.calendar.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
         let finish = Formatting.calendar.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
-        let middle = begin.addingTimeInterval(finish.timeIntervalSince(begin) / 2)
-        _pauseStart = State(initialValue: middle)
-        _pauseEnd = State(initialValue: middle.addingTimeInterval(30 * 60))
+        let breakWindow = defaultBreak(start: begin, end: finish)
+        _pauseStart = State(initialValue: breakWindow.start)
+        _pauseEnd = State(initialValue: breakWindow.end)
     }
 
     var body: some View {
@@ -468,10 +468,9 @@ struct AddEntrySheet: View {
         // With a changed start/end the break should still fall in the block.
         .onChange(of: hasBreak) { on in
             guard on, end > start else { return }
-            let middle = start.addingTimeInterval(end.timeIntervalSince(start) / 2)
-            let length = min(30 * 60, max(0, end.timeIntervalSince(middle)))
-            pauseStart = middle
-            pauseEnd = middle.addingTimeInterval(length)
+            let window = defaultBreak(start: start, end: end)
+            pauseStart = window.start
+            pauseEnd = window.end
         }
     }
 
@@ -491,4 +490,11 @@ struct AddEntrySheet: View {
         }
         onClose()
     }
+}
+
+/// A half hour of break around the middle of the block, clipped to the end.
+private func defaultBreak(start: Date, end: Date) -> (start: Date, end: Date) {
+    let middle = start.addingTimeInterval(end.timeIntervalSince(start) / 2)
+    let length = min(30 * 60, max(0, end.timeIntervalSince(middle)))
+    return (middle, middle.addingTimeInterval(length))
 }

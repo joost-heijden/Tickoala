@@ -23,15 +23,6 @@ public struct TrackerSettings: Equatable, Sendable {
 
     static let keys = ["stop-grace-seconds", "dedupe-window-seconds", "max-entry-seconds"]
 
-    func value(for key: String) -> Int? {
-        switch key {
-        case "stop-grace-seconds": return stopGraceSeconds
-        case "dedupe-window-seconds": return dedupeWindowSeconds
-        case "max-entry-seconds": return maxEntrySeconds
-        default: return nil
-        }
-    }
-
     mutating func set(_ key: String, _ value: Int) -> Bool {
         switch key {
         case "stop-grace-seconds": stopGraceSeconds = value

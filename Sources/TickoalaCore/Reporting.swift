@@ -25,7 +25,6 @@ public struct DateRange: Equatable, Sendable {
 }
 
 public struct ProjectTotal: Equatable, Sendable {
-    public var projectId: Int64?
     public var label: String
     public var total: TimeInterval
 }
@@ -34,7 +33,6 @@ public struct ProjectTotal: Equatable, Sendable {
 /// calculated from the net hours (after break deduction), because that is what
 /// gets invoiced.
 public struct ProfileTotal: Equatable, Sendable {
-    public var profileId: Int64
     public var label: String
     /// Recorded time, before break deduction.
     public var total: TimeInterval
@@ -57,7 +55,6 @@ public struct DayTotal: Equatable, Sendable {
 }
 
 public struct Report: Sendable {
-    public var period: ReportPeriod
     public var range: DateRange
     /// Gross: everything in the blocks, without break deduction.
     public var total: TimeInterval
@@ -132,23 +129,15 @@ public enum Reporting {
         }
 
         var breakPerDay: [Date: TimeInterval] = [:]
-        var breakTotal: TimeInterval = 0
         var breakPerProfile: [Int64: TimeInterval] = [:]
-        var rules: [Int64: BreakRule] = [:]
-        for (key, worked) in perProfileDay {
-            let rule: BreakRule
-            if let cached = rules[key.profileId] {
-                rule = cached
-            } else {
-                rule = try loadProfile(key.profileId)?.breakRule ?? .default
-                rules[key.profileId] = rule
-            }
-            let deduction = rule.deduction(forDayTotal: worked)
-            guard deduction > 0 else { continue }
+        let breakPerProfileDay = try deductions(for: perProfileDay) {
+            try loadProfile($0)?.breakRule ?? .default
+        }
+        for (key, deduction) in breakPerProfileDay {
             breakPerDay[key.day, default: 0] += deduction
-            breakTotal += deduction
             breakPerProfile[key.profileId, default: 0] += deduction
         }
+        let breakTotal = breakPerProfileDay.values.reduce(0, +)
 
         var byProfile: [ProfileTotal] = []
         for (profileId, gross) in perProfileGross {
@@ -157,7 +146,6 @@ public enum Reporting {
             let net = max(0, gross - breakDeduction)
             let rate = profile?.hourlyRateCents ?? 0
             byProfile.append(ProfileTotal(
-                profileId: profileId,
                 label: profile?.name ?? "?",
                 total: gross,
                 breakDeduction: breakDeduction,
@@ -176,7 +164,7 @@ public enum Reporting {
             } else {
                 label = "(no project)"
             }
-            byProject.append(ProjectTotal(projectId: projectId, label: label, total: seconds))
+            byProject.append(ProjectTotal(label: label, total: seconds))
         }
         byProject.sort { ($0.total, $1.label) > ($1.total, $0.label) }
 
@@ -185,7 +173,6 @@ public enum Reporting {
             .sorted { $0.day < $1.day }
 
         return Report(
-            period: period,
             range: range,
             total: total,
             breakDeduction: breakTotal,
@@ -211,18 +198,26 @@ public enum Reporting {
             let key = ProfileDay(profileId: entry.profileId, day: calendar.startOfDay(for: entry.startedAt))
             worked[key, default: 0] += entry.duration(now: now)
         }
+        return try deductions(for: worked) { try store.profile(id: $0)?.breakRule ?? .default }
+    }
 
+    /// Break deduction per client per day, with each client's rule looked up once.
+    /// Only days with a positive deduction appear in the result.
+    static func deductions(
+        for worked: [ProfileDay: TimeInterval],
+        loadRule: (Int64) throws -> BreakRule
+    ) rethrows -> [ProfileDay: TimeInterval] {
         var rules: [Int64: BreakRule] = [:]
         var result: [ProfileDay: TimeInterval] = [:]
         for (key, total) in worked {
-            let rule: BreakRule
+            let deduction: TimeInterval
             if let cached = rules[key.profileId] {
-                rule = cached
+                deduction = cached.deduction(forDayTotal: total)
             } else {
-                rule = try store.profile(id: key.profileId)?.breakRule ?? .default
-                rules[key.profileId] = rule
+                let loaded = try loadRule(key.profileId)
+                rules[key.profileId] = loaded
+                deduction = loaded.deduction(forDayTotal: total)
             }
-            let deduction = rule.deduction(forDayTotal: total)
             if deduction > 0 { result[key] = deduction }
         }
         return result

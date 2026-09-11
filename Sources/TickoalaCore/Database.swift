@@ -105,21 +105,6 @@ public final class Database {
         return rows
     }
 
-    /// Runs `body` in a single transaction; on error everything is rolled back.
-    public func transaction<T>(_ body: () throws -> T) throws -> T {
-        try execute("BEGIN IMMEDIATE;")
-        do {
-            let value = try body()
-            try execute("COMMIT;")
-            return value
-        } catch {
-            try? execute("ROLLBACK;")
-            throw error
-        }
-    }
-
-    public var changes: Int32 { sqlite3_changes(handle) }
-
     private func prepare(_ sql: String, _ parameters: [SQLValue]) throws -> OpaquePointer? {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -157,12 +142,6 @@ public struct Row {
     public func int(_ column: String) -> Int64? {
         if case .int(let value)? = values[column] { return value }
         if case .double(let value)? = values[column] { return Int64(value) }
-        return nil
-    }
-
-    public func double(_ column: String) -> Double? {
-        if case .double(let value)? = values[column] { return value }
-        if case .int(let value)? = values[column] { return Double(value) }
         return nil
     }
 

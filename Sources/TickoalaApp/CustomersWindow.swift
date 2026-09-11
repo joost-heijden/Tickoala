@@ -101,53 +101,63 @@ private struct CustomerForm: View {
     var body: some View {
         Form {
             Section("Customer") {
-                TextField("Name", text: $name)
-                    .onSubmit { save() }
-                    .onChange(of: name) { _ in save() }
-                HStack {
-                    Text("Hourly rate")
-                    Spacer()
-                    // The empty title plus prompt keeps "0.00" from appearing as a
-                    // label next to the field; it is only an example.
-                    TextField("", text: $rateText, prompt: Text("0.00"))
-                        .labelsHidden()
-                        .frame(width: 90)
-                        .multilineTextAlignment(.trailing)
+                FormField(label: "Name") {
+                    TextField("", text: $name)
+                        .textFieldStyle(.roundedBorder)
                         .onSubmit { save() }
-                        .onChange(of: rateText) { _ in save() }
-                    Picker("", selection: $currency) {
-                        ForEach(Currency.allCases, id: \.self) { money in
-                            Text(money.label).tag(money)
+                        .onChange(of: name) { _ in save() }
+                }
+                FormField(label: "Hourly rate") {
+                    HStack(spacing: 8) {
+                        TextField("", text: $rateText, prompt: Text("0.00"))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 90)
+                            .multilineTextAlignment(.leading)
+                            .onSubmit { save() }
+                            .onChange(of: rateText) { _ in save() }
+                        Picker("", selection: $currency) {
+                            ForEach(Currency.allCases, id: \.self) { money in
+                                Text(money.label).tag(money)
+                            }
                         }
+                        .labelsHidden()
+                        .frame(width: 130)
+                        .onChange(of: currency) { _ in save() }
+                        Text("per hour")
+                            .foregroundStyle(.secondary)
                     }
-                    .labelsHidden()
-                    .frame(width: 130)
-                    .onChange(of: currency) { _ in save() }
-                    Text("per hour")
-                        .foregroundStyle(.secondary)
                 }
                 Toggle("Active", isOn: $active)
                     .onChange(of: active) { _ in save() }
             }
 
             Section("Invoicing") {
-                TextField("Billing address", text: $billingAddress, axis: .vertical)
-                    .lineLimit(2...4)
-                    .onChange(of: billingAddress) { _ in saveInvoicing() }
-                TextField("VAT number of the customer", text: $vatNumber)
-                    .onChange(of: vatNumber) { _ in saveInvoicing() }
-                HStack {
-                    Text("VAT rate")
-                    Spacer()
-                    Stepper(value: $vatRate, in: 0...100) {
-                        Text("\(vatRate) %").monospacedDigit()
-                    }
-                    .onChange(of: vatRate) { _ in saveInvoicing() }
+                FormFieldStacked(label: "Billing address") {
+                    TextField("", text: $billingAddress, axis: .vertical)
+                        .lineLimit(2...4)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: billingAddress) { _ in saveInvoicing() }
                 }
-                TextField("Invoice email", text: $billingEmail, prompt: Text("client@example.com"))
-                    .onChange(of: billingEmail) { _ in saveInvoicing() }
-                TextField("Default PO number", text: $poNumber)
-                    .onChange(of: poNumber) { _ in saveInvoicing() }
+                FormField(label: "VAT number") {
+                    TextField("", text: $vatNumber)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: vatNumber) { _ in saveInvoicing() }
+                }
+                Stepper(value: $vatRate, in: 0...100) {
+                    Text("VAT rate: \(vatRate) %")
+                        .monospacedDigit()
+                }
+                .onChange(of: vatRate) { _ in saveInvoicing() }
+                FormField(label: "Invoice email") {
+                    TextField("", text: $billingEmail, prompt: Text("client@example.com"))
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: billingEmail) { _ in saveInvoicing() }
+                }
+                FormField(label: "PO number") {
+                    TextField("", text: $poNumber)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: poNumber) { _ in saveInvoicing() }
+                }
             }
 
             Section("Wi-Fi networks") {
@@ -172,11 +182,14 @@ private struct CustomerForm: View {
                     }
                 }
 
-                HStack {
-                    TextField("Wi-Fi network name", text: $newContext)
-                        .onSubmit { addContext() }
-                    Button("Link") { addContext() }
-                        .disabled(newContext.trimmingCharacters(in: .whitespaces).isEmpty)
+                FormField(label: "Network") {
+                    HStack(spacing: 8) {
+                        TextField("", text: $newContext, prompt: Text("Wi-Fi network name"))
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { addContext() }
+                        Button("Link") { addContext() }
+                            .disabled(newContext.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
                 }
             }
 
@@ -215,14 +228,18 @@ private struct CustomerForm: View {
                     }
                 }
 
-                HStack(spacing: 8) {
-                    TextField("Number", text: $newProjectNumber)
-                        .frame(width: 90)
-                    TextField("Project name", text: $newProjectName)
-                        .onSubmit { addProject() }
-                    Button("Add") { addProject() }
-                        .disabled(newProjectNumber.trimmingCharacters(in: .whitespaces).isEmpty
-                                  || newProjectName.trimmingCharacters(in: .whitespaces).isEmpty)
+                FormField(label: "New project") {
+                    HStack(spacing: 8) {
+                        TextField("", text: $newProjectNumber, prompt: Text("Number"))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 90)
+                        TextField("", text: $newProjectName, prompt: Text("Project name"))
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { addProject() }
+                        Button("Add") { addProject() }
+                            .disabled(newProjectNumber.trimmingCharacters(in: .whitespaces).isEmpty
+                                      || newProjectName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
                 }
             }
 
@@ -327,27 +344,33 @@ private struct AddCustomerSheet: View {
     var body: some View {
         Form {
             Section("Add customer") {
-                TextField("Name", text: $name)
-                TextField("Wi-Fi networks", text: $contexts, prompt: Text("e.g. Acme-Guest, Acme-Staff"))
+                FormField(label: "Name") {
+                    TextField("", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                }
+                FormFieldStacked(label: "Wi-Fi networks") {
+                    TextField("", text: $contexts, prompt: Text("e.g. Acme-Guest, Acme-Staff"))
+                        .textFieldStyle(.roundedBorder)
+                }
                 Text("Separate multiple networks with a comma.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                HStack {
-                    Text("Hourly rate")
-                    Spacer()
-                    TextField("", text: $rateText, prompt: Text("0.00"))
-                        .labelsHidden()
-                        .frame(width: 90)
-                        .multilineTextAlignment(.trailing)
-                    Picker("", selection: $currency) {
-                        ForEach(Currency.allCases, id: \.self) { money in
-                            Text(money.label).tag(money)
+                FormField(label: "Hourly rate") {
+                    HStack(spacing: 8) {
+                        TextField("", text: $rateText, prompt: Text("0.00"))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 90)
+                            .multilineTextAlignment(.leading)
+                        Picker("", selection: $currency) {
+                            ForEach(Currency.allCases, id: \.self) { money in
+                                Text(money.label).tag(money)
+                            }
                         }
+                        .labelsHidden()
+                        .frame(width: 130)
+                        Text("per hour")
+                            .foregroundStyle(.secondary)
                     }
-                    .labelsHidden()
-                    .frame(width: 130)
-                    Text("per hour")
-                        .foregroundStyle(.secondary)
                 }
             }
 

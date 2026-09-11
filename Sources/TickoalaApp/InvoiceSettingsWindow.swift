@@ -15,13 +15,31 @@ struct InvoiceSettingsWindow: View {
     var body: some View {
         Form {
             Section("Sender") {
-                TextField("Name", text: binding(\.senderName))
-                TextField("Address", text: binding(\.senderAddress), axis: .vertical)
-                    .lineLimit(3...5)
-                TextField("KvK number", text: binding(\.senderKvk))
-                TextField("VAT number", text: binding(\.senderVatNumber))
-                TextField("IBAN", text: binding(\.senderIban))
-                TextField("Email", text: binding(\.senderEmail))
+                FormField(label: "Name") {
+                    TextField("", text: binding(\.senderName))
+                        .textFieldStyle(.roundedBorder)
+                }
+                FormFieldStacked(label: "Address") {
+                    TextField("", text: binding(\.senderAddress), axis: .vertical)
+                        .lineLimit(2...4)
+                        .textFieldStyle(.roundedBorder)
+                }
+                FormField(label: "KvK number") {
+                    TextField("", text: binding(\.senderKvk))
+                        .textFieldStyle(.roundedBorder)
+                }
+                FormField(label: "VAT number") {
+                    TextField("", text: binding(\.senderVatNumber))
+                        .textFieldStyle(.roundedBorder)
+                }
+                FormField(label: "IBAN") {
+                    TextField("", text: binding(\.senderIban))
+                        .textFieldStyle(.roundedBorder)
+                }
+                FormField(label: "Email") {
+                    TextField("", text: binding(\.senderEmail))
+                        .textFieldStyle(.roundedBorder)
+                }
             }
 
             Section("Payment") {
@@ -32,7 +50,10 @@ struct InvoiceSettingsWindow: View {
             }
 
             Section("Numbering") {
-                TextField("Prefix", text: binding(\.invoiceNumberPrefix), prompt: Text("e.g. 2026-"))
+                FormField(label: "Prefix") {
+                    TextField("", text: binding(\.invoiceNumberPrefix), prompt: Text("e.g. 2026-"))
+                        .textFieldStyle(.roundedBorder)
+                }
                 Stepper(value: binding(\.nextInvoiceNumber), in: 1...100000) {
                     Text("Next number: \(settings.nextNumberText)")
                         .monospacedDigit()
@@ -43,20 +64,30 @@ struct InvoiceSettingsWindow: View {
             }
 
             Section("Email (SMTP)") {
-                TextField("Server", text: binding(\.smtpHost), prompt: Text("smtp.example.com"))
-                HStack {
-                    Text("Port")
-                    Spacer()
-                    TextField("", value: binding(\.smtpPort), format: .number)
-                        .labelsHidden()
-                        .frame(width: 80)
-                        .multilineTextAlignment(.trailing)
+                FormField(label: "Server") {
+                    TextField("", text: binding(\.smtpHost), prompt: Text("smtp.example.com"))
+                        .textFieldStyle(.roundedBorder)
                 }
-                TextField("Username", text: binding(\.smtpUsername))
-                TextField("From address", text: binding(\.smtpFromEmail), prompt: Text("you@example.com"))
+                FormField(label: "Port") {
+                    TextField("", value: binding(\.smtpPort), format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 90)
+                        .multilineTextAlignment(.leading)
+                }
+                FormField(label: "Username") {
+                    TextField("", text: binding(\.smtpUsername))
+                        .textFieldStyle(.roundedBorder)
+                }
+                FormField(label: "From address") {
+                    TextField("", text: binding(\.smtpFromEmail), prompt: Text("you@example.com"))
+                        .textFieldStyle(.roundedBorder)
+                }
                 Toggle("Use TLS (port 465)", isOn: binding(\.smtpUseTLS))
-                SecureField("Password", text: $password)
-                    .onSubmit { Keychain.setSMTPPassword(password) }
+                FormField(label: "Password") {
+                    SecureField("", text: $password)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { Keychain.setSMTPPassword(password) }
+                }
                 HStack {
                     Text("The password is stored in the macOS Keychain, not in the database.")
                         .font(.caption)

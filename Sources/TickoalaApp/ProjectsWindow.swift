@@ -213,8 +213,14 @@ private struct AddProjectSheet: View {
     var body: some View {
         Form {
             Section("Add project") {
-                TextField("Project number", text: $number)
-                TextField("Project name", text: $name)
+                FormField(label: "Number", labelWidth: 110) {
+                    TextField("", text: $number)
+                        .textFieldStyle(.roundedBorder)
+                }
+                FormField(label: "Name", labelWidth: 110) {
+                    TextField("", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                }
                 Text("The project number is unique within this customer.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

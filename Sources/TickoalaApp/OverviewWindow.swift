@@ -335,8 +335,11 @@ struct EntryEditor: View {
                         Text(project.label).tag(Int64?.some(project.id))
                     }
                 }
-                TextField("Note", text: $note, axis: .vertical)
-                    .lineLimit(2...4)
+                FormFieldStacked(label: "Note") {
+                    TextField("", text: $note, axis: .vertical)
+                        .lineLimit(2...4)
+                        .textFieldStyle(.roundedBorder)
+                }
                 LabeledContent("Duration", value: Formatting.duration(hasEnd ? end.timeIntervalSince(start) : row.entry.duration()))
                 LabeledContent("Source", value: row.entry.source.rawValue)
             }
@@ -441,7 +444,10 @@ struct AddEntrySheet: View {
                         Text(project.label).tag(Int64?.some(project.id))
                     }
                 }
-                TextField("Note", text: $note)
+                FormField(label: "Note", labelWidth: 90) {
+                    TextField("", text: $note)
+                        .textFieldStyle(.roundedBorder)
+                }
                 LabeledContent("Duration", value: Formatting.duration(end.timeIntervalSince(start)))
             }
             Section("Break") {

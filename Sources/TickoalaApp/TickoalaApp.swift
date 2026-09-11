@@ -24,6 +24,11 @@ struct TickoalaApp: App {
         }
         .defaultSize(width: 760, height: 460)
 
+        Window("Klanten", id: "klanten") {
+            CustomersWindow(model: model)
+        }
+        .defaultSize(width: 820, height: 520)
+
         Window("Pauze-instellingen", id: "pauze") {
             BreakWindow(model: model)
         }

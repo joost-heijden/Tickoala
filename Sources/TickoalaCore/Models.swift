@@ -39,25 +39,39 @@ public struct BreakRule: Equatable, Sendable {
 
 /// Een organisatie/profiel. Kan aan meerdere ControlPlane-contexten (wifinetwerken)
 /// hangen, bijvoorbeeld een gast- en een personeelsnetwerk bij dezelfde klant.
+/// Het uurtarief wordt in hele centen bewaard, zodat er nooit afrondingsfouten
+/// in bedragen sluipen.
 public struct Profile: Equatable, Identifiable, Sendable {
     public var id: Int64
     public var name: String
     public var contexts: [String]
     public var active: Bool
     public var breakRule: BreakRule
+    public var hourlyRateCents: Int
 
     public init(
         id: Int64,
         name: String,
         contexts: [String],
         active: Bool = true,
-        breakRule: BreakRule = .default
+        breakRule: BreakRule = .default,
+        hourlyRateCents: Int = 0
     ) {
         self.id = id
         self.name = name
         self.contexts = contexts
         self.active = active
         self.breakRule = breakRule
+        self.hourlyRateCents = hourlyRateCents
+    }
+
+    /// Is er een tarief ingesteld waarmee gerekend kan worden?
+    public var hasHourlyRate: Bool { hourlyRateCents > 0 }
+
+    /// Bedrag voor een aantal gewerkte seconden bij dit tarief, in centen.
+    public func amountCents(for interval: TimeInterval) -> Int {
+        guard hourlyRateCents > 0, interval > 0 else { return 0 }
+        return Int((interval / 3600 * Double(hourlyRateCents)).rounded())
     }
 
     /// Weergave in lijsten: alle gekoppelde wifi-contexten op een rij.

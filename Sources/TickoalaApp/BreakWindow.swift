@@ -9,7 +9,7 @@ struct BreakWindow: View {
         VStack(spacing: 0) {
             if model.profiles.isEmpty {
                 Spacer()
-                Text("Nog geen organisatie ingesteld.")
+                Text("Nog geen klant ingesteld.")
                     .font(.headline)
                     .foregroundStyle(.secondary)
                 Spacer()

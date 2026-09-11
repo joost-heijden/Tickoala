@@ -123,7 +123,7 @@ func adapterChecks() {
             expectEqual(resultaat.status, 0, "uitvoer: \(resultaat.output)")
 
             let csv = try String(contentsOfFile: csvPad, encoding: .utf8)
-            expect(csv.contains("2401,Migratie,2026-09-10,09:00,17:00,8.00,480,completed,manual,handmatig blok"), "inhoud: \(csv)")
+            expect(csv.contains("2401,Migratie,2026-09-10,09:00,17:00,8.00,480,0.00,0.00,completed,manual,handmatig blok"), "inhoud: \(csv)")
         }
 
         test("een blok bijwerken via de opdrachtregel corrigeert de duur") {

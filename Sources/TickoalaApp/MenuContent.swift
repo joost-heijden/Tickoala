@@ -55,6 +55,24 @@ struct MenuContent: View {
 
         Divider()
 
+        if !model.profiles.isEmpty {
+            // Meteen de klant kiezen: het menu opent het Klanten-venster met die
+            // klant geselecteerd, zodat je niet eerst hoeft te zoeken.
+            Menu("Klant: \(model.selectedCustomer?.name ?? "geen")") {
+                ForEach(model.profiles, id: \.profile.id) { item in
+                    Button(item.profile.id == model.selectedCustomerId
+                           ? "✓ \(item.profile.name)"
+                           : "   \(item.profile.name)") {
+                        model.selectedCustomerId = item.profile.id
+                        NSApp.activate(ignoringOtherApps: true)
+                        openWindow(id: "klanten")
+                    }
+                }
+                Divider()
+                Button("Klanten beheren") { openCustomers() }
+            }
+        }
+
         ForEach(model.profiles, id: \.profile.id) { item in
             Section(item.profile.name) {
                 Text(headline(for: item))
@@ -82,6 +100,10 @@ struct MenuContent: View {
                     Button("Projecten beheren") {
                         NSApp.activate(ignoringOtherApps: true)
                         openWindow(id: "projecten")
+                    }
+                    Button("Klant beheren") {
+                        model.selectedCustomerId = item.profile.id
+                        openCustomers()
                     }
                 }
 
@@ -111,6 +133,9 @@ struct MenuContent: View {
         }
         .keyboardShortcut("p")
 
+        Button("Klanten beheren") { openCustomers() }
+            .keyboardShortcut("k")
+
         Button("Pauze-instellingen") {
             NSApp.activate(ignoringOtherApps: true)
             openWindow(id: "pauze")
@@ -137,6 +162,10 @@ struct MenuContent: View {
 
         Divider()
 
+        Button("Open op GitHub") {
+            NSWorkspace.shared.open(UpdateChecker.repositoryURL)
+        }
+
         Button("Stop Tickoala") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
@@ -149,6 +178,11 @@ struct MenuContent: View {
         case .paused, .stopped, .attention:
             return item.mode.label
         }
+    }
+
+    private func openCustomers() {
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: "klanten")
     }
 
     private func exportCSV() {

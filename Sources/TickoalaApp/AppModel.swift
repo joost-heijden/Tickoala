@@ -12,6 +12,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var allProjectsPerProfile: [Int64: [Project]] = [:]
     @Published var errorMessage: String?
 
+    /// Welke klant het Klanten-venster toont en waar de Projecten op openen.
+    @Published var selectedCustomerId: Int64?
+
     // Overzichtsvenster
     @Published var period: ReportPeriod = .day {
         didSet { reloadOverview() }
@@ -25,6 +28,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var overviewEntries: [EntryRow] = []
     @Published private(set) var overviewTotal: TimeInterval = 0
     @Published private(set) var overviewByProject: [ProjectTotal] = []
+    @Published private(set) var overviewByProfile: [ProfileTotal] = []
+    @Published private(set) var overviewAmountCents: Int = 0
 
     /// Bron van de start/stop-signalen: de app kijkt zelf naar het wifinetwerk.
     let wifi = WifiWatcher()
@@ -44,7 +49,15 @@ final class AppModel: ObservableObject {
         var entry: TimeEntry
         var profileName: String
         var projectLabel: String
+        var hourlyRateCents: Int
         var id: Int64 { entry.id }
+
+        /// Brutobedrag van dit blok bij het tarief van de klant; de pauzeaftrek
+        /// staat als aparte regel in de export, niet hier.
+        var amountCents: Int {
+            guard hourlyRateCents > 0 else { return 0 }
+            return Int((entry.duration() / 3600 * Double(hourlyRateCents)).rounded())
+        }
     }
 
     struct WifiProjectSelection: Equatable {
@@ -136,7 +149,16 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = "\(error)"
         }
+        ensureSelectedCustomer()
         reloadOverview()
+    }
+
+    /// Houdt de gekozen klant geldig: verdwijnt die (of is er nog niets gekozen),
+    /// dan schuift de keuze naar de eerste klant.
+    private func ensureSelectedCustomer() {
+        let ids = profiles.map { $0.profile.id }
+        if let selectedCustomerId, ids.contains(selectedCustomerId) { return }
+        selectedCustomerId = ids.first
     }
 
     // MARK: - Wifi
@@ -174,6 +196,92 @@ final class AppModel: ObservableObject {
 
     func cancelWifiProjectSelection() {
         pendingWifiProjectSelection = nil
+    }
+
+    // MARK: - Klantbeheer
+
+    /// Voegt een klant toe met minstens één wifinetwerk. Geeft `false` terug bij
+    /// ongeldige invoer of een netwerk dat al aan een andere klant hangt.
+    @discardableResult
+    func addCustomer(name: String, contexts: [String], hourlyRateCents: Int) -> Bool {
+        guard let tracker else { return false }
+        let name = name.trimmingCharacters(in: .whitespaces)
+        let cleaned = contexts
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !name.isEmpty else {
+            errorMessage = "Vul een naam voor de klant in."
+            return false
+        }
+        guard !cleaned.isEmpty else {
+            errorMessage = "Koppel minstens één wifinetwerk aan de klant."
+            return false
+        }
+        do {
+            let profile = try tracker.store.createProfile(name: name, contexts: cleaned, hourlyRateCents: hourlyRateCents)
+            selectedCustomerId = profile.id
+            refresh()
+            return true
+        } catch {
+            errorMessage = "\(error)"
+            return false
+        }
+    }
+
+    func updateCustomer(id: Int64, name: String, hourlyRateCents: Int) {
+        guard let tracker else { return }
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else {
+            errorMessage = "De klantnaam mag niet leeg zijn."
+            return
+        }
+        do {
+            try tracker.store.updateProfile(id: id, name: name, hourlyRateCents: hourlyRateCents)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func setCustomerActive(id: Int64, active: Bool) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.updateProfile(id: id, active: active)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func addCustomerContext(profileId: Int64, context: String) {
+        guard let tracker else { return }
+        let context = context.trimmingCharacters(in: .whitespaces)
+        guard !context.isEmpty else { return }
+        do {
+            _ = try tracker.store.addContext(profileId: profileId, context: context)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func removeCustomerContext(profileId: Int64, context: String) {
+        guard let tracker else { return }
+        do {
+            _ = try tracker.store.removeContext(profileId: profileId, context: context)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// De gekozen klant als `Profile`, of de eerste klant als er niets gekozen is.
+    var selectedCustomer: Profile? {
+        if let selectedCustomerId,
+           let match = profiles.first(where: { $0.profile.id == selectedCustomerId }) {
+            return match.profile
+        }
+        return profiles.first?.profile
     }
 
     // MARK: - Projectbeheer
@@ -293,14 +401,18 @@ final class AppModel: ObservableObject {
             let report = try Reporting.report(store: tracker.store, period: period, containing: anchor, profileId: profileFilter)
             let entries = try tracker.store.entries(from: report.range.start, to: report.range.end, profileId: profileFilter)
             overviewEntries = try entries.map { entry in
-                EntryRow(
+                let profile = try tracker.store.profile(id: entry.profileId)
+                return EntryRow(
                     entry: entry,
-                    profileName: try tracker.store.profile(id: entry.profileId)?.name ?? "?",
-                    projectLabel: try entry.projectId.flatMap { try tracker.store.project(id: $0) }?.label ?? "(geen project)"
+                    profileName: profile?.name ?? "?",
+                    projectLabel: try entry.projectId.flatMap { try tracker.store.project(id: $0) }?.label ?? "(geen project)",
+                    hourlyRateCents: profile?.hourlyRateCents ?? 0
                 )
             }
             overviewTotal = report.total
             overviewByProject = report.byProject
+            overviewByProfile = report.byProfile
+            overviewAmountCents = report.amountCents
         } catch {
             errorMessage = "\(error)"
         }
@@ -371,6 +483,20 @@ final class AppModel: ObservableObject {
             let duplicate = try tracker.store.duplicateEntry(id: id)
             refresh()
             return duplicate.id
+        } catch {
+            errorMessage = "\(error)"
+            return nil
+        }
+    }
+
+    /// Knipt een blok in tweeën rond een pauze en geeft het nieuwe (tweede) blok terug.
+    @discardableResult
+    func splitEntry(id: Int64, pauseStart: Date, pauseEnd: Date) -> Int64? {
+        guard let tracker else { return nil }
+        do {
+            let tweede = try tracker.store.splitEntry(id: id, pauseStart: pauseStart, pauseEnd: pauseEnd)
+            refresh()
+            return tweede.id
         } catch {
             errorMessage = "\(error)"
             return nil

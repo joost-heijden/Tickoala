@@ -32,6 +32,45 @@ public enum Formatting {
         String(format: "%.2f", max(0, interval) / 3600)
     }
 
+    /// Bedrag in centen als `€ 1.234,56`; het teken staat vóór het euroteken.
+    public static func money(cents: Int) -> String {
+        let sign = cents < 0 ? "-" : ""
+        let absolute = abs(cents)
+        return "\(sign)€ \(grouped(absolute / 100)),\(String(format: "%02d", absolute % 100))"
+    }
+
+    /// Bedrag in centen als `1234.56`, met punt als decimaalteken, voor de CSV.
+    public static func decimalAmount(cents: Int) -> String {
+        let sign = cents < 0 ? "-" : ""
+        let absolute = abs(cents)
+        return "\(sign)\(absolute / 100).\(String(format: "%02d", absolute % 100))"
+    }
+
+    /// Leest een ingevoerd tarief als `87,50`, `87.50` of `87` en geeft centen
+    /// terug. `nil` bij onleesbare of negatieve invoer.
+    public static func parseMoneyCents(_ input: String) -> Int? {
+        var text = input
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "€", with: "")
+            .replacingOccurrences(of: " ", with: "")
+        if text.contains(",") {
+            // Nederlandse notatie: punt is duizendtal, komma is decimaal.
+            text = text.replacingOccurrences(of: ".", with: "").replacingOccurrences(of: ",", with: ".")
+        }
+        guard !text.isEmpty, let value = Double(text), value >= 0 else { return nil }
+        return Int((value * 100).rounded())
+    }
+
+    private static func grouped(_ value: Int) -> String {
+        let digits = Array(String(value).reversed())
+        var result = ""
+        for (index, digit) in digits.enumerated() {
+            if index > 0, index % 3 == 0 { result.append(".") }
+            result.append(digit)
+        }
+        return String(result.reversed())
+    }
+
     /// Accepteert `2026-09-10 09:15`, `2026-09-10T09:15`, met of zonder seconden,
     /// en volledige ISO-8601 met tijdzone.
     public static func parseDate(_ input: String) -> Date? {

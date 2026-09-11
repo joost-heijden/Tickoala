@@ -17,6 +17,8 @@ final class UpdateChecker: ObservableObject {
     static let disabledKey = "update-controle-uit"
     /// Waar de gebruiker de nieuwe versie ophaalt.
     static let releasePageURL = URL(string: "https://github.com/joost-heijden/Tickoala/releases/latest")!
+    /// De projectpagina op GitHub.
+    static let repositoryURL = URL(string: "https://github.com/joost-heijden/Tickoala")!
 
     private static let latestReleaseURL = URL(string: "https://api.github.com/repos/joost-heijden/Tickoala/releases/latest")!
     private static let lastCheckKey = "update-laatst-gecontroleerd"

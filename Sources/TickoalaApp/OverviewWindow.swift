@@ -25,7 +25,12 @@ struct OverviewWindow: View {
             .frame(minWidth: 620)
 
             if let selection, let row = model.overviewEntries.first(where: { $0.id == selection }) {
-                EntryEditor(model: model, row: row) { self.selection = nil }
+                EntryEditor(
+                    model: model,
+                    row: row,
+                    onClose: { self.selection = nil },
+                    onSplit: { self.selection = $0 }
+                )
                     .id(row.id)
                     .frame(minWidth: 280, maxWidth: 360)
             } else {
@@ -98,7 +103,7 @@ struct OverviewWindow: View {
             Spacer(minLength: 8)
 
             Picker("", selection: $model.profileFilter) {
-                Text("Alle organisaties").tag(Int64?.none)
+                Text("Alle klanten").tag(Int64?.none)
                 ForEach(model.profiles, id: \.profile.id) { item in
                     Text(item.profile.name).tag(Int64?.some(item.profile.id))
                 }
@@ -106,12 +111,15 @@ struct OverviewWindow: View {
             .frame(width: 180)
             .fixedSize()
 
-            Divider()
+            // Vaste maat, anders rekt deze verticale streep de hele werkbalk op.
+            Rectangle()
+                .fill(.separator)
+                .frame(width: 1, height: 22)
 
             Button {
                 duplicateSelectedEntry()
             } label: {
-                Image(systemName: "plus.on.rectangle")
+                Image(systemName: "plus")
                     .accessibilityLabel("Dupliceer")
             }
             .help("Dupliceer het geselecteerde blok (⌘D)")
@@ -136,8 +144,12 @@ struct OverviewWindow: View {
             TableColumn("Start") { Text(Formatting.clock($0.entry.startedAt)) }.width(50)
             TableColumn("Einde") { Text($0.entry.endedAt.map(Formatting.clock) ?? "—") }.width(50)
             TableColumn("Duur") { Text(Formatting.duration($0.entry.duration())) }.width(60)
-            TableColumn("Organisatie") { Text($0.profileName) }.width(min: 100, ideal: 120)
+            TableColumn("Klant") { Text($0.profileName) }.width(min: 100, ideal: 120)
             TableColumn("Project") { Text($0.projectLabel) }.width(min: 160, ideal: 220)
+            TableColumn("Bedrag") { row in
+                Text(row.hourlyRateCents > 0 ? Formatting.money(cents: row.amountCents) : "—")
+                    .foregroundStyle(row.hourlyRateCents > 0 ? .primary : .secondary)
+            }.width(90)
             TableColumn("Status") { row in
                 Text(row.entry.status.rawValue)
                     .foregroundStyle(row.entry.status == .open ? Color.orange : .secondary)
@@ -167,6 +179,12 @@ struct OverviewWindow: View {
         HStack(spacing: 16) {
             Text("Totaal \(Formatting.duration(model.overviewTotal))  (\(Formatting.decimalHours(model.overviewTotal)) uur)")
                 .font(.headline)
+
+            if model.overviewAmountCents > 0 {
+                Text("Bedrag \(Formatting.money(cents: model.overviewAmountCents))")
+                    .font(.headline)
+                    .help("Netto uren × het uurtarief van de klant")
+            }
 
             ForEach(model.overviewByProject.prefix(4), id: \.label) { item in
                 Text("\(item.label): \(Formatting.duration(item.total))")
@@ -244,6 +262,8 @@ struct EntryEditor: View {
     @ObservedObject var model: AppModel
     let row: AppModel.EntryRow
     var onClose: () -> Void
+    /// Krijgt het id van het nieuwe tweede blok nadat er een pauze is ingevoegd.
+    var onSplit: (Int64) -> Void
 
     @State private var start: Date
     @State private var end: Date
@@ -251,16 +271,33 @@ struct EntryEditor: View {
     @State private var note: String
     @State private var projectId: Int64?
     @State private var confirmDelete = false
+    @State private var pauseStart: Date
+    @State private var pauseEnd: Date
 
-    init(model: AppModel, row: AppModel.EntryRow, onClose: @escaping () -> Void) {
+    init(
+        model: AppModel,
+        row: AppModel.EntryRow,
+        onClose: @escaping () -> Void,
+        onSplit: @escaping (Int64) -> Void
+    ) {
         self.model = model
         self.row = row
         self.onClose = onClose
+        self.onSplit = onSplit
         _start = State(initialValue: row.entry.startedAt)
         _end = State(initialValue: row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600))
         _hasEnd = State(initialValue: row.entry.endedAt != nil)
         _note = State(initialValue: row.entry.note ?? "")
         _projectId = State(initialValue: row.entry.projectId)
+
+        // Standaard een half uur pauze rond het midden, zodat er meteen iets
+        // zinnigs staat zonder dat de gebruiker hoeft te rekenen.
+        let begin = row.entry.startedAt
+        let einde = row.entry.endedAt ?? begin.addingTimeInterval(3600)
+        let midden = begin.addingTimeInterval(einde.timeIntervalSince(begin) / 2)
+        let lengte = min(30 * 60, max(0, einde.timeIntervalSince(midden)))
+        _pauseStart = State(initialValue: midden)
+        _pauseEnd = State(initialValue: midden.addingTimeInterval(lengte))
     }
 
     var body: some View {
@@ -288,20 +325,30 @@ struct EntryEditor: View {
             }
 
             HStack {
-                Button("Bewaren") {
-                    model.updateEntry(
-                        id: row.entry.id,
-                        projectId: projectId,
-                        start: start,
-                        end: hasEnd ? end : nil,
-                        note: note,
-                        status: hasEnd ? .completed : (row.entry.status == .running ? .running : .open)
-                    )
-                }
-                .keyboardShortcut(.defaultAction)
+                Button("Bewaren") { save() }
+                    .keyboardShortcut(.defaultAction)
 
                 Button("Verwijderen", role: .destructive) { confirmDelete = true }
                 Spacer()
+            }
+
+            if hasEnd {
+                Section("Pauze toevoegen") {
+                    DatePicker("Pauze begint", selection: $pauseStart)
+                    DatePicker("Pauze eindigt", selection: $pauseEnd)
+                    LabeledContent("Pauzeduur", value: Formatting.duration(max(0, pauseEnd.timeIntervalSince(pauseStart))))
+                    Button {
+                        // Eerst de correcties bewaren, dan pas splitsen: de pauze
+                        // wordt tegen de zojuist bewaarde begin en eind getoetst.
+                        save()
+                        if let tweede = model.splitEntry(id: row.entry.id, pauseStart: pauseStart, pauseEnd: pauseEnd) {
+                            onSplit(tweede)
+                        }
+                    } label: {
+                        Label("Pauze invoegen", systemImage: "pause.circle")
+                    }
+                    .disabled(!canSplit)
+                }
             }
         }
         .formStyle(.grouped)
@@ -312,6 +359,25 @@ struct EntryEditor: View {
             }
             Button("Annuleren", role: .cancel) {}
         }
+    }
+
+    /// Een pauze kan alleen binnen de (bewerkte) begin- en eindtijd vallen.
+    private var canSplit: Bool {
+        row.entry.status != .running
+            && pauseStart >= start
+            && pauseEnd <= end
+            && pauseStart < pauseEnd
+    }
+
+    private func save() {
+        model.updateEntry(
+            id: row.entry.id,
+            projectId: projectId,
+            start: start,
+            end: hasEnd ? end : nil,
+            note: note,
+            status: hasEnd ? .completed : (row.entry.status == .running ? .running : .open)
+        )
     }
 }
 

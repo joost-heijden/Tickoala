@@ -16,11 +16,15 @@ Status en onderhoud:
 
 Profielen (een profiel mag aan meerdere wifinetwerken hangen):
   tickoala profile list
-  tickoala profile add --name <naam> --context <ssid>[,ssid2,...]
-  tickoala profile edit --profile <naam|context> [--name x] [--active true|false]
+  tickoala profile add --name <naam> --context <ssid>[,ssid2,...] [--rate 87,50]
+  tickoala profile edit --profile <naam|context> [--name x] [--active true|false] [--rate 87,50]
   tickoala profile context list   --profile <naam|context>
   tickoala profile context add    --profile <naam|context> --context <ssid>[,ssid2,...]
   tickoala profile context remove --profile <naam|context> --context <ssid>[,ssid2,...]
+
+Uurtarief (per klant):
+  tickoala rate list
+  tickoala rate set --profile <naam> --rate 87,50
 
 Projecten:
   tickoala project list [--profile <naam>]
@@ -147,6 +151,9 @@ func run() throws {
     case "break":
         try runBreak(arguments)
 
+    case "rate":
+        try runRate(arguments)
+
     case "entry":
         try runEntry(arguments)
 
@@ -248,18 +255,21 @@ func runProfile(_ arguments: Arguments) throws {
         for profile in profiles {
             let state = try tracker.store.state(profileId: profile.id)
             let project = try state.activeProjectId.flatMap { try tracker.store.project(id: $0) }
-            print("\(profile.id)  \(profile.name)  contexten: \(profile.contextsLabel)  actief project: \(project?.label ?? "geen")\(profile.active ? "" : "  [inactief]")")
+            let rate = profile.hasHourlyRate ? "  uurtarief: \(Formatting.money(cents: profile.hourlyRateCents))" : ""
+            print("\(profile.id)  \(profile.name)  contexten: \(profile.contextsLabel)  actief project: \(project?.label ?? "geen")\(rate)\(profile.active ? "" : "  [inactief]")")
         }
     case "add":
         let contexts = contextsList(try arguments.require("context"))
-        let profile = try tracker.store.createProfile(name: try arguments.require("name"), contexts: contexts)
+        let rate = try optionalRateCents(arguments)
+        let profile = try tracker.store.createProfile(name: try arguments.require("name"), contexts: contexts, hourlyRateCents: rate ?? 0)
         print("profiel \(profile.id) aangemaakt: \(profile.name) → \(profile.contextsLabel)")
     case "edit":
         let profile = try resolveProfile(arguments, tracker.store)
         try tracker.store.updateProfile(
             id: profile.id,
             name: arguments.string("name"),
-            active: boolOption(arguments, "active")
+            active: boolOption(arguments, "active"),
+            hourlyRateCents: try optionalRateCents(arguments)
         )
         print("profiel \(profile.id) bijgewerkt")
     case "context":
@@ -405,6 +415,44 @@ func runBreak(_ arguments: Arguments) throws {
     }
 }
 
+// MARK: - Uurtarief
+
+/// Leest het optionele `--rate` als centen; `nil` als de optie ontbreekt.
+func optionalRateCents(_ arguments: Arguments) throws -> Int? {
+    guard let raw = arguments.string("rate") else { return nil }
+    guard let cents = Formatting.parseMoneyCents(raw) else {
+        throw CLIError.usage("kan het uurtarief niet lezen: '\(raw)' (gebruik bijvoorbeeld 87,50)")
+    }
+    return cents
+}
+
+func runRate(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    switch arguments.word(1) ?? "list" {
+    case "list":
+        let profiles = try tracker.store.profiles()
+        if profiles.isEmpty { print("nog geen profielen"); return }
+        for profile in profiles {
+            let text = profile.hasHourlyRate
+                ? "\(Formatting.money(cents: profile.hourlyRateCents)) per uur"
+                : "geen uurtarief"
+            print("\(profile.name): \(text)")
+        }
+    case "set":
+        let profile = try resolveProfile(arguments, tracker.store)
+        guard let raw = arguments.string("rate") else {
+            throw CLIError.usage("gebruik: tickoala rate set --profile <naam> --rate 87,50")
+        }
+        guard let cents = Formatting.parseMoneyCents(raw) else {
+            throw CLIError.usage("kan het uurtarief niet lezen: '\(raw)'")
+        }
+        try tracker.store.updateProfile(id: profile.id, hourlyRateCents: cents)
+        print("\(profile.name): \(Formatting.money(cents: cents)) per uur")
+    default:
+        throw CLIError.usage("gebruik: tickoala rate list|set")
+    }
+}
+
 // MARK: - Timer
 
 func runTimer(_ arguments: Arguments) throws {
@@ -537,6 +585,15 @@ func runReport(_ arguments: Arguments) throws {
         print("totaal: \(Formatting.duration(report.netTotal))  (\(Formatting.decimalHours(report.netTotal)) uur)")
     } else {
         print("totaal: \(Formatting.duration(report.total))  (\(Formatting.decimalHours(report.total)) uur)")
+    }
+    if report.amountCents > 0 {
+        print("bedrag: \(Formatting.money(cents: report.amountCents))")
+        let withRate = report.byProfile.filter { $0.hasHourlyRate }
+        if profile == nil, withRate.count > 1 {
+            for item in withRate {
+                print("  \(item.label): \(Formatting.money(cents: item.amountCents))")
+            }
+        }
     }
     if !report.byProject.isEmpty {
         print("per project:")

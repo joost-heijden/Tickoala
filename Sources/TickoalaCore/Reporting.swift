@@ -30,6 +30,21 @@ public struct ProjectTotal: Equatable, Sendable {
     public var total: TimeInterval
 }
 
+/// De uren van één klant binnen het venster, met het uurtarief erbij. Het bedrag
+/// rekent met de netto uren (na pauzeaftrek), want dat is wat er gefactureerd wordt.
+public struct ProfileTotal: Equatable, Sendable {
+    public var profileId: Int64
+    public var label: String
+    /// Geregistreerde tijd, vóór pauzeaftrek.
+    public var total: TimeInterval
+    public var breakDeduction: TimeInterval
+    public var hourlyRateCents: Int
+    public var amountCents: Int
+
+    public var net: TimeInterval { max(0, total - breakDeduction) }
+    public var hasHourlyRate: Bool { hourlyRateCents > 0 }
+}
+
 public struct DayTotal: Equatable, Sendable {
     public var day: Date
     /// Geregistreerde tijd, vóór pauzeaftrek.
@@ -49,11 +64,17 @@ public struct Report: Sendable {
     /// De per-project verdeling blijft bruto: pauze hangt aan een dag, niet aan een project.
     public var byProject: [ProjectTotal]
     public var byDay: [DayTotal]
+    /// De verdeling per klant, inclusief pauzeaftrek en het bedrag bij het tarief.
+    public var byProfile: [ProfileTotal]
     public var openCount: Int
     public var runningCount: Int
 
     /// Wat er onder de streep overblijft.
     public var netTotal: TimeInterval { max(0, total - breakDeduction) }
+
+    /// De som van de bedragen van alle klanten. Klanten zonder tarief tellen mee
+    /// met nul; is er nergens een tarief, dan is dit ook nul.
+    public var amountCents: Int { byProfile.reduce(0) { $0 + $1.amountCents } }
 }
 
 public enum Reporting {
@@ -87,6 +108,7 @@ public enum Reporting {
         var perDay: [Date: TimeInterval] = [:]
         // Pauze wordt per klant én per dag bepaald: elke klant heeft een eigen regel.
         var perProfileDay: [ProfileDay: TimeInterval] = [:]
+        var perProfileGross: [Int64: TimeInterval] = [:]
         var total: TimeInterval = 0
         for entry in entries {
             let duration = entry.duration(now: now)
@@ -95,24 +117,53 @@ public enum Reporting {
             perProject[entry.projectId, default: 0] += duration
             perDay[day, default: 0] += duration
             perProfileDay[ProfileDay(profileId: entry.profileId, day: day), default: 0] += duration
+            perProfileGross[entry.profileId, default: 0] += duration
+        }
+
+        // Klanten één keer ophalen; zowel de pauzeregel als het tarief hangt eraan.
+        var profileCache: [Int64: Profile] = [:]
+        func loadProfile(_ id: Int64) throws -> Profile? {
+            if let cached = profileCache[id] { return cached }
+            let loaded = try store.profile(id: id)
+            if let loaded { profileCache[id] = loaded }
+            return loaded
         }
 
         var breakPerDay: [Date: TimeInterval] = [:]
         var breakTotal: TimeInterval = 0
+        var breakPerProfile: [Int64: TimeInterval] = [:]
         var rules: [Int64: BreakRule] = [:]
         for (key, worked) in perProfileDay {
             let rule: BreakRule
             if let cached = rules[key.profileId] {
                 rule = cached
             } else {
-                rule = try store.profile(id: key.profileId)?.breakRule ?? .default
+                rule = try loadProfile(key.profileId)?.breakRule ?? .default
                 rules[key.profileId] = rule
             }
             let deduction = rule.deduction(forDayTotal: worked)
             guard deduction > 0 else { continue }
             breakPerDay[key.day, default: 0] += deduction
             breakTotal += deduction
+            breakPerProfile[key.profileId, default: 0] += deduction
         }
+
+        var byProfile: [ProfileTotal] = []
+        for (profileId, gross) in perProfileGross {
+            let profile = try loadProfile(profileId)
+            let breakDeduction = breakPerProfile[profileId] ?? 0
+            let net = max(0, gross - breakDeduction)
+            let rate = profile?.hourlyRateCents ?? 0
+            byProfile.append(ProfileTotal(
+                profileId: profileId,
+                label: profile?.name ?? "?",
+                total: gross,
+                breakDeduction: breakDeduction,
+                hourlyRateCents: rate,
+                amountCents: profile?.amountCents(for: net) ?? 0
+            ))
+        }
+        byProfile.sort { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
 
         var byProject: [ProjectTotal] = []
         for (projectId, seconds) in perProject {
@@ -137,6 +188,7 @@ public enum Reporting {
             breakDeduction: breakTotal,
             byProject: byProject,
             byDay: byDay,
+            byProfile: byProfile,
             openCount: entries.filter { $0.status == .open }.count,
             runningCount: entries.filter { $0.status == .running }.count
         )

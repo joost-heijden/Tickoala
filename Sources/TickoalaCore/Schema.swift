@@ -82,6 +82,12 @@ enum Schema {
         ALTER TABLE profiles ADD COLUMN break_minutes INTEGER NOT NULL DEFAULT 30;
         ALTER TABLE profiles ADD COLUMN break_threshold_minutes INTEGER NOT NULL DEFAULT 360;
         """,
+
+        // Uurtarief per klant, in hele centen. Nul betekent: nog geen tarief, er
+        // worden dan ook geen bedragen getoond.
+        """
+        ALTER TABLE profiles ADD COLUMN hourly_rate_cents INTEGER NOT NULL DEFAULT 0;
+        """,
     ]
 
     static func migrate(_ database: Database) throws {

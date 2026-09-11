@@ -1,15 +1,15 @@
 import SwiftUI
 import TickoalaCore
 
-/// Projectbeheer per organisatie: toevoegen, hernoemen, activeren en het
-/// actieve project kiezen. Projectnummers zijn uniek binnen één organisatie.
+/// Projectbeheer per klant: toevoegen, hernoemen, activeren en het
+/// actieve project kiezen. Projectnummers zijn uniek binnen één klant.
 struct ProjectsWindow: View {
     @ObservedObject var model: AppModel
-    @State private var selectedProfile: Int64?
+    @Environment(\.openWindow) private var openWindow
     @State private var showingAdd = false
 
     private var profileId: Int64? {
-        selectedProfile ?? model.profiles.first?.profile.id
+        model.selectedCustomerId ?? model.profiles.first?.profile.id
     }
 
     var body: some View {
@@ -31,22 +31,25 @@ struct ProjectsWindow: View {
                 AddProjectSheet(model: model, profileId: profileId) { showingAdd = false }
             }
         }
-        .onAppear {
-            if selectedProfile == nil { selectedProfile = model.profiles.first?.profile.id }
-        }
     }
 
     private var header: some View {
         HStack {
-            Picker("Organisatie", selection: Binding(
+            Picker("Klant", selection: Binding(
                 get: { profileId },
-                set: { selectedProfile = $0 }
+                set: { model.selectedCustomerId = $0 }
             )) {
                 ForEach(model.profiles, id: \.profile.id) { item in
                     Text(item.profile.name).tag(Int64?.some(item.profile.id))
                 }
             }
             .frame(maxWidth: 320)
+
+            Button("Klanten beheren") {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "klanten")
+            }
+            .fixedSize()
 
             Spacer()
 
@@ -63,12 +66,16 @@ struct ProjectsWindow: View {
     private var emptyState: some View {
         VStack(spacing: 8) {
             Spacer()
-            Text("Nog geen organisatie ingesteld.")
+            Text("Nog geen klant ingesteld.")
                 .font(.headline)
-            Text("Voeg er een toe met:\ntickoala profile add --name \"…\" --context \"SSID\"")
+            Text("Voeg er een toe in het venster Klanten.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            Button("Klanten beheren") {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "klanten")
+            }
             Spacer()
         }
         .padding()
@@ -82,7 +89,7 @@ struct ProjectsWindow: View {
             if projects.isEmpty {
                 VStack(spacing: 8) {
                     Spacer()
-                    Text("Deze organisatie heeft nog geen projecten.")
+                    Text("Deze klant heeft nog geen projecten.")
                         .font(.headline)
                     Text("Zonder project start de tracker niet automatisch bij binnenkomst.")
                         .font(.callout)
@@ -208,7 +215,7 @@ private struct AddProjectSheet: View {
             Section("Project toevoegen") {
                 TextField("Projectnummer", text: $number)
                 TextField("Projectnaam", text: $name)
-                Text("Het projectnummer is uniek binnen deze organisatie.")
+                Text("Het projectnummer is uniek binnen deze klant.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

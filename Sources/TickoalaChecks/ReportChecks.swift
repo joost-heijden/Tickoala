@@ -71,7 +71,7 @@ func reportChecks() {
 
             expectEqual(regels.count, 3, "koprij plus twee blokken")
             expect(regels[0].hasPrefix("id,profiel,context,projectnummer,projectnaam,datum,start,einde"), "koprij: \(regels[0])")
-            expect(regels[1].contains("2401,Migratie,2026-09-10,09:00,12:00,3.00,180,completed,controlplane"), "blokregel: \(regels[1])")
+            expect(regels[1].contains("2401,Migratie,2026-09-10,09:00,12:00,3.00,180,0.00,0.00,completed,controlplane"), "blokregel: \(regels[1])")
             expect(regels[2].contains("\"correctie, komma en \"\"aanhalingstekens\"\"\""), "komma's en aanhalingstekens worden ontweken: \(regels[2])")
         }
 

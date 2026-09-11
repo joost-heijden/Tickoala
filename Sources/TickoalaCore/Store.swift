@@ -53,7 +53,7 @@ public final class Store {
 
     /// Maakt een profiel met één of meer gekoppelde wifi-contexten.
     @discardableResult
-    public func createProfile(name: String, contexts: [String]) throws -> Profile {
+    public func createProfile(name: String, contexts: [String], hourlyRateCents: Int = 0) throws -> Profile {
         guard !contexts.isEmpty else {
             throw TrackerError.invalidRange("een profiel heeft minstens één wifi-context nodig")
         }
@@ -62,9 +62,10 @@ public final class Store {
                 throw TrackerError.duplicateContext(context)
             }
         }
+        let rate = max(0, hourlyRateCents)
         let id = try database.run(
-            "INSERT INTO profiles (name, active, created_at) VALUES (?, 1, ?);",
-            [.text(name), .int(Int64(Date().timeIntervalSince1970))]
+            "INSERT INTO profiles (name, active, hourly_rate_cents, created_at) VALUES (?, 1, ?, ?);",
+            [.text(name), .int(Int64(rate)), .int(Int64(Date().timeIntervalSince1970))]
         )
         try database.run("INSERT INTO profile_state (profile_id) VALUES (?);", [.int(id)])
         for context in contexts {
@@ -73,7 +74,7 @@ public final class Store {
                 [.int(id), .text(context), .int(Int64(Date().timeIntervalSince1970))]
             )
         }
-        return Profile(id: id, name: name, contexts: contexts)
+        return Profile(id: id, name: name, contexts: contexts, hourlyRateCents: rate)
     }
 
     public func profiles(includeInactive: Bool = true) throws -> [Profile] {
@@ -122,11 +123,12 @@ public final class Store {
         return profile
     }
 
-    public func updateProfile(id: Int64, name: String? = nil, active: Bool? = nil) throws {
+    public func updateProfile(id: Int64, name: String? = nil, active: Bool? = nil, hourlyRateCents: Int? = nil) throws {
         var assignments: [String] = []
         var parameters: [SQLValue] = []
         if let name { assignments.append("name = ?"); parameters.append(.text(name)) }
         if let active { assignments.append("active = ?"); parameters.append(.int(active ? 1 : 0)) }
+        if let hourlyRateCents { assignments.append("hourly_rate_cents = ?"); parameters.append(.int(Int64(max(0, hourlyRateCents)))) }
         guard !assignments.isEmpty else { return }
         parameters.append(.int(id))
         try database.run("UPDATE profiles SET \(assignments.joined(separator: ", ")) WHERE id = ?;", parameters)
@@ -405,6 +407,36 @@ public final class Store {
         )
     }
 
+    /// Splitst een blok rond een pauze: het bestaande blok stopt bij `pauseStart`,
+    /// en vanaf `pauseEnd` begint een nieuw blok met dezelfde project-, bron- en
+    /// notitiegegevens. De pauze zelf blijft ongeregistreerd, precies zoals bij het
+    /// handmatig pauzeren en hervatten van de timer. De ruwe blokken blijven dus
+    /// staan; er wordt niets aan hun duur gesleuteld.
+    @discardableResult
+    public func splitEntry(id: Int64, pauseStart: Date, pauseEnd: Date) throws -> TimeEntry {
+        guard let entry = try self.entry(id: id) else { throw TrackerError.unknownEntry(id) }
+        guard entry.status != .running else {
+            throw TrackerError.invalidRange("een lopend blok kan niet worden gesplitst")
+        }
+        guard let endedAt = entry.endedAt else {
+            throw TrackerError.invalidRange("een blok zonder einde kan niet worden gesplitst")
+        }
+        guard pauseStart >= entry.startedAt, pauseEnd <= endedAt, pauseStart < pauseEnd else {
+            throw TrackerError.invalidRange("de pauze moet binnen het blok vallen en een positieve duur hebben")
+        }
+
+        try updateEntry(id: id, endedAt: .some(pauseStart))
+        return try createEntry(
+            profileId: entry.profileId,
+            projectId: entry.projectId,
+            startedAt: pauseEnd,
+            endedAt: endedAt,
+            status: entry.status,
+            source: entry.source,
+            note: entry.note
+        )
+    }
+
     // MARK: - Eventlog
 
     /// Legt het event vast. Geeft `false` terug als de sleutel al bestond (herhaling).
@@ -484,7 +516,8 @@ public final class Store {
                 enabled: row.bool("break_enabled"),
                 minutes: Int(row.int("break_minutes") ?? Int64(BreakRule.default.minutes)),
                 thresholdMinutes: Int(row.int("break_threshold_minutes") ?? Int64(BreakRule.default.thresholdMinutes))
-            )
+            ),
+            hourlyRateCents: Int(row.int("hourly_rate_cents") ?? 0)
         )
     }
 

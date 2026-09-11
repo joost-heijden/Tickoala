@@ -4,6 +4,7 @@ public enum CSVExport {
     public static let header = [
         "id", "profiel", "context", "projectnummer", "projectnaam",
         "datum", "start", "einde", "duur_uren", "duur_minuten",
+        "uurtarief", "bedrag",
         "status", "bron", "notitie",
     ]
 
@@ -69,6 +70,8 @@ public enum CSVExport {
                     entry.endedAt.map(Formatting.clock) ?? "",
                     Formatting.decimalHours(duration),
                     String(Int(duration.rounded() / 60)),
+                    Formatting.decimalAmount(cents: profile?.hourlyRateCents ?? 0),
+                    Formatting.decimalAmount(cents: profile?.amountCents(for: duration) ?? 0),
                     entry.status.rawValue,
                     entry.source.rawValue,
                     entry.note ?? "",
@@ -97,6 +100,8 @@ public enum CSVExport {
                         "",
                         "-" + Formatting.decimalHours(seconds),
                         "-" + String(Int(seconds.rounded() / 60)),
+                        Formatting.decimalAmount(cents: profile?.hourlyRateCents ?? 0),
+                        Formatting.decimalAmount(cents: -(profile?.amountCents(for: seconds) ?? 0)),
                         "pauze",
                         "regel",
                         profile.map { "automatische pauzeaftrek (\($0.breakRule.summary))" } ?? "automatische pauzeaftrek",

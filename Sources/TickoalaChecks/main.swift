@@ -8,5 +8,6 @@ breakChecks()
 persistenceChecks()
 reportChecks()
 adapterChecks()
+versionChecks()
 
 exit(Harness.summary())

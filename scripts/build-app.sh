@@ -44,9 +44,9 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>__VERSIE__</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>__BUILD__</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <!-- Menubalk-app: geen Dock-icoon, geen menubalk bovenin. -->
@@ -62,6 +62,17 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+# De versie komt uit git. Zonder tags (een losse zip, een verse clone) mag de
+# build niet breken: dan wordt het 0.0.0 en houdt de updatecontrole in de app zich
+# stil. De heredoc hierboven staat tussen aanhalingstekens, zodat er niets wordt
+# uitgevouwen; daarom vullen we de plaatsaanduidingen pas hier in.
+versie="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+versie="${versie#v}"
+versie="${versie:-0.0.0}"
+build="$(git rev-list --count HEAD 2>/dev/null || true)"
+build="${build:-0}"
+sed -i '' "s/__VERSIE__/$versie/; s/__BUILD__/$build/" "$app/Contents/Info.plist"
 
 # Ad-hoc ondertekening: genoeg voor lokaal gebruik op de eigen Mac.
 codesign --force --sign - --timestamp=none "$app" >/dev/null 2>&1 || true

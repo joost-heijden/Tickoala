@@ -26,8 +26,9 @@ Most time trackers want an account, a subscription and your data. The ones that
 don't still need you to remember to press start. Your Mac already knows where you
 are — it's connected to the client's Wi-Fi. Tickoala just uses that.
 
-- **Nothing leaves your Mac.** No account, no sync, no telemetry, no network
-  access at all for the core features.
+- **Nothing leaves your Mac.** No account, no sync, no telemetry. The core
+  features make no network access at all; the only request the app ever makes is
+  the daily version check described under [Updating](#updating).
 - **It never invents time.** If your Mac was asleep, the block is flagged for you
   to correct rather than silently guessed.
 - **Your raw data stays raw.** Break deduction and totals are calculated on top of
@@ -73,6 +74,33 @@ ln -sf /Applications/Tickoala.app/Contents/Helpers/tickoala /usr/local/bin/ticko
 
 To start it at login: System Settings → General → Login Items → add
 `Tickoala.app`.
+
+## Updating
+
+If you installed by cloning the repository, update with a single command:
+
+```bash
+./scripts/update.sh
+```
+
+It refuses to run when you have uncommitted changes, pulls the latest version
+with `git pull --ff-only`, rebuilds the app, replaces the copy in `/Applications`
+(override the destination with `TICKOALA_APP_DIR`), and restarts it. It builds
+locally on purpose: a downloaded bundle is ad-hoc signed and would be rejected by
+Gatekeeper.
+
+The app also checks once a day whether a newer release exists, so the menu bar can
+tell you when there is one. That check is the only network access Tickoala makes:
+one request per day to
+`https://api.github.com/repos/joost-heijden/Tickoala/releases/latest`. GitHub sees
+your IP address and the version string in the `User-Agent` header
+(`Tickoala/<version>`); nothing else is sent — no identifier, no usage data, no
+time entries, no location. Turn it off from the menu (**Updates niet meer
+controleren**), or with:
+
+```bash
+defaults write local.tickoala.app update-controle-uit -bool true
+```
 
 ### Location Services
 
@@ -188,8 +216,9 @@ tickoala db                     # path to the database
 Everything lives in
 `~/Library/Application Support/Tickoala/tickoala.sqlite3` (override with the
 `TICKOALA_DB` environment variable). It holds time entries, client names, network
-names, projects, notes and a log of received events. No location data, no network
-traffic.
+names, projects, notes and a log of received events. No location data, and nothing
+is ever uploaded — the only network request is the daily version check described
+under [Updating](#updating).
 
 Backing up is copying that one file.
 

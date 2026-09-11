@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import TickoalaCore
 
@@ -121,6 +122,17 @@ struct MenuContent: View {
         if let error = model.errorMessage {
             Divider()
             Text("Fout: \(error)")
+        }
+
+        if let versie = model.updateChecker.beschikbareVersie {
+            Divider()
+            Text("Versie \(versie) beschikbaar")
+            Button("Open de release-pagina") {
+                NSWorkspace.shared.open(UpdateChecker.releasePageURL)
+            }
+            Button("Updates niet meer controleren") {
+                model.updateChecker.disable()
+            }
         }
 
         Divider()

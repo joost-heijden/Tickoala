@@ -28,6 +28,8 @@ final class AppModel: ObservableObject {
 
     /// Bron van de start/stop-signalen: de app kijkt zelf naar het wifinetwerk.
     let wifi = WifiWatcher()
+    /// Kijkt of er een nieuwere release is. De bestaande timer drijft de controle aan.
+    let updateChecker = UpdateChecker()
     /// Wat het laatste netwerksignaal opleverde, voor uitleg in het menu.
     @Published private(set) var lastWifiOutcome: String?
     /// Een binnenkomst waarbij de organisatie meerdere actieve projecten heeft.
@@ -36,6 +38,7 @@ final class AppModel: ObservableObject {
     private var tracker: Tracker?
     private var timer: Timer?
     private var wifiObserver: AnyCancellable?
+    private var updateObserver: AnyCancellable?
 
     struct EntryRow: Identifiable {
         var entry: TimeEntry
@@ -69,6 +72,10 @@ final class AppModel: ObservableObject {
         }
         // De watcher publiceert los van dit model, dus even doorgeven aan de views.
         wifiObserver = wifi.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.objectWillChange.send() }
+        }
+        // Hetzelfde voor de updatecontrole, zodat het menu meteen bijwerkt.
+        updateObserver = updateChecker.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.objectWillChange.send() }
         }
         wifi.start()
@@ -110,6 +117,9 @@ final class AppModel: ObservableObject {
 
     /// Eén keer per seconde: uitgestelde stops afronden en de status verversen.
     func refresh() {
+        // Dezelfde tik drijft de updatecontrole aan; die doet zelf niets zolang het
+        // etmaal nog niet om is.
+        updateChecker.checkIfNeeded()
         guard let tracker else { return }
         do {
             try tracker.tick()

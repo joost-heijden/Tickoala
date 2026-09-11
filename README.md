@@ -40,6 +40,8 @@ are — it's connected to the client's Wi-Fi. Tickoala just uses that.
 - **Multiple networks per client** — guest network, staff network, several
   offices; roaming between them doesn't split your work block
 - **Multiple clients**, each with their own projects and settings
+- **Hourly rate per client**, with the resulting amounts shown in the overview and
+  the CSV export
 - **Projects** with number and name, switchable from the menu bar mid-session
 - **Automatic break deduction** per client — e.g. subtract 30 minutes on any day
   you worked 6 hours or more, with the duration and the threshold set separately
@@ -124,12 +126,15 @@ tickoala profile add --name "Acme" --context "Acme-Guest,Acme-Staff"
 # Projects for that client
 tickoala project add --profile "Acme" --number 2401 --name "Data migration"
 
+# Optional: an hourly rate, used for the amounts in the overview and export
+tickoala rate set --profile "Acme" --rate 87,50
+
 # Optional: subtract 30 minutes on days of 6 hours or more
 tickoala break set --profile "Acme" --minutes 30 --threshold 6:00
 ```
 
-All of this can also be done from the menu bar: **Manage projects…**, **Break
-settings…** and **Overview and corrections…**.
+All of this can also be done from the menu bar: **Klanten beheren**, **Manage
+projects…**, **Break settings…** and **Overview and corrections…**.
 
 Not sure what a network is called? Connect to it — the menu bar shows the current
 network and, if it isn't linked yet, offers to attach it to a client on the spot.
@@ -195,11 +200,29 @@ breakdown stays gross, because a break belongs to a day rather than to a project
 In the CSV export the deduction appears as its own row with a negative duration,
 so the duration column adds up to your net hours. Use `--gross` to leave it out.
 
+## Rates and amounts
+
+Each client can have its own hourly rate, in euros with cents. Set it from the
+**Klanten** window or from the command line:
+
+```bash
+tickoala rate set --profile "Acme" --rate 87,50
+tickoala rate list
+```
+
+The overview shows the amount for the selected period and the selected client
+(net hours × rate, so the automatic break deduction is already applied). The CSV
+export gains two columns, `uurtarief` and `bedrag`, next to every block; the
+break row carries a negative amount so the `bedrag` column adds up to the net
+total. Clients without a rate simply produce no amounts.
+
 ## Command line
 
 ```bash
 tickoala status                 # also --json
 tickoala report week            # or day / month, with --date and --profile
+tickoala profile list           # clients, with their hourly rate
+tickoala rate set --profile "Acme" --rate 87,50
 tickoala entry list --period week
 tickoala entry add --number 2401 --start "2026-09-10 09:00" --end "2026-09-10 17:00"
 tickoala entry edit --id 12 --end "2026-09-10 16:30"

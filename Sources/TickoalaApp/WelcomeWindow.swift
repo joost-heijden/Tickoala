@@ -4,7 +4,7 @@ import TickoalaCore
 
 /// First introduction: where Tickoala lives, why it needs Location Services and
 /// how it starts automatically at login. Appears once on first launch and after
-/// that via "Open Tickoala" in the menu.
+/// that via "Welcome screen" in the menu.
 struct WelcomeView: View {
     @ObservedObject var model: AppModel
 
@@ -136,7 +136,7 @@ struct WelcomeView: View {
 
     private var footer: some View {
         HStack {
-            Text("You can find this screen later via **Open Tickoala** in the menu.")
+            Text("You can find this screen later via **Welcome screen** in the menu.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer()

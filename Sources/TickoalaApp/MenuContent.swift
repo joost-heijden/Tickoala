@@ -151,13 +151,6 @@ struct MenuContent: View {
 
         Divider()
 
-        Button("Open Tickoala") {
-            NSApp.activate(ignoringOtherApps: true)
-            openWindow(id: "welcome")
-        }
-
-        Divider()
-
         if let version = model.updateChecker.availableVersion {
             Text("Version \(version) available")
             if let url = UpdateChecker.tagURL(for: version) {
@@ -181,11 +174,16 @@ struct MenuContent: View {
             }
         }
 
-        Button("Open on GitHub") {
+        Button("GitHub") {
             NSWorkspace.shared.open(UpdateChecker.repositoryURL)
         }
 
         Divider()
+
+        Button("Welcome screen") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "welcome")
+        }
 
         Button("Quit Tickoala") { NSApp.terminate(nil) }
             .keyboardShortcut("q")

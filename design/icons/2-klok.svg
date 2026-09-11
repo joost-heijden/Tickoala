@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="114" ry="114" fill="#2F6F4E"/><rect x="254" y="150" width="4" height="14" rx="2" fill="#ffffff" opacity="0.55" transform="rotate(0 256 288)"/><rect x="254" y="150" width="4" height="14" rx="2" fill="#ffffff" opacity="0.55" transform="rotate(90 256 288)"/><rect x="254" y="150" width="4" height="14" rx="2" fill="#ffffff" opacity="0.55" transform="rotate(180 256 288)"/><rect x="254" y="150" width="4" height="14" rx="2" fill="#ffffff" opacity="0.55" transform="rotate(270 256 288)"/>
+  <circle cx="138" cy="196" r="74" fill="#A8B0B8"/>
+  <circle cx="374" cy="196" r="74" fill="#A8B0B8"/>
+  <circle cx="138" cy="196" r="46" fill="#CDD3D9"/>
+  <circle cx="374" cy="196" r="46" fill="#CDD3D9"/>  <ellipse cx="256" cy="288" rx="124" ry="118" fill="#A8B0B8"/>
+  <circle cx="198" cy="262" r="15" fill="#22262C"/>
+  <circle cx="314" cy="262" r="15" fill="#22262C"/>  <path d="M 256 244 C 308 244, 334 270, 334 306 C 334 350, 298 384, 256 384 C 214 384, 178 350, 178 306 C 178 270, 204 244, 256 244 Z" fill="#22262C"/>
+  <circle cx="256" cy="312" r="6" fill="#F2C14E"/>
+  <rect x="253" y="272" width="6" height="44" rx="3" fill="#F2C14E"/>
+  <rect x="253" y="300" width="6" height="34" rx="3" fill="#F2C14E"
+        transform="rotate(115 256 312)"/>
+</svg>

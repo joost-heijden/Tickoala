@@ -15,39 +15,37 @@ struct WelcomeView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    intro
-                    wifiSection
-                    loginSection
-                }
-                .padding(22)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 12) {
+                intro
+                wifiSection
+                loginSection
             }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
             Divider()
             footer
         }
-        .frame(minWidth: 460, minHeight: 520)
+        .frame(width: 460)
     }
 
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             koala
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text("Tickoala")
-                    .font(.title.bold())
+                    .font(.title2.bold())
                 Text("Background time tracking")
-                    .font(.callout)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             Spacer()
             Text("v\(model.updateChecker.currentVersion)")
-                .font(.callout)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding(22)
+        .padding(14)
     }
 
     private var koala: some View {
@@ -63,7 +61,7 @@ struct WelcomeView: View {
                     .scaledToFit()
             }
         }
-        .frame(width: 46, height: 46)
+        .frame(width: 36, height: 36)
         .foregroundStyle(Color.accentColor)
     }
 
@@ -82,13 +80,12 @@ struct WelcomeView: View {
     // MARK: - Explanation
 
     private var intro: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("Tickoala lives in the menu bar")
                 .font(.headline)
-            Text("You'll find it at the top right next to the clock, at the koala icon. "
-                 + "You don't have to start anything: as soon as your Mac joins a customer's Wi-Fi network, "
-                 + "tracking begins, and when you leave again it stops. "
-                 + "A separate window isn't needed — everything is in that menu.")
+            Text("Look for the koala icon at the top right, next to the clock. "
+                 + "Tracking starts and stops by itself with the customer's Wi-Fi — "
+                 + "no buttons, no separate window.")
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -102,7 +99,7 @@ struct WelcomeView: View {
             symbolColor: model.wifi.access.needsAttention ? .orange : .green
         ) {
             Text(model.wifi.access.explanation
-                 ?? "Access is set up. Tickoala only reads the name of the Wi-Fi network, and nothing else.")
+                 ?? "Set up. Tickoala only reads the Wi-Fi network name, nothing else.")
                 .fixedSize(horizontal: false, vertical: true)
             if model.wifi.access.needsAttention {
                 Button("Grant access") {
@@ -121,8 +118,8 @@ struct WelcomeView: View {
                 get: { model.launchAtLogin.isEnabled },
                 set: { model.launchAtLogin.setEnabled($0) }
             ))
-            Text("Tickoala can only watch Wi-Fi networks while it is running. "
-                 + "With this option that happens automatically after every restart.")
+            Text("Tickoala can only watch Wi-Fi while it runs. "
+                 + "Turn this on to start it after every restart.")
                 .fixedSize(horizontal: false, vertical: true)
             if let error = model.launchAtLogin.errorMessage {
                 Text(error)
@@ -146,7 +143,7 @@ struct WelcomeView: View {
             Button("Get started") { onClose() }
                 .keyboardShortcut(.defaultAction)
         }
-        .padding(16)
+        .padding(12)
     }
 }
 
@@ -159,13 +156,13 @@ private struct SectionBox<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Label(title, systemImage: symbol)
                 .font(.headline)
                 .foregroundStyle(symbolColor)
             content
         }
-        .padding(14)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.gray.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
     }
@@ -203,7 +200,9 @@ final class WelcomeWindowController {
         // Tickoala" cannot show it again.
         window.isReleasedWhenClosed = false
         window.center()
-        window.setFrameAutosaveName("welcome-window")
+        // New name so an old, larger window frame from before the compact layout
+        // does not come back and reintroduce scrolling.
+        window.setFrameAutosaveName("welcome-window-2")
         return window
     }
 }

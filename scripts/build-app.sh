@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bouwt Tickoala.app (menubalk-app zonder Dock-icoon) plus het adaptercommando.
+# Builds Tickoala.app (menu bar app without a Dock icon) plus the adapter command.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,16 +14,16 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers" "$app/Contents/Resources"
 
 cp "$binaries/TickoalaApp" "$app/Contents/MacOS/Tickoala"
-# Het adaptercommando reist mee, zodat ControlPlane één vast pad kan gebruiken.
-# Let op: het bestandssysteem is hoofdletterongevoelig, dus 'tickoala' kan niet
-# naast 'Tickoala' in Contents/MacOS staan.
+# The adapter command travels along, so ControlPlane can use one fixed path.
+# Note: the file system is case-insensitive, so 'tickoala' cannot sit next to
+# 'Tickoala' in Contents/MacOS.
 cp "$binaries/tickoala" "$app/Contents/Helpers/tickoala"
 
-# De menubalk-iconen zitten in de resource-bundle die SwiftPM maakt. Zonder deze
-# kopie valt `Bundle.module` terug op het pad in .build, en buiten deze Mac
-# bestaat dat pad niet: dan stopt de app meteen bij het eerste icoon.
-# De bundel hoort in Contents/Resources, zodat de ondertekening klopt, maar
-# `Bundle.module` zoekt hem naast de app zelf; vandaar de verwijzing erheen.
+# The menu bar icons live in the resource bundle SwiftPM builds. Without this
+# copy, `Bundle.module` falls back to the path in .build, and that path doesn't
+# exist outside this Mac: the app would then stop at the first icon.
+# The bundle belongs in Contents/Resources so the signing is correct, but
+# `Bundle.module` looks for it next to the app itself; hence the symlink to it.
 bundle="Tickoala_TickoalaApp.bundle"
 cp -R "$binaries/$bundle" "$app/Contents/Resources/$bundle"
 ln -s "Contents/Resources/$bundle" "$app/$bundle"
@@ -44,38 +44,38 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>__VERSIE__</string>
+    <string>__VERSION__</string>
     <key>CFBundleVersion</key>
     <string>__BUILD__</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
-    <!-- Menubalk-app: geen Dock-icoon, geen menubalk bovenin. -->
+    <!-- Menu bar app: no Dock icon, no menu bar at the top. -->
     <key>LSUIElement</key>
     <true/>
-    <!-- macOS geeft de naam van het wifinetwerk alleen vrij aan programma's met
-         toestemming voor Locatievoorzieningen. Zonder deze twee sleutels toont
-         het systeem de vraag niet eens. Er wordt geen locatie opgeslagen. -->
+    <!-- macOS only reveals the name of the Wi-Fi network to programs with
+         Location Services permission. Without these two keys the system won't
+         even show the prompt. No location is ever stored. -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Tickoala gebruikt dit alleen om de naam van het wifinetwerk te zien, zodat de urenregistratie vanzelf start en stopt bij een klant. Er wordt geen locatie opgeslagen of verstuurd.</string>
+    <string>Tickoala uses this only to see the name of the Wi-Fi network, so time tracking starts and stops automatically at a client. No location is stored or transmitted.</string>
     <key>NSLocationUsageDescription</key>
-    <string>Tickoala gebruikt dit alleen om de naam van het wifinetwerk te zien, zodat de urenregistratie vanzelf start en stopt bij een klant. Er wordt geen locatie opgeslagen of verstuurd.</string>
+    <string>Tickoala uses this only to see the name of the Wi-Fi network, so time tracking starts and stops automatically at a client. No location is stored or transmitted.</string>
 </dict>
 </plist>
 PLIST
 
-# De versie komt uit git. Zonder tags (een losse zip, een verse clone) mag de
-# build niet breken: dan wordt het 0.0.0 en houdt de updatecontrole in de app zich
-# stil. De heredoc hierboven staat tussen aanhalingstekens, zodat er niets wordt
-# uitgevouwen; daarom vullen we de plaatsaanduidingen pas hier in.
-versie="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-versie="${versie#v}"
-versie="${versie:-0.0.0}"
+# The version comes from git. Without tags (a loose zip, a fresh clone) the build
+# must not break: it becomes 0.0.0 and the update check in the app keeps quiet.
+# The heredoc above is quoted, so nothing is expanded; that is why we fill in the
+# placeholders only here.
+version="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+version="${version#v}"
+version="${version:-0.0.0}"
 build="$(git rev-list --count HEAD 2>/dev/null || true)"
 build="${build:-0}"
-sed -i '' "s/__VERSIE__/$versie/; s/__BUILD__/$build/" "$app/Contents/Info.plist"
+sed -i '' "s/__VERSION__/$version/; s/__BUILD__/$build/" "$app/Contents/Info.plist"
 
-# Ad-hoc ondertekening: genoeg voor lokaal gebruik op de eigen Mac.
+# Ad-hoc signing: enough for local use on your own Mac.
 codesign --force --sign - --timestamp=none "$app" >/dev/null 2>&1 || true
 
-echo "gebouwd: $app"
+echo "built: $app"
 echo "adapter: $app/Contents/Helpers/tickoala"

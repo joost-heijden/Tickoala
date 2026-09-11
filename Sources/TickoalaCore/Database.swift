@@ -10,14 +10,14 @@ public enum DatabaseError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .open(let m): return "kan database niet openen: \(m)"
-        case .statement(let m): return "database-fout: \(m)"
+        case .open(let m): return "cannot open database: \(m)"
+        case .statement(let m): return "database error: \(m)"
         case .constraint(let m): return m
         }
     }
 }
 
-/// Waarde die naar SQLite geschreven of eruit gelezen kan worden.
+/// Value that can be written to or read from SQLite.
 public enum SQLValue: Equatable {
     case null
     case int(Int64)
@@ -32,12 +32,12 @@ public final class Database {
         var db: OpaquePointer?
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
         guard sqlite3_open_v2(path, &db, flags, nil) == SQLITE_OK, let db else {
-            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "onbekende fout"
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
             sqlite3_close_v2(db)
             throw DatabaseError.open(message)
         }
         self.handle = db
-        // WAL laat de menubalk-app en het adaptercommando tegelijk werken.
+        // WAL lets the menu bar app and the adapter command work at the same time.
         try execute("PRAGMA journal_mode = WAL;")
         try execute("PRAGMA foreign_keys = ON;")
         try execute("PRAGMA busy_timeout = 5000;")
@@ -50,7 +50,7 @@ public final class Database {
     public func execute(_ sql: String) throws {
         var error: UnsafeMutablePointer<CChar>?
         if sqlite3_exec(handle, sql, nil, nil, &error) != SQLITE_OK {
-            let message = error.map { String(cString: $0) } ?? "onbekende fout"
+            let message = error.map { String(cString: $0) } ?? "unknown error"
             sqlite3_free(error)
             throw DatabaseError.statement(message)
         }
@@ -105,7 +105,7 @@ public final class Database {
         return rows
     }
 
-    /// Voert `body` uit in één transactie; bij een fout wordt alles teruggedraaid.
+    /// Runs `body` in a single transaction; on error everything is rolled back.
     public func transaction<T>(_ body: () throws -> T) throws -> T {
         try execute("BEGIN IMMEDIATE;")
         do {
@@ -150,7 +150,7 @@ public final class Database {
     }
 }
 
-/// Eén rij uit een query, met typed accessors.
+/// One row from a query, with typed accessors.
 public struct Row {
     public let values: [String: SQLValue]
 

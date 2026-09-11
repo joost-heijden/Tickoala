@@ -1,11 +1,11 @@
 import Foundation
 
 public enum Formatting {
-    /// Alles wordt in de lokale tijdzone getoond; opslag gebeurt in unix-seconden.
+    /// Everything is shown in the local time zone; storage uses unix seconds.
     public static var calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.firstWeekday = 2 // maandag
-        calendar.minimumDaysInFirstWeek = 4 // ISO-8601 weeknummering
+        calendar.firstWeekday = 2 // Monday
+        calendar.minimumDaysInFirstWeek = 4 // ISO-8601 week numbering
         return calendar
     }()
 
@@ -21,40 +21,41 @@ public enum Formatting {
         formatter("HH:mm").string(from: date)
     }
 
-    /// `1:05` voor de menubalk, `0:00` als er nog niets staat.
+    /// `1:05` for the menu bar, `0:00` when nothing has been recorded yet.
     public static func duration(_ interval: TimeInterval) -> String {
         let total = Int(max(0, interval.rounded()))
         return String(format: "%d:%02d", total / 3600, (total % 3600) / 60)
     }
 
-    /// Decimale uren voor export en totalen, afgerond op twee decimalen.
+    /// Decimal hours for export and totals, rounded to two decimals.
     public static func decimalHours(_ interval: TimeInterval) -> String {
         String(format: "%.2f", max(0, interval) / 3600)
     }
 
-    /// Bedrag in centen als `€ 1.234,56`; het teken staat vóór het euroteken.
-    public static func money(cents: Int) -> String {
+    /// Amount in cents as `€1,234.56`; the sign goes in front of the currency symbol.
+    public static func money(cents: Int, currency: Currency = .eur) -> String {
         let sign = cents < 0 ? "-" : ""
         let absolute = abs(cents)
-        return "\(sign)€ \(grouped(absolute / 100)),\(String(format: "%02d", absolute % 100))"
+        return "\(sign)\(currency.symbol)\(grouped(absolute / 100)).\(String(format: "%02d", absolute % 100))"
     }
 
-    /// Bedrag in centen als `1234.56`, met punt als decimaalteken, voor de CSV.
+    /// Amount in cents as `1234.56`, with a dot as decimal separator, for the CSV.
     public static func decimalAmount(cents: Int) -> String {
         let sign = cents < 0 ? "-" : ""
         let absolute = abs(cents)
         return "\(sign)\(absolute / 100).\(String(format: "%02d", absolute % 100))"
     }
 
-    /// Leest een ingevoerd tarief als `87,50`, `87.50` of `87` en geeft centen
-    /// terug. `nil` bij onleesbare of negatieve invoer.
+    /// Reads an entered rate as `87.50`, `87,50` or `87` and returns cents.
+    /// `nil` for unreadable or negative input.
     public static func parseMoneyCents(_ input: String) -> Int? {
         var text = input
             .trimmingCharacters(in: .whitespaces)
             .replacingOccurrences(of: "€", with: "")
             .replacingOccurrences(of: " ", with: "")
         if text.contains(",") {
-            // Nederlandse notatie: punt is duizendtal, komma is decimaal.
+            // Both notations are accepted: dot as thousands separator and comma
+            // as decimal separator, or the other way around.
             text = text.replacingOccurrences(of: ".", with: "").replacingOccurrences(of: ",", with: ".")
         }
         guard !text.isEmpty, let value = Double(text), value >= 0 else { return nil }
@@ -65,14 +66,14 @@ public enum Formatting {
         let digits = Array(String(value).reversed())
         var result = ""
         for (index, digit) in digits.enumerated() {
-            if index > 0, index % 3 == 0 { result.append(".") }
+            if index > 0, index % 3 == 0 { result.append(",") }
             result.append(digit)
         }
         return String(result.reversed())
     }
 
-    /// Accepteert `2026-09-10 09:15`, `2026-09-10T09:15`, met of zonder seconden,
-    /// en volledige ISO-8601 met tijdzone.
+    /// Accepts `2026-09-10 09:15`, `2026-09-10T09:15`, with or without seconds,
+    /// and full ISO-8601 with a time zone.
     public static func parseDate(_ input: String) -> Date? {
         let trimmed = input.trimmingCharacters(in: .whitespaces)
         let patterns = [

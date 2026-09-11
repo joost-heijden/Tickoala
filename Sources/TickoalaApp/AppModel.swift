@@ -3,8 +3,8 @@ import Foundation
 import SwiftUI
 import TickoalaCore
 
-/// Houdt de status vast die de menubalk en het overzicht tonen. Leest telkens
-/// opnieuw uit SQLite, zodat wijzigingen via het adaptercommando meteen zichtbaar zijn.
+/// Holds the status that the menu bar and the overview show. Reads from SQLite
+/// every time, so changes made through the adapter command show up immediately.
 @MainActor
 final class AppModel: ObservableObject {
     @Published private(set) var status: TrackerStatus?
@@ -12,10 +12,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var allProjectsPerProfile: [Int64: [Project]] = [:]
     @Published var errorMessage: String?
 
-    /// Welke klant het Klanten-venster toont en waar de Projecten op openen.
+    /// Which customer the Customers window shows and where the Projects open.
     @Published var selectedCustomerId: Int64?
 
-    // Overzichtsvenster
+    // Overview window
     @Published var period: ReportPeriod = .day {
         didSet { reloadOverview() }
     }
@@ -31,29 +31,35 @@ final class AppModel: ObservableObject {
     @Published private(set) var overviewByProfile: [ProfileTotal] = []
     @Published private(set) var overviewAmountCents: Int = 0
 
-    /// Bron van de start/stop-signalen: de app kijkt zelf naar het wifinetwerk.
+    /// Source of the start/stop signals: the app watches the Wi-Fi network itself.
     let wifi = WifiWatcher()
-    /// Kijkt of er een nieuwere release is. De bestaande timer drijft de controle aan.
+    /// Checks whether a newer release exists. The existing timer drives the check.
     let updateChecker = UpdateChecker()
-    /// Wat het laatste netwerksignaal opleverde, voor uitleg in het menu.
+    /// Controls the login item, shown in the welcome screen.
+    let launchAtLogin = LaunchAtLogin()
+    /// Set by the app delegate so the menu can reopen the welcome screen.
+    var onShowWelcome: (() -> Void)?
+    /// What the last network signal produced, for explanation in the menu.
     @Published private(set) var lastWifiOutcome: String?
-    /// Een binnenkomst waarbij de organisatie meerdere actieve projecten heeft.
+    /// An arrival where the organization has multiple active projects.
     @Published private(set) var pendingWifiProjectSelection: WifiProjectSelection?
 
     private var tracker: Tracker?
     private var timer: Timer?
     private var wifiObserver: AnyCancellable?
     private var updateObserver: AnyCancellable?
+    private var loginObserver: AnyCancellable?
 
     struct EntryRow: Identifiable {
         var entry: TimeEntry
         var profileName: String
         var projectLabel: String
         var hourlyRateCents: Int
+        var currency: Currency
         var id: Int64 { entry.id }
 
-        /// Brutobedrag van dit blok bij het tarief van de klant; de pauzeaftrek
-        /// staat als aparte regel in de export, niet hier.
+        /// Gross amount of this block at the customer's rate; the break deduction
+        /// appears as a separate row in the export, not here.
         var amountCents: Int {
             guard hourlyRateCents > 0 else { return 0 }
             return Int((entry.duration() / 3600 * Double(hourlyRateCents)).rounded())
@@ -71,30 +77,39 @@ final class AppModel: ObservableObject {
         do {
             tracker = Tracker(store: try Store(path: try Store.defaultDatabasePath()))
         } catch {
-            errorMessage = "Kan de database niet openen: \(error)"
+            errorMessage = "Cannot open the database: \(error)"
         }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
 
-        // Elke wisseling van wifinetwerk wordt een gewoon contextsignaal; de tracker
-        // beslist zelf of er iets moet gebeuren.
+        // Every Wi-Fi network change becomes a normal context signal; the tracker
+        // decides for itself whether anything should happen.
         wifi.onEvent = { [weak self] event in
             self?.handle(event)
         }
-        // De watcher publiceert los van dit model, dus even doorgeven aan de views.
+        // The watcher publishes separately from this model, so pass it on to the views.
         wifiObserver = wifi.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.objectWillChange.send() }
         }
-        // Hetzelfde voor de updatecontrole, zodat het menu meteen bijwerkt.
+        // The same for the update check, so the menu updates immediately.
         updateObserver = updateChecker.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.objectWillChange.send() }
+        }
+        // And for the login item, so the welcome screen reflects the real status.
+        loginObserver = launchAtLogin.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.objectWillChange.send() }
         }
         wifi.start()
     }
 
-    /// Verwerkt een netwerksignaal en onthoudt de uitkomst voor in het menu.
+    /// Reopens the welcome screen from the menu.
+    func showWelcome() {
+        onShowWelcome?()
+    }
+
+    /// Processes a network signal and remembers the outcome for the menu.
     private func handle(_ event: ContextEvent) {
         guard let tracker else { return }
         do {
@@ -128,23 +143,22 @@ final class AppModel: ObservableObject {
 
     var menuBarSymbol: String { (status?.mode ?? .stopped).symbol }
 
-    /// Eén keer per seconde: uitgestelde stops afronden en de status verversen.
+    /// Once per second: finalize delayed stops and refresh the status.
     func refresh() {
-        // Dezelfde tik drijft de updatecontrole aan; die doet zelf niets zolang het
-        // etmaal nog niet om is.
+        // The same tick drives the update check; it does nothing until the day is over.
         updateChecker.checkIfNeeded()
         guard let tracker else { return }
         do {
             try tracker.tick()
             status = try tracker.status()
-            var actief: [Int64: [Project]] = [:]
-            var alle: [Int64: [Project]] = [:]
+            var active: [Int64: [Project]] = [:]
+            var all: [Int64: [Project]] = [:]
             for item in try tracker.store.profiles(includeInactive: false) {
-                actief[item.id] = try tracker.store.projects(profileId: item.id, includeInactive: false)
-                alle[item.id] = try tracker.store.projects(profileId: item.id, includeInactive: true)
+                active[item.id] = try tracker.store.projects(profileId: item.id, includeInactive: false)
+                all[item.id] = try tracker.store.projects(profileId: item.id, includeInactive: true)
             }
-            projectsPerProfile = actief
-            allProjectsPerProfile = alle
+            projectsPerProfile = active
+            allProjectsPerProfile = all
             errorMessage = nil
         } catch {
             errorMessage = "\(error)"
@@ -153,23 +167,23 @@ final class AppModel: ObservableObject {
         reloadOverview()
     }
 
-    /// Houdt de gekozen klant geldig: verdwijnt die (of is er nog niets gekozen),
-    /// dan schuift de keuze naar de eerste klant.
+    /// Keeps the chosen customer valid: if it disappears (or nothing is chosen
+    /// yet), the choice moves to the first customer.
     private func ensureSelectedCustomer() {
         let ids = profiles.map { $0.profile.id }
         if let selectedCustomerId, ids.contains(selectedCustomerId) { return }
         selectedCustomerId = ids.first
     }
 
-    // MARK: - Wifi
+    // MARK: - Wi-Fi
 
-    /// Hoort dit netwerk al bij een klant?
+    /// Does this network already belong to a customer?
     func isKnownNetwork(_ ssid: String) -> Bool {
         profiles.contains { $0.profile.contexts.contains { $0.caseInsensitiveCompare(ssid) == .orderedSame } }
     }
 
-    /// Koppelt het netwerk waar de Mac nu op zit aan een klant, zodat de
-    /// volgende binnenkomst wél automatisch start.
+    /// Links the network the Mac is currently on to a customer, so the next
+    /// arrival starts automatically.
     func linkCurrentNetwork(to profileId: Int64) {
         guard let tracker, let ssid = wifi.currentSSID else { return }
         do {
@@ -187,7 +201,7 @@ final class AppModel: ObservableObject {
             _ = try tracker.selectProject(profileId: selection.profileId, projectId: projectId, now: selection.eventAt)
             _ = try tracker.start(profileId: selection.profileId, now: selection.eventAt, source: .wifi)
             pendingWifiProjectSelection = nil
-            lastWifiOutcome = "\(Formatting.clock(selection.eventAt))  \(selection.ssid) start: timer gestart"
+            lastWifiOutcome = "\(Formatting.clock(selection.eventAt))  \(selection.ssid) start: timer started"
             refresh()
         } catch {
             errorMessage = "\(error)"
@@ -198,27 +212,29 @@ final class AppModel: ObservableObject {
         pendingWifiProjectSelection = nil
     }
 
-    // MARK: - Klantbeheer
+    // MARK: - Customer management
 
-    /// Voegt een klant toe met minstens één wifinetwerk. Geeft `false` terug bij
-    /// ongeldige invoer of een netwerk dat al aan een andere klant hangt.
+    /// Adds a customer with at least one Wi-Fi network. Returns `false` for
+    /// invalid input or a network that already belongs to another customer.
     @discardableResult
-    func addCustomer(name: String, contexts: [String], hourlyRateCents: Int) -> Bool {
+    func addCustomer(name: String, contexts: [String], hourlyRateCents: Int, currency: Currency) -> Bool {
         guard let tracker else { return false }
         let name = name.trimmingCharacters(in: .whitespaces)
         let cleaned = contexts
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         guard !name.isEmpty else {
-            errorMessage = "Vul een naam voor de klant in."
+            errorMessage = "Enter a name for the customer."
             return false
         }
         guard !cleaned.isEmpty else {
-            errorMessage = "Koppel minstens één wifinetwerk aan de klant."
+            errorMessage = "Link at least one Wi-Fi network to the customer."
             return false
         }
         do {
-            let profile = try tracker.store.createProfile(name: name, contexts: cleaned, hourlyRateCents: hourlyRateCents)
+            let profile = try tracker.store.createProfile(
+                name: name, contexts: cleaned, hourlyRateCents: hourlyRateCents, currency: currency
+            )
             selectedCustomerId = profile.id
             refresh()
             return true
@@ -228,15 +244,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func updateCustomer(id: Int64, name: String, hourlyRateCents: Int) {
+    func updateCustomer(id: Int64, name: String, hourlyRateCents: Int, currency: Currency) {
         guard let tracker else { return }
         let name = name.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else {
-            errorMessage = "De klantnaam mag niet leeg zijn."
+            errorMessage = "The customer name must not be empty."
             return
         }
         do {
-            try tracker.store.updateProfile(id: id, name: name, hourlyRateCents: hourlyRateCents)
+            try tracker.store.updateProfile(id: id, name: name, hourlyRateCents: hourlyRateCents, currency: currency)
             refresh()
         } catch {
             errorMessage = "\(error)"
@@ -275,7 +291,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// De gekozen klant als `Profile`, of de eerste klant als er niets gekozen is.
+    /// The chosen customer as `Profile`, or the first customer if none is chosen.
     var selectedCustomer: Profile? {
         if let selectedCustomerId,
            let match = profiles.first(where: { $0.profile.id == selectedCustomerId }) {
@@ -284,22 +300,22 @@ final class AppModel: ObservableObject {
         return profiles.first?.profile
     }
 
-    // MARK: - Projectbeheer
+    // MARK: - Project management
 
-    /// Alle projecten van een profiel, ook de gedeactiveerde. Voor het beheerscherm.
+    /// All projects of a profile, including deactivated ones. For the management screen.
     func allProjects(for profileId: Int64) -> [Project] {
         allProjectsPerProfile[profileId] ?? []
     }
 
-    /// Maakt een project aan. Geeft `false` terug als het niet lukte, bijvoorbeeld
-    /// omdat het nummer al bestaat binnen deze organisatie.
+    /// Creates a project. Returns `false` if it failed, for example because the
+    /// number already exists within this organization.
     @discardableResult
     func addProject(profileId: Int64, number: String, name: String) -> Bool {
         guard let tracker else { return false }
         let number = number.trimmingCharacters(in: .whitespaces)
         let name = name.trimmingCharacters(in: .whitespaces)
         guard !number.isEmpty, !name.isEmpty else {
-            errorMessage = "Vul zowel een projectnummer als een projectnaam in."
+            errorMessage = "Enter both a project number and a project name."
             return false
         }
         do {
@@ -312,15 +328,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Nummer en naam samen bewaren. Geeft `false` terug als het nummer al bestaat
-    /// binnen deze organisatie, zodat het formulier open kan blijven.
+    /// Saves number and name together. Returns `false` if the number already
+    /// exists within this organization, so the form can stay open.
     @discardableResult
     func updateProject(id: Int64, number: String, name: String) -> Bool {
         guard let tracker else { return false }
         let number = number.trimmingCharacters(in: .whitespaces)
         let name = name.trimmingCharacters(in: .whitespaces)
         guard !number.isEmpty, !name.isEmpty else {
-            errorMessage = "Projectnummer en projectnaam mogen niet leeg zijn."
+            errorMessage = "Project number and project name must not be empty."
             return false
         }
         do {
@@ -333,7 +349,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // MARK: - Pauzeaftrek
+    // MARK: - Break deduction
 
     func updateBreakRule(profileId: Int64, rule: BreakRule) {
         guard let tracker else { return }
@@ -345,8 +361,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Deactiveren laat bestaande tijdregistraties staan; het project verdwijnt
-    /// alleen uit de keuzelijsten.
+    /// Deactivating leaves existing time entries alone; the project merely
+    /// disappears from the selection lists.
     func setProjectActive(id: Int64, active: Bool) {
         guard let tracker else { return }
         do {
@@ -361,7 +377,7 @@ final class AppModel: ObservableObject {
         profiles.first(where: { $0.profile.id == profileId })?.project?.id
     }
 
-    // MARK: - Bediening
+    // MARK: - Control
 
     func selectProject(profileId: Int64, projectId: Int64) {
         if pendingWifiProjectSelection?.profileId == profileId {
@@ -393,7 +409,7 @@ final class AppModel: ObservableObject {
         perform { try $0.clearAttention(profileId: profileId) }
     }
 
-    // MARK: - Overzicht en correcties
+    // MARK: - Overview and corrections
 
     func reloadOverview() {
         guard let tracker else { return }
@@ -405,8 +421,9 @@ final class AppModel: ObservableObject {
                 return EntryRow(
                     entry: entry,
                     profileName: profile?.name ?? "?",
-                    projectLabel: try entry.projectId.flatMap { try tracker.store.project(id: $0) }?.label ?? "(geen project)",
-                    hourlyRateCents: profile?.hourlyRateCents ?? 0
+                    projectLabel: try entry.projectId.flatMap { try tracker.store.project(id: $0) }?.label ?? "(no project)",
+                    hourlyRateCents: profile?.hourlyRateCents ?? 0,
+                    currency: profile?.currency ?? .eur
                 )
             }
             overviewTotal = report.total
@@ -420,6 +437,15 @@ final class AppModel: ObservableObject {
 
     var overviewRange: DateRange {
         Reporting.range(period, containing: anchor)
+    }
+
+    /// The currency for the overview amount: that of the shown customer(s). If
+    /// multiple currencies are in view there is no sensible total, so we fall back
+    /// to the chosen customer, or euros otherwise.
+    var overviewCurrency: Currency {
+        let currencies = Set(overviewByProfile.map(\.currency))
+        if currencies.count == 1, let only = currencies.first { return only }
+        return selectedCustomer?.currency ?? .eur
     }
 
     func shiftPeriod(_ direction: Int) {
@@ -441,7 +467,7 @@ final class AppModel: ObservableObject {
     func updateEntry(id: Int64, projectId: Int64?, start: Date, end: Date?, note: String, status: EntryStatus) {
         guard let tracker else { return }
         guard end == nil || end! >= start else {
-            errorMessage = "Het einde ligt voor het begin."
+            errorMessage = "The end is before the start."
             return
         }
         do {
@@ -462,7 +488,7 @@ final class AppModel: ObservableObject {
     func addEntry(profileId: Int64, projectId: Int64?, start: Date, end: Date, note: String) {
         guard let tracker else { return }
         guard end > start else {
-            errorMessage = "Het einde moet na het begin liggen."
+            errorMessage = "The end must be after the start."
             return
         }
         do {
@@ -489,14 +515,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Knipt een blok in tweeën rond een pauze en geeft het nieuwe (tweede) blok terug.
+    /// Cuts a block in two around a break and returns the new (second) block.
     @discardableResult
     func splitEntry(id: Int64, pauseStart: Date, pauseEnd: Date) -> Int64? {
         guard let tracker else { return nil }
         do {
-            let tweede = try tracker.store.splitEntry(id: id, pauseStart: pauseStart, pauseEnd: pauseEnd)
+            let second = try tracker.store.splitEntry(id: id, pauseStart: pauseStart, pauseEnd: pauseEnd)
             refresh()
-            return tweede.id
+            return second.id
         } catch {
             errorMessage = "\(error)"
             return nil
@@ -516,7 +542,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// CSV van de getoonde periode.
+    /// CSV of the shown period.
     func exportCSV() -> String? {
         guard let tracker else { return nil }
         do {
@@ -531,9 +557,9 @@ final class AppModel: ObservableObject {
     func suggestedExportName() -> String {
         let range = overviewRange
         switch period {
-        case .day: return "uren-\(Formatting.day(range.start)).csv"
-        case .week: return "uren-week-\(Formatting.day(range.start)).csv"
-        case .month: return "uren-\(String(Formatting.day(range.start).prefix(7))).csv"
+        case .day: return "hours-\(Formatting.day(range.start)).csv"
+        case .week: return "hours-week-\(Formatting.day(range.start)).csv"
+        case .month: return "hours-\(String(Formatting.day(range.start).prefix(7))).csv"
         }
     }
 

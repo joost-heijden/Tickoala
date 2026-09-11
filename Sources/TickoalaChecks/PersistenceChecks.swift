@@ -2,107 +2,107 @@ import Foundation
 import TickoalaCore
 
 func persistenceChecks() {
-    suite("Opslag en herstart") {
-        test("een lopende timer overleeft het herstarten van de app") {
+    suite("Storage and restart") {
+        test("a running timer survives restarting the app") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            _ = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
             let path = fixture.path
 
-            // Tweede proces: zelfde bestand, nieuwe verbinding.
-            let herstart = Tracker(store: try Store(path: path))
-            let status = try herstart.status(now: at("2026-09-10 10:00"))
+            // Second process: same file, new connection.
+            let restart = Tracker(store: try Store(path: path))
+            let status = try restart.status(now: at("2026-09-10 10:00"))
 
             expectEqual(status.mode, .working)
             expectEqual(status.menuBarTitle, "1:00")
-            expectEqual(status.primary?.profile.name, "Organisatie A")
+            expectEqual(status.primary?.profile.name, "Organization A")
         }
 
-        test("een uitgestelde stop overleeft een herstart en sluit alsnog netjes af") {
+        test("a delayed stop survives a restart and still closes cleanly") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
             try fixture.store.setSetting(key: "stop-grace-seconds", value: 90)
-            _ = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
-            _ = try fixture.event("Kantoor A", .stop, "2026-09-10 17:00")
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
+            _ = try fixture.event("Office A", .stop, "2026-09-10 17:00")
             let path = fixture.path
 
-            let herstart = Tracker(store: try Store(path: path))
-            try herstart.tick(now: at("2026-09-10 17:05"))
+            let restart = Tracker(store: try Store(path: path))
+            try restart.tick(now: at("2026-09-10 17:05"))
 
-            let entry = try expectNotNil(try herstart.store.entry(id: 1))
+            let entry = try expectNotNil(try restart.store.entry(id: 1))
             expectEqual(entry.status, .completed)
-            expectEqual(entry.endedAt, at("2026-09-10 17:00"), "het einde blijft het moment van vertrek")
+            expectEqual(entry.endedAt, at("2026-09-10 17:00"), "the end stays the moment of departure")
         }
 
-        test("het schema wordt maar één keer aangelegd") {
+        test("the schema is only created once") {
             let path = NSTemporaryDirectory() + "tickoala-check-\(UUID().uuidString).sqlite3"
             defer { Fixture.remove(path) }
-            let eerste = try Store(path: path)
-            _ = try eerste.createProfile(name: "Organisatie A", contexts: ["Kantoor A"])
+            let first = try Store(path: path)
+            _ = try first.createProfile(name: "Organization A", contexts: ["Office A"])
 
-            let tweede = try Store(path: path)
-            expectEqual(try tweede.profiles().count, 1, "migraties draaien niet opnieuw")
+            let second = try Store(path: path)
+            expectEqual(try second.profiles().count, 1, "migrations do not run again")
         }
 
-        test("instellingen blijven bewaard") {
+        test("settings are persisted") {
             let fixture = try Fixture()
             try fixture.store.setSetting(key: "stop-grace-seconds", value: 120)
-            let opnieuw = try Store(path: fixture.path)
-            expectEqual(try opnieuw.settings().stopGraceSeconds, 120)
-            expectThrows({ try fixture.store.setSetting(key: "onzin", value: 1) }, "onbekende sleutels worden geweigerd")
+            let again = try Store(path: fixture.path)
+            expectEqual(try again.settings().stopGraceSeconds, 120)
+            expectThrows({ try fixture.store.setSetting(key: "junk", value: 1) }, "unknown keys are refused")
         }
 
-        test("blokken corrigeren en verwijderen werkt") {
+        test("correcting and deleting blocks works") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            _ = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
             _ = try fixture.tracker.stop(profileId: fixture.profileA.id, now: at("2026-09-10 12:00"))
 
-            try fixture.store.updateEntry(id: 1, endedAt: .some(at("2026-09-10 12:30")), note: .some("nagekomen overleg"))
+            try fixture.store.updateEntry(id: 1, endedAt: .some(at("2026-09-10 12:30")), note: .some("catch-up meeting"))
             var entry = try expectNotNil(try fixture.store.entry(id: 1))
             expectEqual(entry.duration(), 3.5 * 3600)
-            expectEqual(entry.note, "nagekomen overleg")
+            expectEqual(entry.note, "catch-up meeting")
 
             try fixture.store.updateEntry(id: 1, note: .some(nil))
             entry = try expectNotNil(try fixture.store.entry(id: 1))
-            expect(entry.note == nil, "een notitie kan ook weer weg")
+            expect(entry.note == nil, "a note can also be removed again")
 
             try fixture.store.deleteEntry(id: 1)
-            expect(try fixture.entries().isEmpty, "het blok is verwijderd")
-            expectThrows({ try fixture.store.deleteEntry(id: 1) }, "een onbekend blok geeft een fout")
+            expect(try fixture.entries().isEmpty, "the block was deleted")
+            expectThrows({ try fixture.store.deleteEntry(id: 1) }, "an unknown block gives an error")
         }
 
-        test("blokken kunnen worden gedupliceerd") {
+        test("blocks can be duplicated") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            _ = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
             _ = try fixture.tracker.stop(profileId: fixture.profileA.id, now: at("2026-09-10 12:00"))
-            try fixture.store.updateEntry(id: 1, note: .some("nagekomen overleg"))
+            try fixture.store.updateEntry(id: 1, note: .some("catch-up meeting"))
 
-            let origineel = try expectNotNil(try fixture.store.entry(id: 1))
-            let kopie = try expectNotNil(try fixture.store.duplicateEntry(id: 1))
+            let original = try expectNotNil(try fixture.store.entry(id: 1))
+            let copy = try expectNotNil(try fixture.store.duplicateEntry(id: 1))
 
-            expect(kopie.id != origineel.id, "een kopie krijgt een nieuw id")
-            expectEqual(kopie.profileId, origineel.profileId)
-            expectEqual(kopie.projectId, origineel.projectId)
-            expectEqual(kopie.startedAt, origineel.startedAt)
-            expectEqual(kopie.endedAt, origineel.endedAt)
-            expectEqual(kopie.status, origineel.status)
-            expectEqual(kopie.source, origineel.source)
-            expectEqual(kopie.note, origineel.note)
-            expectEqual(try fixture.entries().count, 2, "het origineel blijft staan")
+            expect(copy.id != original.id, "a copy gets a new id")
+            expectEqual(copy.profileId, original.profileId)
+            expectEqual(copy.projectId, original.projectId)
+            expectEqual(copy.startedAt, original.startedAt)
+            expectEqual(copy.endedAt, original.endedAt)
+            expectEqual(copy.status, original.status)
+            expectEqual(copy.source, original.source)
+            expectEqual(copy.note, original.note)
+            expectEqual(try fixture.entries().count, 2, "the original stays")
         }
 
-        test("een lopend blok kan niet worden gedupliceerd") {
+        test("a running block cannot be duplicated") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            _ = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
 
-            expectThrows({ _ = try fixture.store.duplicateEntry(id: 1) }, "een lopend blok wordt geweigerd")
-            expectEqual(try fixture.entries().count, 1, "er wordt geen kopie aangemaakt")
+            expectThrows({ _ = try fixture.store.duplicateEntry(id: 1) }, "a running block is refused")
+            expectEqual(try fixture.entries().count, 1, "no copy is created")
         }
 
-        test("een open blok kan wel worden gedupliceerd") {
+        test("an open block can be duplicated") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
             _ = try fixture.store.createEntry(
@@ -115,18 +115,18 @@ func persistenceChecks() {
                 note: nil
             )
 
-            let kopie = try expectNotNil(try fixture.store.duplicateEntry(id: 1))
-            expectEqual(kopie.status, .open)
-            expect(kopie.endedAt == nil, "een open blok houdt geen einde")
+            let copy = try expectNotNil(try fixture.store.duplicateEntry(id: 1))
+            expectEqual(copy.status, .open)
+            expect(copy.endedAt == nil, "an open block keeps no end")
             expectEqual(try fixture.entries().count, 2)
         }
 
-        test("een onbekend blok kan niet worden gedupliceerd") {
+        test("an unknown block cannot be duplicated") {
             let fixture = try Fixture()
-            expectThrows({ _ = try fixture.store.duplicateEntry(id: 42) }, "een onbekend blok wordt geweigerd")
+            expectThrows({ _ = try fixture.store.duplicateEntry(id: 42) }, "an unknown block is refused")
         }
 
-        test("een blok kan met een pauze in tweeën worden geknipt") {
+        test("a block can be cut in two around a break") {
             let fixture = try Fixture()
             let project = try fixture.project(fixture.profileA)
             _ = try fixture.store.createEntry(
@@ -136,44 +136,44 @@ func persistenceChecks() {
                 endedAt: at("2026-09-10 17:00"),
                 status: .completed,
                 source: .manual,
-                note: "overleg"
+                note: "meeting"
             )
 
-            let tweede = try fixture.store.splitEntry(
+            let second = try fixture.store.splitEntry(
                 id: 1,
                 pauseStart: at("2026-09-10 12:00"),
                 pauseEnd: at("2026-09-10 12:30")
             )
 
-            let eerste = try expectNotNil(try fixture.store.entry(id: 1))
-            expectEqual(eerste.endedAt, at("2026-09-10 12:00"), "het eerste blok stopt bij de pauze")
-            expectEqual(eerste.duration(), 3 * 3600)
-            expectEqual(tweede.startedAt, at("2026-09-10 12:30"), "het tweede blok begint na de pauze")
-            expectEqual(tweede.endedAt, at("2026-09-10 17:00"))
-            expectEqual(tweede.projectId, project.id)
-            expectEqual(tweede.note, "overleg")
-            expectEqual(tweede.duration(), 4.5 * 3600)
-            expectEqual(try fixture.entries().count, 2, "de pauze is een gat, geen derde blok")
+            let first = try expectNotNil(try fixture.store.entry(id: 1))
+            expectEqual(first.endedAt, at("2026-09-10 12:00"), "the first block stops at the break")
+            expectEqual(first.duration(), 3 * 3600)
+            expectEqual(second.startedAt, at("2026-09-10 12:30"), "the second block begins after the break")
+            expectEqual(second.endedAt, at("2026-09-10 17:00"))
+            expectEqual(second.projectId, project.id)
+            expectEqual(second.note, "meeting")
+            expectEqual(second.duration(), 4.5 * 3600)
+            expectEqual(try fixture.entries().count, 2, "the break is a gap, not a third block")
         }
 
-        test("een pauze buiten het blok wordt geweigerd") {
+        test("a break outside the block is refused") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            _ = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
             _ = try fixture.tracker.stop(profileId: fixture.profileA.id, now: at("2026-09-10 17:00"))
 
-            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 08:00"), pauseEnd: at("2026-09-10 08:30")) }, "pauze voor het begin")
-            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 17:00"), pauseEnd: at("2026-09-10 17:30")) }, "pauze na het einde")
-            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 12:30"), pauseEnd: at("2026-09-10 12:00")) }, "omgekeerde pauze")
-            expectEqual(try fixture.entries().count, 1, "er is niets gesplitst")
+            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 08:00"), pauseEnd: at("2026-09-10 08:30")) }, "break before the start")
+            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 17:00"), pauseEnd: at("2026-09-10 17:30")) }, "break after the end")
+            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 12:30"), pauseEnd: at("2026-09-10 12:00")) }, "reversed break")
+            expectEqual(try fixture.entries().count, 1, "nothing was split")
         }
 
-        test("een lopend blok kan niet worden gesplitst") {
+        test("a running block cannot be split") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            _ = try fixture.event("Kantoor A", .start, "2026-09-10 09:00")
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
 
-            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 10:00"), pauseEnd: at("2026-09-10 10:30")) }, "een lopend blok wordt geweigerd")
+            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 10:00"), pauseEnd: at("2026-09-10 10:30")) }, "a running block is refused")
             expectEqual(try fixture.entries().count, 1)
         }
     }

@@ -11,18 +11,18 @@ public enum TrackerError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .unknownProfile(let name): return "onbekend profiel: \(name)"
-        case .unknownProject(let number): return "onbekend project: \(number)"
-        case .duplicateProjectNumber(let number): return "projectnummer \(number) bestaat al binnen dit profiel"
-        case .duplicateContext(let context): return "context \(context) is al aan een profiel gekoppeld"
-        case .unknownEntry(let id): return "onbekend blok: \(id)"
+        case .unknownProfile(let name): return "unknown profile: \(name)"
+        case .unknownProject(let number): return "unknown project: \(number)"
+        case .duplicateProjectNumber(let number): return "project number \(number) already exists within this profile"
+        case .duplicateContext(let context): return "context \(context) is already linked to a profile"
+        case .unknownEntry(let id): return "unknown block: \(id)"
         case .invalidRange(let message): return message
-        case .unknownSetting(let key): return "onbekende instelling: \(key) (geldig: \(TrackerSettings.keys.joined(separator: ", ")))"
+        case .unknownSetting(let key): return "unknown setting: \(key) (valid: \(TrackerSettings.keys.joined(separator: ", ")))"
         }
     }
 }
 
-/// Alle lees- en schrijfbewerkingen op de database. Bevat geen timerregels.
+/// All read and write operations on the database. Contains no timer rules.
 public final class Store {
     public let database: Database
 
@@ -35,8 +35,8 @@ public final class Store {
         try self.init(database: Database(path: path))
     }
 
-    /// Standaardlocatie: ~/Library/Application Support/Tickoala/tickoala.sqlite3,
-    /// te overschrijven met TICKOALA_DB (handig voor tests en probeersels).
+    /// Default location: ~/Library/Application Support/Tickoala/tickoala.sqlite3,
+    /// overridable with TICKOALA_DB (handy for tests and experiments).
     public static func defaultDatabasePath(environment: [String: String] = ProcessInfo.processInfo.environment) throws -> String {
         if let override = environment["TICKOALA_DB"], !override.isEmpty {
             let url = URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
@@ -49,13 +49,13 @@ public final class Store {
         return base.appendingPathComponent("tickoala.sqlite3").path
     }
 
-    // MARK: - Profielen
+    // MARK: - Profiles
 
-    /// Maakt een profiel met één of meer gekoppelde wifi-contexten.
+    /// Creates a profile with one or more linked Wi-Fi contexts.
     @discardableResult
-    public func createProfile(name: String, contexts: [String], hourlyRateCents: Int = 0) throws -> Profile {
+    public func createProfile(name: String, contexts: [String], hourlyRateCents: Int = 0, currency: Currency = .eur) throws -> Profile {
         guard !contexts.isEmpty else {
-            throw TrackerError.invalidRange("een profiel heeft minstens één wifi-context nodig")
+            throw TrackerError.invalidRange("a profile needs at least one Wi-Fi context")
         }
         for context in contexts {
             if try profile(context: context) != nil {
@@ -64,8 +64,8 @@ public final class Store {
         }
         let rate = max(0, hourlyRateCents)
         let id = try database.run(
-            "INSERT INTO profiles (name, active, hourly_rate_cents, created_at) VALUES (?, 1, ?, ?);",
-            [.text(name), .int(Int64(rate)), .int(Int64(Date().timeIntervalSince1970))]
+            "INSERT INTO profiles (name, active, hourly_rate_cents, currency, created_at) VALUES (?, 1, ?, ?, ?);",
+            [.text(name), .int(Int64(rate)), .text(currency.rawValue), .int(Int64(Date().timeIntervalSince1970))]
         )
         try database.run("INSERT INTO profile_state (profile_id) VALUES (?);", [.int(id)])
         for context in contexts {
@@ -74,7 +74,7 @@ public final class Store {
                 [.int(id), .text(context), .int(Int64(Date().timeIntervalSince1970))]
             )
         }
-        return Profile(id: id, name: name, contexts: contexts, hourlyRateCents: rate)
+        return Profile(id: id, name: name, contexts: contexts, hourlyRateCents: rate, currency: currency)
     }
 
     public func profiles(includeInactive: Bool = true) throws -> [Profile] {
@@ -113,7 +113,7 @@ public final class Store {
         return profile
     }
 
-    /// Zoekt op naam of op wifi-context, zodat de CLI beide accepteert.
+    /// Looks up by name or by Wi-Fi context, so the CLI accepts both.
     public func profile(matching needle: String) throws -> Profile {
         if let byContext = try profile(context: needle) { return byContext }
         let rows = try database.query("SELECT * FROM profiles WHERE name = ? COLLATE NOCASE;", [.text(needle)])
@@ -123,21 +123,22 @@ public final class Store {
         return profile
     }
 
-    public func updateProfile(id: Int64, name: String? = nil, active: Bool? = nil, hourlyRateCents: Int? = nil) throws {
+    public func updateProfile(id: Int64, name: String? = nil, active: Bool? = nil, hourlyRateCents: Int? = nil, currency: Currency? = nil) throws {
         var assignments: [String] = []
         var parameters: [SQLValue] = []
         if let name { assignments.append("name = ?"); parameters.append(.text(name)) }
         if let active { assignments.append("active = ?"); parameters.append(.int(active ? 1 : 0)) }
         if let hourlyRateCents { assignments.append("hourly_rate_cents = ?"); parameters.append(.int(Int64(max(0, hourlyRateCents)))) }
+        if let currency { assignments.append("currency = ?"); parameters.append(.text(currency.rawValue)) }
         guard !assignments.isEmpty else { return }
         parameters.append(.int(id))
         try database.run("UPDATE profiles SET \(assignments.joined(separator: ", ")) WHERE id = ?;", parameters)
     }
 
-    /// Legt de pauzeregel van een klant vast.
+    /// Records the break rule of a client.
     public func updateBreakRule(profileId: Int64, rule: BreakRule) throws {
         guard rule.minutes >= 0, rule.thresholdMinutes >= 0 else {
-            throw TrackerError.invalidRange("pauzeduur en drempel mogen niet negatief zijn")
+            throw TrackerError.invalidRange("break duration and threshold must not be negative")
         }
         try database.run(
             "UPDATE profiles SET break_enabled = ?, break_minutes = ?, break_threshold_minutes = ? WHERE id = ?;",
@@ -150,7 +151,7 @@ public final class Store {
         )
     }
 
-    // MARK: - Wifi-contexten
+    // MARK: - Wi-Fi contexts
 
     public func contexts(profileId: Int64) throws -> [String] {
         try database.query(
@@ -159,11 +160,11 @@ public final class Store {
         ).compactMap { $0.string("context_name") }
     }
 
-    /// Koppelt een extra wifi-context aan een bestaand profiel.
+    /// Links an extra Wi-Fi context to an existing profile.
     @discardableResult
     public func addContext(profileId: Int64, context: String) throws -> Profile {
         let trimmed = context.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { throw TrackerError.invalidRange("een wifi-context mag niet leeg zijn") }
+        guard !trimmed.isEmpty else { throw TrackerError.invalidRange("a Wi-Fi context must not be empty") }
         if let existing = try profile(context: trimmed), existing.id != profileId {
             throw TrackerError.duplicateContext(trimmed)
         }
@@ -175,8 +176,8 @@ public final class Store {
         return profile
     }
 
-    /// Ontkoppelt een wifi-context. Een profiel mag zonder contexten komen te zitten;
-    /// het start dan alleen nog via handmatige bediening.
+    /// Unlinks a Wi-Fi context. A profile may end up without contexts; it then
+    /// only starts through manual control.
     @discardableResult
     public func removeContext(profileId: Int64, context: String) throws -> Profile {
         try database.run(
@@ -187,7 +188,7 @@ public final class Store {
         return profile
     }
 
-    // MARK: - Projecten
+    // MARK: - Projects
 
     @discardableResult
     public func createProject(profileId: Int64, number: String, name: String) throws -> Project {
@@ -221,7 +222,7 @@ public final class Store {
 
     public func updateProject(id: Int64, number: String? = nil, name: String? = nil, active: Bool? = nil) throws {
         guard let existing = try project(id: id) else { throw TrackerError.unknownProject(String(id)) }
-        // Het nummer blijft uniek binnen de organisatie, ook bij hernummeren.
+        // The number stays unique within the organization, also when renumbering.
         if let number, number.caseInsensitiveCompare(existing.number) != .orderedSame {
             if try project(profileId: existing.profileId, number: number) != nil {
                 throw TrackerError.duplicateProjectNumber(number)
@@ -237,7 +238,7 @@ public final class Store {
         try database.run("UPDATE projects SET \(assignments.joined(separator: ", ")) WHERE id = ?;", parameters)
     }
 
-    // MARK: - Profielstatus
+    // MARK: - Profile state
 
     public func state(profileId: Int64) throws -> ProfileState {
         let rows = try database.query("SELECT * FROM profile_state WHERE profile_id = ?;", [.int(profileId)])
@@ -278,7 +279,7 @@ public final class Store {
         )
     }
 
-    // MARK: - Tijdregistraties
+    // MARK: - Time entries
 
     @discardableResult
     public func createEntry(
@@ -333,7 +334,7 @@ public final class Store {
         try database.query("SELECT * FROM time_entries WHERE status = 'open' ORDER BY started_at;").map(Self.entry(from:))
     }
 
-    /// Blokken die in het venster [from, to) beginnen.
+    /// Blocks that start in the window [from, to).
     public func entries(from: Date, to: Date, profileId: Int64? = nil) throws -> [TimeEntry] {
         var sql = "SELECT * FROM time_entries WHERE started_at >= ? AND started_at < ?"
         var parameters: [SQLValue] = [
@@ -394,7 +395,7 @@ public final class Store {
     public func duplicateEntry(id: Int64) throws -> TimeEntry {
         guard let entry = try self.entry(id: id) else { throw TrackerError.unknownEntry(id) }
         guard entry.status != .running else {
-            throw TrackerError.invalidRange("een lopend blok kan niet worden gedupliceerd")
+            throw TrackerError.invalidRange("a running block cannot be duplicated")
         }
         return try createEntry(
             profileId: entry.profileId,
@@ -407,22 +408,22 @@ public final class Store {
         )
     }
 
-    /// Splitst een blok rond een pauze: het bestaande blok stopt bij `pauseStart`,
-    /// en vanaf `pauseEnd` begint een nieuw blok met dezelfde project-, bron- en
-    /// notitiegegevens. De pauze zelf blijft ongeregistreerd, precies zoals bij het
-    /// handmatig pauzeren en hervatten van de timer. De ruwe blokken blijven dus
-    /// staan; er wordt niets aan hun duur gesleuteld.
+    /// Splits a block around a break: the existing block stops at `pauseStart`,
+    /// and from `pauseEnd` a new block begins with the same project, source and
+    /// note. The break itself stays unrecorded, exactly like manually pausing and
+    /// resuming the timer. The raw blocks therefore remain untouched; nothing is
+    /// fiddled with in their duration.
     @discardableResult
     public func splitEntry(id: Int64, pauseStart: Date, pauseEnd: Date) throws -> TimeEntry {
         guard let entry = try self.entry(id: id) else { throw TrackerError.unknownEntry(id) }
         guard entry.status != .running else {
-            throw TrackerError.invalidRange("een lopend blok kan niet worden gesplitst")
+            throw TrackerError.invalidRange("a running block cannot be split")
         }
         guard let endedAt = entry.endedAt else {
-            throw TrackerError.invalidRange("een blok zonder einde kan niet worden gesplitst")
+            throw TrackerError.invalidRange("a block without an end cannot be split")
         }
         guard pauseStart >= entry.startedAt, pauseEnd <= endedAt, pauseStart < pauseEnd else {
-            throw TrackerError.invalidRange("de pauze moet binnen het blok vallen en een positieve duur hebben")
+            throw TrackerError.invalidRange("the break must fall within the block and have a positive duration")
         }
 
         try updateEntry(id: id, endedAt: .some(pauseStart))
@@ -437,9 +438,9 @@ public final class Store {
         )
     }
 
-    // MARK: - Eventlog
+    // MARK: - Event log
 
-    /// Legt het event vast. Geeft `false` terug als de sleutel al bestond (herhaling).
+    /// Records the event. Returns `false` if the key already existed (repeat).
     func recordEvent(_ event: ContextEvent, dedupeKey: String, outcome: String, detail: String?) throws -> Bool {
         do {
             try database.run(
@@ -483,7 +484,7 @@ public final class Store {
             }
     }
 
-    // MARK: - Instellingen
+    // MARK: - Settings
 
     public func settings() throws -> TrackerSettings {
         var settings = TrackerSettings.default
@@ -503,9 +504,9 @@ public final class Store {
         )
     }
 
-    // MARK: - Rijen omzetten
+    // MARK: - Converting rows
 
-    /// Contexten worden apart opgehaald; hier staat een lege lijst tot de aanroeper die vult.
+    /// Contexts are fetched separately; here an empty list is shown until the caller fills it.
     static func profile(from row: Row) -> Profile {
         Profile(
             id: row.int("id") ?? 0,
@@ -517,7 +518,8 @@ public final class Store {
                 minutes: Int(row.int("break_minutes") ?? Int64(BreakRule.default.minutes)),
                 thresholdMinutes: Int(row.int("break_threshold_minutes") ?? Int64(BreakRule.default.thresholdMinutes))
             ),
-            hourlyRateCents: Int(row.int("hourly_rate_cents") ?? 0)
+            hourlyRateCents: Int(row.int("hourly_rate_cents") ?? 0),
+            currency: Currency(rawValue: row.string("currency") ?? "") ?? .eur
         )
     }
 

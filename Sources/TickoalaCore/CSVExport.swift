@@ -2,18 +2,18 @@ import Foundation
 
 public enum CSVExport {
     public static let header = [
-        "id", "profiel", "context", "projectnummer", "projectnaam",
-        "datum", "start", "einde", "duur_uren", "duur_minuten",
-        "uurtarief", "bedrag",
-        "status", "bron", "notitie",
+        "id", "profile", "context", "project_number", "project_name",
+        "date", "start", "end", "duration_hours", "duration_minutes",
+        "hourly_rate", "amount", "currency",
+        "status", "source", "note",
     ]
 
-    /// Exporteert alle blokken die in [from, to) beginnen. Een lopend of open blok
-    /// krijgt een leeg einde en de duur tot `now`, met de status erbij.
+    /// Exports all blocks that start in [from, to). A running or open block gets
+    /// an empty end and the duration up to `now`, with its status.
     ///
-    /// Staat er automatische pauzeaftrek aan, dan komt er per klant per dag een
-    /// extra regel met een negatieve duur. De duur-kolom telt daardoor op tot de
-    /// netto uren; met `includeBreaks: false` krijg je puur de ruwe blokken.
+    /// If automatic break deduction is enabled, an extra row with a negative
+    /// duration is added per client per day. The duration column therefore adds
+    /// up to the net hours; with `includeBreaks: false` you get the raw blocks only.
     public static func export(
         store: Store,
         from: Date,
@@ -22,7 +22,7 @@ public enum CSVExport {
         now: Date = Date(),
         includeBreaks: Bool = true
     ) throws -> String {
-        guard from < to else { throw TrackerError.invalidRange("de begindatum moet voor de einddatum liggen") }
+        guard from < to else { throw TrackerError.invalidRange("the start date must be before the end date") }
 
         var profileCache: [Int64: Profile] = [:]
         var projectCache: [Int64: Project] = [:]
@@ -35,8 +35,8 @@ public enum CSVExport {
             return loaded
         }
 
-        // Regels krijgen een sorteersleutel, zodat de pauzeregel netjes achter de
-        // blokken van diezelfde klant op diezelfde dag terechtkomt.
+        // Rows get a sort key, so the break row ends up neatly after the blocks of
+        // that same client on that same day.
         var rows: [(day: Date, profileName: String, order: Int, fields: [String])] = []
 
         for entry in try store.entries(from: from, to: to, profileId: profileId) {
@@ -60,8 +60,9 @@ public enum CSVExport {
                 fields: [
                     String(entry.id),
                     profile?.name ?? "",
-                    // De contextkolom toont alle wifi-contexten van het profiel, niet per se
-                    // de specifieke SSID die dit blok startte (die staat in het eventlog).
+                    // The context column shows all Wi-Fi contexts of the profile, not
+                    // necessarily the specific SSID that started this block (that is
+                    // in the event log).
                     profile?.contexts.joined(separator: "; ") ?? "",
                     project?.number ?? "",
                     project?.name ?? "",
@@ -72,6 +73,7 @@ public enum CSVExport {
                     String(Int(duration.rounded() / 60)),
                     Formatting.decimalAmount(cents: profile?.hourlyRateCents ?? 0),
                     Formatting.decimalAmount(cents: profile?.amountCents(for: duration) ?? 0),
+                    (profile?.currency ?? .eur).rawValue,
                     entry.status.rawValue,
                     entry.source.rawValue,
                     entry.note ?? "",
@@ -102,9 +104,10 @@ public enum CSVExport {
                         "-" + String(Int(seconds.rounded() / 60)),
                         Formatting.decimalAmount(cents: profile?.hourlyRateCents ?? 0),
                         Formatting.decimalAmount(cents: -(profile?.amountCents(for: seconds) ?? 0)),
-                        "pauze",
-                        "regel",
-                        profile.map { "automatische pauzeaftrek (\($0.breakRule.summary))" } ?? "automatische pauzeaftrek",
+                        (profile?.currency ?? .eur).rawValue,
+                        "break",
+                        "rule",
+                        profile.map { "automatic break deduction (\($0.breakRule.summary))" } ?? "automatic break deduction",
                     ]
                 ))
             }

@@ -1,23 +1,24 @@
 #!/bin/bash
-# ControlPlane-adapter: geeft één start- of stopsignaal door aan de tracker.
+# ControlPlane adapter: passes a single start or stop signal to the tracker.
 #
-# Gebruik in ControlPlane (Actions → Run Shell Script):
-#   /pad/naar/controlplane-event.sh start "Kantoor A"
-#   /pad/naar/controlplane-event.sh stop  "Kantoor A"
+# Use in ControlPlane (Actions → Run Shell Script):
+#   /path/to/controlplane-event.sh start "Office A"
+#   /path/to/controlplane-event.sh stop  "Office A"
 #
-# De adapter is bewust dom: hij beslist niets zelf. De tracker bepaalt of het
-# signaal geldig is, voorkomt dubbele blokken en logt alles.
+# The adapter is deliberately dumb: it decides nothing itself. The tracker
+# determines whether the signal is valid, prevents duplicate blocks and logs
+# everything.
 set -uo pipefail
 
 kind="${1:-}"
 context="${2:-${WIFIHOURS_CONTEXT:-}}"
 
 if [ -z "$kind" ] || [ -z "$context" ]; then
-    echo "gebruik: $(basename "$0") start|stop <context>" >&2
+    echo "usage: $(basename "$0") start|stop <context>" >&2
     exit 2
 fi
 
-# Zoek het adaptercommando: eerst naast dit script, dan in de app, dan in PATH.
+# Find the adapter command: first next to this script, then in the app, then in PATH.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 for candidate in \
     "$here/../build/Tickoala.app/Contents/Helpers/tickoala" \
@@ -33,12 +34,12 @@ do
 done
 
 if [ -z "${binary:-}" ]; then
-    echo "tickoala niet gevonden — draai eerst scripts/build-app.sh" >&2
+    echo "tickoala not found — run scripts/build-app.sh first" >&2
     exit 1
 fi
 
 log="${HOME}/Library/Logs/Tickoala-adapter.log"
 mkdir -p "$(dirname "$log")"
-# Nooit falen richting ControlPlane: alles gaat naar het logbestand.
-"$binary" "$kind" --context "$context" >>"$log" 2>&1 || echo "$(date '+%F %T') adapter faalde: $kind $context" >>"$log"
+# Never fail toward ControlPlane: everything goes to the log file.
+"$binary" "$kind" --context "$context" >>"$log" 2>&1 || echo "$(date '+%F %T') adapter failed: $kind $context" >>"$log"
 exit 0

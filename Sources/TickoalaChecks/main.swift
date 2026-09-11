@@ -1,6 +1,6 @@
 import Foundation
 
-// Alle tijden in de checks zijn lokale tijd; de suite draait dus in elke tijdzone.
+// All times in the checks are local time; the suite therefore runs in any time zone.
 timerChecks()
 projectChecks()
 multiContextChecks()

@@ -26,8 +26,8 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        // De testsuite draait als los programma: de Command Line Tools leveren
-        // geen XCTest of swift-testing, alleen de volledige Xcode doet dat.
+        // The test suite runs as a standalone program: the Command Line Tools
+        // ship no XCTest or swift-testing, only full Xcode does.
         .executableTarget(
             name: "TickoalaChecks",
             dependencies: ["TickoalaCore"],

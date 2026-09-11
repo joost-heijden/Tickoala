@@ -4,33 +4,33 @@ import TickoalaCore
 
 @main
 struct TickoalaApp: App {
-    @StateObject private var model = AppModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(model: model)
+            MenuContent(model: appDelegate.model)
         } label: {
-            TickoalaMenuBarIcon(mode: model.status?.mode ?? .stopped)
+            TickoalaMenuBarIcon(mode: appDelegate.model.status?.mode ?? .stopped)
         }
         .menuBarExtraStyle(.menu)
 
-        Window("Overzicht", id: "overzicht") {
-            OverviewWindow(model: model)
+        Window("Overview", id: "overview") {
+            OverviewWindow(model: appDelegate.model)
         }
         .defaultSize(width: 1100, height: 560)
 
-        Window("Projecten", id: "projecten") {
-            ProjectsWindow(model: model)
+        Window("Projects", id: "projects") {
+            ProjectsWindow(model: appDelegate.model)
         }
         .defaultSize(width: 760, height: 460)
 
-        Window("Klanten", id: "klanten") {
-            CustomersWindow(model: model)
+        Window("Customers", id: "customers") {
+            CustomersWindow(model: appDelegate.model)
         }
         .defaultSize(width: 820, height: 520)
 
-        Window("Pauze-instellingen", id: "pauze") {
-            BreakWindow(model: model)
+        Window("Break settings", id: "break-settings") {
+            BreakWindow(model: appDelegate.model)
         }
         .defaultSize(width: 560, height: 420)
     }
@@ -60,16 +60,16 @@ private struct TickoalaMenuBarIcon: View {
             return nil
         }
         guard let image = NSImage(contentsOf: url) else { return nil }
-        // De menubalk gaat over de maat van de afbeelding zelf; een frame in
-        // SwiftUI doet daar niets. Zonder deze regel komt het icoon binnen op
-        // de maat uit de SVG (zo'n 150 punten breed) en loopt het ver buiten
-        // de balk. Alleen de hoogte ligt vast, de breedte volgt de verhouding.
+        // The menu bar goes by the size of the image itself; a frame in SwiftUI
+        // does nothing there. Without this line the icon arrives at the size from
+        // the SVG (about 150 points wide) and runs far outside the bar. Only the
+        // height is fixed, the width follows the ratio.
         let ratio = image.size.height > 0 ? image.size.width / image.size.height : 1
         image.size = NSSize(width: Self.menuBarHeight * ratio, height: Self.menuBarHeight)
         return image
     }
 
-    /// Hoogte in punten; de menubalk zelf is 22 punten hoog.
+    /// Height in points; the menu bar itself is 22 points tall.
     private static let menuBarHeight: CGFloat = 17
 
     private var resourceName: String {
@@ -100,10 +100,10 @@ private struct TickoalaMenuBarIcon: View {
 
     private var accessibilityLabel: Text {
         switch mode {
-        case .working: Text("Tickoala registreert uren")
-        case .paused: Text("Tickoala is gepauzeerd")
-        case .stopped: Text("Tickoala is gestopt")
-        case .attention: Text("Tickoala heeft aandacht nodig")
+        case .working: Text("Tickoala is tracking time")
+        case .paused: Text("Tickoala is paused")
+        case .stopped: Text("Tickoala is stopped")
+        case .attention: Text("Tickoala needs attention")
         }
     }
 }

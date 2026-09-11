@@ -1,12 +1,12 @@
 import Foundation
 
-/// Instelbare drempels. Worden in de `settings`-tabel bewaard.
+/// Configurable thresholds. Stored in the `settings` table.
 public struct TrackerSettings: Equatable, Sendable {
-    /// Wachttijd voordat een stop definitief wordt, zodat korte wifi-uitval niets afsluit.
+    /// Grace period before a stop becomes final, so a brief Wi-Fi dropout doesn't close anything.
     public var stopGraceSeconds: Int
-    /// Tijdvenster waarbinnen identieke ControlPlane-events als herhaling gelden.
+    /// Time window within which identical ControlPlane events count as a repeat.
     public var dedupeWindowSeconds: Int
-    /// Een lopend blok langer dan dit is niet geloofwaardig (slaapstand, crash) en vraagt om correctie.
+    /// A running block longer than this is not credible (sleep, crash) and needs correction.
     public var maxEntrySeconds: Int
 
     public static let `default` = TrackerSettings(

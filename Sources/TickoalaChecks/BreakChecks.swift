@@ -1,13 +1,13 @@
 import Foundation
 import TickoalaCore
 
-/// De automatische pauzeaftrek is een rekenregel over de ruwe blokken heen:
-/// tijdregistraties worden er nooit door aangepast.
+/// The automatic break deduction is a calculation on top of the raw blocks:
+/// time entries are never modified by it.
 func breakChecks() {
-    suite("Automatische pauzeaftrek") {
-        /// Zet één afgerond blok van `hours` uur neer op de gegeven dag.
+    suite("Automatic break deduction") {
+        /// Records one completed block of `hours` hours on the given day.
         @discardableResult
-        func werkdag(_ fixture: Fixture, _ profile: Profile, _ day: String, hours: Double) throws -> TimeEntry {
+        func workday(_ fixture: Fixture, _ profile: Profile, _ day: String, hours: Double) throws -> TimeEntry {
             let start = at("\(day) 09:00")
             return try fixture.store.createEntry(
                 profileId: profile.id, projectId: nil,
@@ -16,68 +16,68 @@ func breakChecks() {
             )
         }
 
-        func dagrapport(_ fixture: Fixture, _ profile: Profile, _ day: String) throws -> Report {
+        func dayReport(_ fixture: Fixture, _ profile: Profile, _ day: String) throws -> Report {
             try Reporting.report(
                 store: fixture.store, period: .day, containing: at(day),
                 profileId: profile.id, now: at("\(day) 23:00")
             )
         }
 
-        test("standaard staat de aftrek uit") {
+        test("by default the deduction is off") {
             let fixture = try Fixture()
             expectEqual(fixture.profileA.breakRule.enabled, false)
-            try werkdag(fixture, fixture.profileA, "2026-09-10", hours: 8)
+            try workday(fixture, fixture.profileA, "2026-09-10", hours: 8)
 
-            let rapport = try dagrapport(fixture, fixture.profileA, "2026-09-10")
-            expectEqual(rapport.breakDeduction, 0)
-            expectEqual(rapport.netTotal, 8 * 3600, "zonder regel verandert er niets")
+            let report = try dayReport(fixture, fixture.profileA, "2026-09-10")
+            expectEqual(report.breakDeduction, 0)
+            expectEqual(report.netTotal, 8 * 3600, "without the rule nothing changes")
         }
 
-        test("vanaf de drempel gaat de pauze eraf") {
+        test("from the threshold the break is deducted") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
                 rule: BreakRule(enabled: true, minutes: 30, thresholdMinutes: 360)
             )
-            try werkdag(fixture, fixture.profileA, "2026-09-10", hours: 8)
+            try workday(fixture, fixture.profileA, "2026-09-10", hours: 8)
 
-            let rapport = try dagrapport(fixture, fixture.profileA, "2026-09-10")
-            expectEqual(rapport.total, 8 * 3600, "bruto blijft 8 uur")
-            expectEqual(rapport.breakDeduction, 30 * 60)
-            expectEqual(rapport.netTotal, 7.5 * 3600)
+            let report = try dayReport(fixture, fixture.profileA, "2026-09-10")
+            expectEqual(report.total, 8 * 3600, "gross stays 8 hours")
+            expectEqual(report.breakDeduction, 30 * 60)
+            expectEqual(report.netTotal, 7.5 * 3600)
         }
 
-        test("de drempel telt inclusief: precies 6 uur is al genoeg") {
+        test("the threshold is inclusive: exactly 6 hours is already enough") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
                 rule: BreakRule(enabled: true, minutes: 30, thresholdMinutes: 360)
             )
-            try werkdag(fixture, fixture.profileA, "2026-09-10", hours: 6)
+            try workday(fixture, fixture.profileA, "2026-09-10", hours: 6)
 
-            expectEqual(try dagrapport(fixture, fixture.profileA, "2026-09-10").breakDeduction, 30 * 60)
+            expectEqual(try dayReport(fixture, fixture.profileA, "2026-09-10").breakDeduction, 30 * 60)
         }
 
-        test("onder de drempel gaat er niets af") {
+        test("below the threshold nothing is deducted") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
                 rule: BreakRule(enabled: true, minutes: 30, thresholdMinutes: 360)
             )
-            try werkdag(fixture, fixture.profileA, "2026-09-10", hours: 5.75)
+            try workday(fixture, fixture.profileA, "2026-09-10", hours: 5.75)
 
-            let rapport = try dagrapport(fixture, fixture.profileA, "2026-09-10")
-            expectEqual(rapport.breakDeduction, 0)
-            expectEqual(rapport.netTotal, 5.75 * 3600)
+            let report = try dayReport(fixture, fixture.profileA, "2026-09-10")
+            expectEqual(report.breakDeduction, 0)
+            expectEqual(report.netTotal, 5.75 * 3600)
         }
 
-        test("de aftrek geldt per dag, niet per blok") {
+        test("the deduction applies per day, not per block") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
                 rule: BreakRule(enabled: true, minutes: 30, thresholdMinutes: 360)
             )
-            // Twee blokken op één dag, samen 8 uur: één keer pauze eraf.
+            // Two blocks on one day, 8 hours together: one break deducted.
             _ = try fixture.store.createEntry(
                 profileId: fixture.profileA.id, projectId: nil,
                 startedAt: at("2026-09-10 08:00"), endedAt: at("2026-09-10 12:00"),
@@ -89,12 +89,12 @@ func breakChecks() {
                 status: .completed, source: .controlplane, note: nil
             )
 
-            let rapport = try dagrapport(fixture, fixture.profileA, "2026-09-10")
-            expectEqual(rapport.breakDeduction, 30 * 60, "één pauze per dag")
-            expectEqual(rapport.netTotal, 7.5 * 3600)
+            let report = try dayReport(fixture, fixture.profileA, "2026-09-10")
+            expectEqual(report.breakDeduction, 30 * 60, "one break per day")
+            expectEqual(report.netTotal, 7.5 * 3600)
         }
 
-        test("elke klant heeft een eigen regel") {
+        test("every customer has its own rule") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
@@ -104,108 +104,108 @@ func breakChecks() {
                 profileId: fixture.profileB.id,
                 rule: BreakRule(enabled: true, minutes: 60, thresholdMinutes: 240)
             )
-            try werkdag(fixture, fixture.profileA, "2026-09-10", hours: 8)
-            try werkdag(fixture, fixture.profileB, "2026-09-10", hours: 8)
+            try workday(fixture, fixture.profileA, "2026-09-10", hours: 8)
+            try workday(fixture, fixture.profileB, "2026-09-10", hours: 8)
 
-            expectEqual(try dagrapport(fixture, fixture.profileA, "2026-09-10").breakDeduction, 30 * 60)
-            expectEqual(try dagrapport(fixture, fixture.profileB, "2026-09-10").breakDeduction, 60 * 60)
+            expectEqual(try dayReport(fixture, fixture.profileA, "2026-09-10").breakDeduction, 30 * 60)
+            expectEqual(try dayReport(fixture, fixture.profileB, "2026-09-10").breakDeduction, 60 * 60)
 
-            // Zonder profielfilter tellen beide regels mee.
-            let samen = try Reporting.report(
+            // Without a profile filter both rules count.
+            let combined = try Reporting.report(
                 store: fixture.store, period: .day, containing: at("2026-09-10"), now: at("2026-09-10 23:00")
             )
-            expectEqual(samen.total, 16 * 3600)
-            expectEqual(samen.breakDeduction, 90 * 60)
-            expectEqual(samen.netTotal, 14.5 * 3600)
+            expectEqual(combined.total, 16 * 3600)
+            expectEqual(combined.breakDeduction, 90 * 60)
+            expectEqual(combined.netTotal, 14.5 * 3600)
         }
 
-        test("een uitgezette regel telt niet meer mee, ook met terugwerkende kracht") {
+        test("a disabled rule no longer counts, even retroactively") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
                 rule: BreakRule(enabled: true, minutes: 30, thresholdMinutes: 360)
             )
-            try werkdag(fixture, fixture.profileA, "2026-09-10", hours: 8)
-            expectEqual(try dagrapport(fixture, fixture.profileA, "2026-09-10").netTotal, 7.5 * 3600)
+            try workday(fixture, fixture.profileA, "2026-09-10", hours: 8)
+            expectEqual(try dayReport(fixture, fixture.profileA, "2026-09-10").netTotal, 7.5 * 3600)
 
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
                 rule: BreakRule(enabled: false, minutes: 30, thresholdMinutes: 360)
             )
-            expectEqual(try dagrapport(fixture, fixture.profileA, "2026-09-10").netTotal, 8 * 3600,
-                        "de brondata is nooit aangepast")
+            expectEqual(try dayReport(fixture, fixture.profileA, "2026-09-10").netTotal, 8 * 3600,
+                        "the source data was never modified")
         }
 
-        test("de weekrapportage trekt per dag af") {
+        test("the weekly report deducts per day") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
                 rule: BreakRule(enabled: true, minutes: 30, thresholdMinutes: 360)
             )
-            try werkdag(fixture, fixture.profileA, "2026-09-07", hours: 8)   // maandag
-            try werkdag(fixture, fixture.profileA, "2026-09-08", hours: 8)   // dinsdag
-            try werkdag(fixture, fixture.profileA, "2026-09-09", hours: 3)   // woensdag, onder de drempel
+            try workday(fixture, fixture.profileA, "2026-09-07", hours: 8)   // Monday
+            try workday(fixture, fixture.profileA, "2026-09-08", hours: 8)   // Tuesday
+            try workday(fixture, fixture.profileA, "2026-09-09", hours: 3)   // Wednesday, below the threshold
 
             let week = try Reporting.report(
                 store: fixture.store, period: .week, containing: at("2026-09-08"),
                 profileId: fixture.profileA.id, now: at("2026-09-13 23:00")
             )
             expectEqual(week.total, 19 * 3600)
-            expectEqual(week.breakDeduction, 60 * 60, "twee dagen boven de drempel")
+            expectEqual(week.breakDeduction, 60 * 60, "two days above the threshold")
             expectEqual(week.netTotal, 18 * 3600)
             expectEqual(week.byDay.count, 3)
-            expectEqual(week.byDay.last?.breakDeduction, 0, "de korte woensdag blijft heel")
+            expectEqual(week.byDay.last?.breakDeduction, 0, "the short Wednesday stays whole")
         }
 
-        test("er gaat nooit meer af dan er gewerkt is") {
+        test("it never deducts more than was worked") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
                 rule: BreakRule(enabled: true, minutes: 60, thresholdMinutes: 0)
             )
-            try werkdag(fixture, fixture.profileA, "2026-09-10", hours: 0.25)
+            try workday(fixture, fixture.profileA, "2026-09-10", hours: 0.25)
 
-            let rapport = try dagrapport(fixture, fixture.profileA, "2026-09-10")
-            expectEqual(rapport.netTotal, 0, "de dag wordt niet negatief")
-            expectEqual(rapport.breakDeduction, 15 * 60)
+            let report = try dayReport(fixture, fixture.profileA, "2026-09-10")
+            expectEqual(report.netTotal, 0, "the day does not go negative")
+            expectEqual(report.breakDeduction, 15 * 60)
         }
 
-        test("de menubalk toont netto dag- en weektotalen") {
+        test("the menu bar shows net daily and weekly totals") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
                 rule: BreakRule(enabled: true, minutes: 30, thresholdMinutes: 360)
             )
-            try werkdag(fixture, fixture.profileA, "2026-09-10", hours: 8)
+            try workday(fixture, fixture.profileA, "2026-09-10", hours: 8)
 
             let status = try fixture.tracker.status(now: at("2026-09-10 18:00"))
-            let regel = try expectNotNil(status.profiles.first(where: { $0.profile.id == fixture.profileA.id }))
-            expectEqual(regel.todayTotal, 7.5 * 3600, "netto")
-            expectEqual(regel.todayBreak, 30 * 60)
-            expectEqual(regel.todayRaw, 8 * 3600, "bruto blijft opvraagbaar")
+            let row = try expectNotNil(status.profiles.first(where: { $0.profile.id == fixture.profileA.id }))
+            expectEqual(row.todayTotal, 7.5 * 3600, "net")
+            expectEqual(row.todayBreak, 30 * 60)
+            expectEqual(row.todayRaw, 8 * 3600, "gross stays retrievable")
         }
 
-        test("export zet de pauze als aparte regel met negatieve duur") {
+        test("export puts the break as a separate row with a negative duration") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
                 rule: BreakRule(enabled: true, minutes: 30, thresholdMinutes: 360)
             )
-            try werkdag(fixture, fixture.profileA, "2026-09-10", hours: 8)
+            try workday(fixture, fixture.profileA, "2026-09-10", hours: 8)
 
             let csv = try CSVExport.export(
                 store: fixture.store, from: at("2026-09-10"), to: at("2026-09-11"), now: at("2026-09-10 23:00")
             )
-            let regels = csv.split(separator: "\n").map(String.init)
-            expectEqual(regels.count, 3, "koprij, het blok en de pauzeregel")
-            expect(regels[2].contains("-0.50"), "negatieve duur: \(regels[2])")
-            expect(regels[2].contains("pauze,regel"), "status en bron: \(regels[2])")
+            let rows = csv.split(separator: "\n").map(String.init)
+            expectEqual(rows.count, 3, "header row, the block and the break row")
+            expect(rows[2].contains("-0.50"), "negative duration: \(rows[2])")
+            expect(rows[2].contains("break,rule"), "status and source: \(rows[2])")
 
-            let bruto = try CSVExport.export(
+            let gross = try CSVExport.export(
                 store: fixture.store, from: at("2026-09-10"), to: at("2026-09-11"),
                 now: at("2026-09-10 23:00"), includeBreaks: false
             )
-            expectEqual(bruto.split(separator: "\n").count, 2, "met --bruto blijven alleen de blokken over")
+            expectEqual(gross.split(separator: "\n").count, 2, "with gross only the blocks remain")
         }
     }
 }

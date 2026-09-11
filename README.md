@@ -40,8 +40,8 @@ are — it's connected to the client's Wi-Fi. Tickoala just uses that.
 - **Multiple networks per client** — guest network, staff network, several
   offices; roaming between them doesn't split your work block
 - **Multiple clients**, each with their own projects and settings
-- **Hourly rate per client**, with the resulting amounts shown in the overview and
-  the CSV export
+- **Hourly rate per client**, in euro or dollar, with the resulting amounts shown
+  in the overview and the CSV export
 - **Projects** with number and name, switchable from the menu bar mid-session
 - **Automatic break deduction** per client — e.g. subtract 30 minutes on any day
   you worked 6 hours or more, with the duration and the threshold set separately
@@ -50,6 +50,7 @@ are — it's connected to the client's Wi-Fi. Tickoala just uses that.
 - **Manual control** — pause, resume, stop, and correct or add blocks by hand
 - **Day / week / month totals**, per project and per day
 - **CSV export** for invoicing
+- **First-run welcome screen** with a one-click toggle to launch at login
 - **Full command-line interface** for everything the app does
 
 ## Requirements
@@ -74,8 +75,8 @@ Optionally put the CLI on your `PATH`:
 ln -sf /Applications/Tickoala.app/Contents/Helpers/tickoala /usr/local/bin/tickoala
 ```
 
-To start it at login: System Settings → General → Login Items → add
-`Tickoala.app`.
+Tickoala can start itself at login: toggle it on the first-run welcome screen, or
+add `Tickoala.app` under System Settings → General → Login Items.
 
 ## Updating
 
@@ -91,17 +92,20 @@ with `git pull --ff-only`, rebuilds the app, replaces the copy in `/Applications
 locally on purpose: a downloaded bundle is ad-hoc signed and would be rejected by
 Gatekeeper.
 
-The app also checks once a day whether a newer release exists, so the menu bar can
-tell you when there is one. That check is the only network access Tickoala makes:
-one request per day to
-`https://api.github.com/repos/joost-heijden/Tickoala/releases/latest`. GitHub sees
-your IP address and the version string in the `User-Agent` header
-(`Tickoala/<version>`); nothing else is sent — no identifier, no usage data, no
-time entries, no location. Turn it off from the menu (**Updates niet meer
-controleren**), or with:
+The app also checks once a day whether a newer version exists, so the menu bar can
+tell you when there is one. When a new version tag appears, the menu shows
+**Version X available** with a link to that tag on GitHub; you don't have to do
+anything. That check is the only network access Tickoala makes: one request per
+day to
+`https://api.github.com/repos/joost-heijden/Tickoala/tags`. GitHub sees your IP
+address and the version string in the `User-Agent` header (`Tickoala/<version>`);
+nothing else is sent — no identifier, no usage data, no time entries, no location.
+Everything about it lives under **Updates** in the menu: the version you are
+running, **Check now**, and **Stop checking for updates**. Turn it off
+there, or with:
 
 ```bash
-defaults write local.tickoala.app update-controle-uit -bool true
+defaults write local.tickoala.app update-check-disabled -bool true
 ```
 
 ### Location Services
@@ -127,13 +131,13 @@ tickoala profile add --name "Acme" --context "Acme-Guest,Acme-Staff"
 tickoala project add --profile "Acme" --number 2401 --name "Data migration"
 
 # Optional: an hourly rate, used for the amounts in the overview and export
-tickoala rate set --profile "Acme" --rate 87,50
+tickoala rate set --profile "Acme" --rate 87.50
 
 # Optional: subtract 30 minutes on days of 6 hours or more
 tickoala break set --profile "Acme" --minutes 30 --threshold 6:00
 ```
 
-All of this can also be done from the menu bar: **Klanten beheren**, **Manage
+All of this can also be done from the menu bar: **Manage customers**, **Manage
 projects…**, **Break settings…** and **Overview and corrections…**.
 
 Not sure what a network is called? Connect to it — the menu bar shows the current
@@ -202,19 +206,20 @@ so the duration column adds up to your net hours. Use `--gross` to leave it out.
 
 ## Rates and amounts
 
-Each client can have its own hourly rate, in euros with cents. Set it from the
-**Klanten** window or from the command line:
+Each client can have its own hourly rate and currency (euro or dollar). Set it
+from the **Customers** window or from the command line:
 
 ```bash
-tickoala rate set --profile "Acme" --rate 87,50
+tickoala rate set --profile "Acme" --rate 87.50
+tickoala rate set --profile "Acme" --rate 100 --currency usd
 tickoala rate list
 ```
 
 The overview shows the amount for the selected period and the selected client
 (net hours × rate, so the automatic break deduction is already applied). The CSV
-export gains two columns, `uurtarief` and `bedrag`, next to every block; the
-break row carries a negative amount so the `bedrag` column adds up to the net
-total. Clients without a rate simply produce no amounts.
+export gains three columns, `hourly_rate`, `amount` and `currency`, next to every
+block; the break row carries a negative amount so the `amount` column adds up to
+the net total. Clients without a rate simply produce no amounts.
 
 ## Command line
 
@@ -222,7 +227,7 @@ total. Clients without a rate simply produce no amounts.
 tickoala status                 # also --json
 tickoala report week            # or day / month, with --date and --profile
 tickoala profile list           # clients, with their hourly rate
-tickoala rate set --profile "Acme" --rate 87,50
+tickoala rate set --profile "Acme" --rate 87.50
 tickoala entry list --period week
 tickoala entry add --number 2401 --start "2026-09-10 09:00" --end "2026-09-10 17:00"
 tickoala entry edit --id 12 --end "2026-09-10 16:30"

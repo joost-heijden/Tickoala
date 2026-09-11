@@ -1,6 +1,6 @@
 import Foundation
 
-/// Migraties worden op volgorde toegepast; `user_version` houdt bij hoe ver we zijn.
+/// Migrations are applied in order; `user_version` tracks how far we've come.
 enum Schema {
     static let migrations: [String] = [
         """
@@ -11,9 +11,9 @@ enum Schema {
             created_at INTEGER NOT NULL
         );
 
-        -- Eén-op-veel: een profiel kan aan meerdere wifinetwerken hangen
-        -- (bijvoorbeeld een gast- en een personeelsnetwerk bij dezelfde klant).
-        -- Eén context hoort maar bij één profiel.
+        -- One-to-many: a profile can be linked to multiple Wi-Fi networks
+        -- (for example a guest and a staff network at the same client).
+        -- A context belongs to only one profile.
         CREATE TABLE profile_contexts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
@@ -75,18 +75,23 @@ enum Schema {
         );
         """,
 
-        // Automatische pauzeaftrek per klant. Staat standaard uit, zodat bestaande
-        // registraties ongewijzigd blijven tot de regel bewust wordt aangezet.
+        // Automatic break deduction per client. Off by default, so existing
+        // registrations stay unchanged until the rule is deliberately enabled.
         """
         ALTER TABLE profiles ADD COLUMN break_enabled INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE profiles ADD COLUMN break_minutes INTEGER NOT NULL DEFAULT 30;
         ALTER TABLE profiles ADD COLUMN break_threshold_minutes INTEGER NOT NULL DEFAULT 360;
         """,
 
-        // Uurtarief per klant, in hele centen. Nul betekent: nog geen tarief, er
-        // worden dan ook geen bedragen getoond.
+        // Hourly rate per client, in whole cents. Zero means: no rate yet, and
+        // no amounts are shown either.
         """
         ALTER TABLE profiles ADD COLUMN hourly_rate_cents INTEGER NOT NULL DEFAULT 0;
+        """,
+
+        // Currency per client. Existing clients invoice in euros.
+        """
+        ALTER TABLE profiles ADD COLUMN currency TEXT NOT NULL DEFAULT 'EUR';
         """,
     ]
 

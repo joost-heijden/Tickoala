@@ -1,17 +1,17 @@
 import Foundation
 
-/// Eén versienummer zoals `"1.2.3"` of `"v1.2.3"`.
+/// A single version number such as `"1.2.3"` or `"v1.2.3"`.
 ///
-/// Ontbrekende delen tellen als nul: `1.2` en `1.2.0` zijn dus gelijk. Onleesbare
-/// invoer bestaat bewust niet als waarde — de init geeft dan `nil`, zodat de
-/// vergelijking nooit hoeft te gokken. Dit bestand doet geen netwerk; het is puur
-/// rekenwerk en daarom in TickoalaCore te controleren.
+/// Missing parts count as zero: `1.2` and `1.2.0` are therefore equal. Unreadable
+/// input deliberately does not exist as a value — the init returns `nil` then, so
+/// the comparison never has to guess. This file does no networking; it is pure
+/// arithmetic and that is why it lives in TickoalaCore where it can be checked.
 public struct Version: Equatable, Comparable, CustomStringConvertible {
     public let major: Int
     public let minor: Int
     public let patch: Int
 
-    /// Nulversie: staat voor een ontwikkelbuild of een clone zonder tags.
+    /// Zero version: stands for a development build or a clone without tags.
     public static let zero = Version(major: 0, minor: 0, patch: 0)
 
     public init?(_ text: String) {
@@ -19,7 +19,7 @@ public struct Version: Equatable, Comparable, CustomStringConvertible {
         if trimmed.hasPrefix("v") || trimmed.hasPrefix("V") {
             trimmed.removeFirst()
         }
-        // Leeg laten ontploffen we niet; dat is gewoon onleesbaar.
+        // We don't blow up on an empty string; that is simply unreadable.
         guard !trimmed.isEmpty else { return nil }
 
         let parts = trimmed.split(separator: ".", omittingEmptySubsequences: false)
@@ -51,20 +51,20 @@ public struct Version: Equatable, Comparable, CustomStringConvertible {
     }
 }
 
-/// Vergelijkt de versie die de app draait met wat er beschikbaar is. Geen netwerk:
-/// de aanroeper haalt de tags op en geeft ze hier als tekst door.
+/// Compares the version the app is running with what is available. No networking:
+/// the caller fetches the tags and passes them in here as text.
 public enum VersionCheck {
-    /// Geeft de nieuwste beschikbare versie terug die hoger is dan `current`.
+    /// Returns the newest available version that is higher than `current`.
     ///
-    /// `nil` betekent "niets nieuwers". Dat is ook het antwoord als de app zichzelf
-    /// niet kent (`0.0.0`, een ontwikkelbuild of een clone zonder tags); zo'n build
-    /// hoort niet met releases te vergelijken. Onleesbare tags worden genegeerd.
+    /// `nil` means "nothing newer". That is also the answer when the app doesn't
+    /// know itself (`0.0.0`, a development build or a clone without tags); such a
+    /// build should not be compared against releases. Unreadable tags are ignored.
     public static func newerVersion(current: String, available: [String]) -> String? {
-        guard let huidig = Version(current), huidig != .zero else { return nil }
+        guard let current = Version(current), current != .zero else { return nil }
 
         return available
             .compactMap { tag -> (raw: String, version: Version)? in
-                guard let version = Version(tag), version > huidig else { return nil }
+                guard let version = Version(tag), version > current else { return nil }
                 return (tag, version)
             }
             .max { $0.version < $1.version }

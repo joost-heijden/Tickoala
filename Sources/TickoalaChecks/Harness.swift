@@ -1,7 +1,7 @@
 import Foundation
 
-/// Piepklein testraamwerk. Bewust zonder XCTest, zodat de suite ook draait met
-/// alleen de Command Line Tools geïnstalleerd.
+/// Tiny test framework. Deliberately without XCTest, so the suite also runs with
+/// only the Command Line Tools installed.
 enum Harness {
     static var currentSuite = ""
     static var currentTest = ""
@@ -16,7 +16,7 @@ enum Harness {
         do {
             try body()
         } catch {
-            record("suite brak af met een fout: \(error)")
+            record("suite aborted with an error: \(error)")
         }
     }
 
@@ -27,7 +27,7 @@ enum Harness {
         do {
             try body()
         } catch {
-            record("wierp een fout: \(error)")
+            record("threw an error: \(error)")
         }
         print("  \(testFailed ? "x" : "+") \(name)")
     }
@@ -39,9 +39,9 @@ enum Harness {
     }
 
     static func summary() -> Int32 {
-        print("\n\(testCount) tests, \(assertions) controles, \(failures.count) fout(en)")
+        print("\n\(testCount) tests, \(assertions) assertions, \(failures.count) failure(s)")
         for failure in failures {
-            print("\n  FOUT: \(failure)")
+            print("\n  FAIL: \(failure)")
         }
         return failures.isEmpty ? 0 : 1
     }
@@ -52,7 +52,7 @@ func test(_ name: String, _ body: () throws -> Void) { Harness.test(name, body) 
 
 func expect(
     _ condition: @autoclosure () throws -> Bool,
-    _ description: @autoclosure () -> String = "verwachting niet waar",
+    _ description: @autoclosure () -> String = "expectation not true",
     file: StaticString = #filePath,
     line: UInt = #line
 ) {
@@ -62,7 +62,7 @@ func expect(
             Harness.record(description(), file: file, line: line)
         }
     } catch {
-        Harness.record("\(description()) — wierp \(error)", file: file, line: line)
+        Harness.record("\(description()) — threw \(error)", file: file, line: line)
     }
 }
 
@@ -79,10 +79,10 @@ func expectEqual<T: Equatable>(
         let right = try expected()
         if left != right {
             let prefix = description().isEmpty ? "" : "\(description()): "
-            Harness.record("\(prefix)verwacht \(right), kreeg \(left)", file: file, line: line)
+            Harness.record("\(prefix)expected \(right), got \(left)", file: file, line: line)
         }
     } catch {
-        Harness.record("wierp \(error)", file: file, line: line)
+        Harness.record("threw \(error)", file: file, line: line)
     }
 }
 
@@ -92,7 +92,7 @@ struct MissingValue: Error, CustomStringConvertible {
 
 func expectNotNil<T>(
     _ value: @autoclosure () throws -> T?,
-    _ description: @autoclosure () -> String = "waarde ontbreekt",
+    _ description: @autoclosure () -> String = "value missing",
     file: StaticString = #filePath,
     line: UInt = #line
 ) throws -> T {
@@ -106,7 +106,7 @@ func expectNotNil<T>(
 
 func expectThrows(
     _ body: () throws -> Void,
-    _ description: @autoclosure () -> String = "verwachtte een fout",
+    _ description: @autoclosure () -> String = "expected an error",
     file: StaticString = #filePath,
     line: UInt = #line
 ) {
@@ -115,6 +115,6 @@ func expectThrows(
         try body()
         Harness.record(description(), file: file, line: line)
     } catch {
-        // Zo hoort het.
+        // As it should be.
     }
 }

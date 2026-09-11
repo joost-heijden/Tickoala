@@ -13,7 +13,7 @@ enum CLIError: Error, CustomStringConvertible {
     }
 }
 
-/// Minimale argumentparser: positionele woorden plus `--sleutel waarde`, `--sleutel=waarde` en `--vlag`.
+/// Minimal argument parser: positional words plus `--key value`, `--key=value` and `--flag`.
 struct Arguments {
     private(set) var positional: [String] = []
     private var options: [String: String] = [:]
@@ -48,7 +48,7 @@ struct Arguments {
 
     func require(_ name: String) throws -> String {
         guard let value = options[name], !value.isEmpty else {
-            throw CLIError.usage("ontbrekende optie --\(name)")
+            throw CLIError.usage("missing option --\(name)")
         }
         return value
     }
@@ -68,7 +68,7 @@ struct Arguments {
 
     private func parse(_ name: String, _ raw: String) throws -> Date {
         guard let date = Formatting.parseDate(raw) else {
-            throw CLIError.usage("kan tijd niet lezen bij --\(name): '\(raw)' (gebruik bijvoorbeeld '2026-09-10 09:15')")
+            throw CLIError.usage("cannot read time at --\(name): '\(raw)' (for example '2026-09-10 09:15')")
         }
         return date
     }

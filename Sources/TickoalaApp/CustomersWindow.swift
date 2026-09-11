@@ -1,11 +1,11 @@
 import SwiftUI
 import TickoalaCore
 
-/// Klantbeheer: naam, uurtarief en de wifinetwerken waarop de tracker automatisch
-/// start. Dit is de plek waar een klant ook zonder commandoregel ontstaat.
+/// Customer management: name, hourly rate and the Wi-Fi networks on which the
+/// tracker starts automatically. This is where a customer is created without the
+/// command line too.
 struct CustomersWindow: View {
     @ObservedObject var model: AppModel
-    @Environment(\.openWindow) private var openWindow
     @State private var showingAdd = false
 
     var body: some View {
@@ -14,12 +14,9 @@ struct CustomersWindow: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         } detail: {
             if let customer = model.selectedCustomer {
-                CustomerForm(model: model, profile: customer) {
-                    NSApp.activate(ignoringOtherApps: true)
-                    openWindow(id: "projecten")
-                }
-                .id(customer.id)
-                .navigationTitle(customer.name)
+                CustomerForm(model: model, profile: customer)
+                    .id(customer.id)
+                    .navigationTitle(customer.name)
             } else {
                 emptyState
             }
@@ -39,14 +36,14 @@ struct CustomersWindow: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(item.profile.name)
                         Text(item.profile.hasHourlyRate
-                             ? "\(Formatting.money(cents: item.profile.hourlyRateCents)) per uur"
-                             : "geen uurtarief")
+                             ? "\(Formatting.money(cents: item.profile.hourlyRateCents, currency: item.profile.currency)) per hour"
+                             : "no hourly rate")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     if !item.profile.active {
-                        Text("inactief")
+                        Text("inactive")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -59,7 +56,7 @@ struct CustomersWindow: View {
                 Button {
                     showingAdd = true
                 } label: {
-                    Label("Klant toevoegen", systemImage: "plus")
+                    Label("Add customer", systemImage: "plus")
                 }
                 Spacer()
             }
@@ -70,52 +67,67 @@ struct CustomersWindow: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Text("Nog geen klant ingesteld.")
+            Text("No customer configured yet.")
                 .font(.headline)
-            Text("Voeg een klant toe met een wifinetwerk en een uurtarief.")
+            Text("Add a customer with a Wi-Fi network and an hourly rate.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Button("Klant toevoegen") { showingAdd = true }
+            Button("Add customer") { showingAdd = true }
                 .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-/// Het detailformulier van één klant: naam, tarief en wifinetwerken.
+/// The detail form of one customer: name, rate and Wi-Fi networks.
 private struct CustomerForm: View {
     @ObservedObject var model: AppModel
     let profile: Profile
-    var onShowProjects: () -> Void
 
     @State private var name = ""
     @State private var rateText = ""
+    @State private var currency: Currency = .eur
     @State private var newContext = ""
     @State private var active = true
     @State private var loaded = false
+    @State private var newProjectNumber = ""
+    @State private var newProjectName = ""
 
     var body: some View {
         Form {
-            Section("Klant") {
-                TextField("Naam", text: $name)
+            Section("Customer") {
+                TextField("Name", text: $name)
                     .onSubmit { save() }
+                    .onChange(of: name) { _ in save() }
                 HStack {
-                    Text("Uurtarief")
+                    Text("Hourly rate")
                     Spacer()
-                    TextField("0,00", text: $rateText)
-                        .frame(width: 100)
+                    // The empty title plus prompt keeps "0.00" from appearing as a
+                    // label next to the field; it is only an example.
+                    TextField("", text: $rateText, prompt: Text("0.00"))
+                        .labelsHidden()
+                        .frame(width: 90)
                         .multilineTextAlignment(.trailing)
                         .onSubmit { save() }
-                    Text("per uur")
+                        .onChange(of: rateText) { _ in save() }
+                    Picker("", selection: $currency) {
+                        ForEach(Currency.allCases, id: \.self) { money in
+                            Text(money.label).tag(money)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 130)
+                    .onChange(of: currency) { _ in save() }
+                    Text("per hour")
                         .foregroundStyle(.secondary)
                 }
-                Toggle("Actief", isOn: $active)
+                Toggle("Active", isOn: $active)
                     .onChange(of: active) { _ in save() }
             }
 
-            Section("Wifinetwerken") {
+            Section("Wi-Fi networks") {
                 if profile.contexts.isEmpty {
-                    Text("Geen wifinetwerken gekoppeld — de tracker start dan niet automatisch.")
+                    Text("No Wi-Fi networks linked — the tracker will not start automatically.")
                         .font(.callout)
                         .foregroundStyle(.orange)
                 }
@@ -131,26 +143,69 @@ private struct CustomerForm: View {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.borderless)
-                        .help("Wifinetwerk ontkoppelen")
+                        .help("Unlink Wi-Fi network")
                     }
                 }
 
                 HStack {
-                    TextField("Naam van het wifinetwerk", text: $newContext)
+                    TextField("Wi-Fi network name", text: $newContext)
                         .onSubmit { addContext() }
-                    Button("Koppelen") { addContext() }
+                    Button("Link") { addContext() }
                         .disabled(newContext.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
 
-            Section {
-                LabeledContent("Tarief", value: rateSummary)
-                HStack {
-                    Button("Bewaren") { save() }
-                        .keyboardShortcut(.defaultAction)
-                    Button("Projecten") { onShowProjects() }
-                    Spacer()
+            Section("Projects") {
+                let projects = model.allProjects(for: profile.id)
+                let activeId = model.activeProjectId(for: profile.id)
+                if projects.isEmpty {
+                    Text("No projects yet. Add the first one below.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(projects) { project in
+                        HStack(spacing: 8) {
+                            Button {
+                                model.selectProject(profileId: profile.id, projectId: project.id)
+                            } label: {
+                                Image(systemName: project.id == activeId ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(project.id == activeId ? Color.accentColor : Color.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(!project.active)
+                            .help("Make this the active project")
+
+                            Text(project.number)
+                                .font(.system(.body, design: .monospaced))
+                                .frame(width: 70, alignment: .leading)
+                            Text(project.name)
+                                .foregroundStyle(project.active ? .primary : .secondary)
+                            Spacer()
+                            if !project.active {
+                                Text("inactive")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
+
+                HStack(spacing: 8) {
+                    TextField("Number", text: $newProjectNumber)
+                        .frame(width: 90)
+                    TextField("Project name", text: $newProjectName)
+                        .onSubmit { addProject() }
+                    Button("Add") { addProject() }
+                        .disabled(newProjectNumber.trimmingCharacters(in: .whitespaces).isEmpty
+                                  || newProjectName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+
+            Section {
+                LabeledContent("Rate", value: rateSummary)
+                Text("Changes are saved immediately.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
 
             if let error = model.errorMessage {
@@ -163,17 +218,18 @@ private struct CustomerForm: View {
 
     private var rateSummary: String {
         guard let cents = Formatting.parseMoneyCents(rateText), cents > 0 else {
-            return "geen uurtarief — er worden geen bedragen berekend"
+            return "no hourly rate — no amounts are calculated"
         }
-        return "\(Formatting.money(cents: cents)) per uur"
+        return "\(Formatting.money(cents: cents, currency: currency)) per hour"
     }
 
     private func load() {
         guard !loaded else { return }
         name = profile.name
         rateText = profile.hasHourlyRate
-            ? Formatting.decimalAmount(cents: profile.hourlyRateCents).replacingOccurrences(of: ".", with: ",")
+            ? Formatting.decimalAmount(cents: profile.hourlyRateCents)
             : ""
+        currency = profile.currency
         active = profile.active
         loaded = true
     }
@@ -187,23 +243,36 @@ private struct CustomerForm: View {
 
     private func save() {
         guard loaded else { return }
-        // Leeg laten betekent: geen tarief. Onleesbare invoer laten we staan zodat
-        // de gebruiker ziet dat er iets niet klopt.
+        // Leaving it empty means: no rate. We don't save unreadable input, but
+        // leave it in place so the user sees something is wrong.
         let cents: Int
         if rateText.trimmingCharacters(in: .whitespaces).isEmpty {
             cents = 0
         } else if let parsed = Formatting.parseMoneyCents(rateText) {
             cents = parsed
         } else {
-            model.errorMessage = "Kan het uurtarief niet lezen: '\(rateText)'."
+            model.errorMessage = "Cannot read the hourly rate: '\(rateText)'."
             return
         }
-        model.updateCustomer(id: profile.id, name: name, hourlyRateCents: cents)
+        model.updateCustomer(id: profile.id, name: name, hourlyRateCents: cents, currency: currency)
         model.setCustomerActive(id: profile.id, active: active)
+    }
+
+    private func addProject() {
+        let number = newProjectNumber.trimmingCharacters(in: .whitespaces)
+        let name = newProjectName.trimmingCharacters(in: .whitespaces)
+        guard !number.isEmpty, !name.isEmpty else { return }
+        guard model.addProject(profileId: profile.id, number: number, name: name) else { return }
+        // Set it as the active project right away: you add it to work on it.
+        if let created = model.allProjects(for: profile.id).first(where: { $0.number == number }) {
+            model.selectProject(profileId: profile.id, projectId: created.id)
+        }
+        newProjectNumber = ""
+        newProjectName = ""
     }
 }
 
-/// Nieuwe klant: naam, één of meer wifinetwerken en een optioneel uurtarief.
+/// New customer: name, one or more Wi-Fi networks and an optional hourly rate.
 private struct AddCustomerSheet: View {
     @ObservedObject var model: AppModel
     var onClose: () -> Void
@@ -211,22 +280,31 @@ private struct AddCustomerSheet: View {
     @State private var name = ""
     @State private var contexts = ""
     @State private var rateText = ""
+    @State private var currency: Currency = .eur
 
     var body: some View {
         Form {
-            Section("Klant toevoegen") {
-                TextField("Naam", text: $name)
-                TextField("Wifinetwerken", text: $contexts, prompt: Text("bijv. Acme-Guest, Acme-Staff"))
-                Text("Meerdere netwerken scheid je met een komma.")
+            Section("Add customer") {
+                TextField("Name", text: $name)
+                TextField("Wi-Fi networks", text: $contexts, prompt: Text("e.g. Acme-Guest, Acme-Staff"))
+                Text("Separate multiple networks with a comma.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
-                    Text("Uurtarief")
+                    Text("Hourly rate")
                     Spacer()
-                    TextField("0,00", text: $rateText)
-                        .frame(width: 100)
+                    TextField("", text: $rateText, prompt: Text("0.00"))
+                        .labelsHidden()
+                        .frame(width: 90)
                         .multilineTextAlignment(.trailing)
-                    Text("per uur")
+                    Picker("", selection: $currency) {
+                        ForEach(Currency.allCases, id: \.self) { money in
+                            Text(money.label).tag(money)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 130)
+                    Text("per hour")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -236,18 +314,18 @@ private struct AddCustomerSheet: View {
             }
 
             HStack {
-                Button("Toevoegen") {
+                Button("Add") {
                     let cents = rateText.trimmingCharacters(in: .whitespaces).isEmpty
                         ? 0
                         : Formatting.parseMoneyCents(rateText)
                     guard let cents else {
-                        model.errorMessage = "Kan het uurtarief niet lezen: '\(rateText)'."
+                        model.errorMessage = "Cannot read the hourly rate: '\(rateText)'."
                         return
                     }
                     let list = contexts
                         .split(separator: ",")
                         .map { $0.trimmingCharacters(in: .whitespaces) }
-                    if model.addCustomer(name: name, contexts: list, hourlyRateCents: cents) {
+                    if model.addCustomer(name: name, contexts: list, hourlyRateCents: cents, currency: currency) {
                         onClose()
                     }
                 }
@@ -255,11 +333,11 @@ private struct AddCustomerSheet: View {
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty
                           || contexts.trimmingCharacters(in: .whitespaces).isEmpty)
 
-                Button("Annuleren", role: .cancel) { onClose() }
+                Button("Cancel", role: .cancel) { onClose() }
                 Spacer()
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440)
+        .frame(width: 480)
     }
 }

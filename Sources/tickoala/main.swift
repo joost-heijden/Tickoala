@@ -2,59 +2,59 @@ import Foundation
 import TickoalaCore
 
 let usage = """
-tickoala — lokale urenregistratie, gevoed door ControlPlane
+tickoala — local time tracking, fed by ControlPlane
 
-ControlPlane-adapter (dom, idempotent):
-  tickoala start --context <naam> [--at <tijd>]
-  tickoala stop  --context <naam> [--at <tijd>]
+ControlPlane adapter (dumb, idempotent):
+  tickoala start --context <name> [--at <time>]
+  tickoala stop  --context <name> [--at <time>]
 
-Status en onderhoud:
+Status and maintenance:
   tickoala status [--json]
-  tickoala tick                       stops afronden, vastgelopen blokken markeren
+  tickoala tick                       finalize stops, flag stuck blocks
   tickoala events [--limit 20]
-  tickoala db                         pad naar de database
+  tickoala db                         path to the database
 
-Profielen (een profiel mag aan meerdere wifinetwerken hangen):
+Profiles (a profile can be linked to multiple Wi-Fi networks):
   tickoala profile list
-  tickoala profile add --name <naam> --context <ssid>[,ssid2,...] [--rate 87,50]
-  tickoala profile edit --profile <naam|context> [--name x] [--active true|false] [--rate 87,50]
-  tickoala profile context list   --profile <naam|context>
-  tickoala profile context add    --profile <naam|context> --context <ssid>[,ssid2,...]
-  tickoala profile context remove --profile <naam|context> --context <ssid>[,ssid2,...]
+  tickoala profile add --name <name> --context <ssid>[,ssid2,...] [--rate 87.50] [--currency eur|usd]
+  tickoala profile edit --profile <name|context> [--name x] [--active true|false] [--rate 87.50] [--currency eur|usd]
+  tickoala profile context list   --profile <name|context>
+  tickoala profile context add    --profile <name|context> --context <ssid>[,ssid2,...]
+  tickoala profile context remove --profile <name|context> --context <ssid>[,ssid2,...]
 
-Uurtarief (per klant):
+Hourly rate (per customer):
   tickoala rate list
-  tickoala rate set --profile <naam> --rate 87,50
+  tickoala rate set --profile <name> --rate 87.50 [--currency eur|usd]
 
-Projecten:
-  tickoala project list [--profile <naam>]
-  tickoala project add --profile <naam> --number <nummer> --name <projectnaam>
-  tickoala project select --profile <naam> --number <nummer>
-  tickoala project edit --profile <naam> --number <nummer> [--new-number y] [--name x] [--active true|false]
+Projects:
+  tickoala project list [--profile <name>]
+  tickoala project add --profile <name> --number <number> --name <project name>
+  tickoala project select --profile <name> --number <number>
+  tickoala project edit --profile <name> --number <number> [--new-number y] [--name x] [--active true|false]
 
-Automatische pauzeaftrek (per klant):
+Automatic break deduction (per customer):
   tickoala break list
-  tickoala break set --profile <naam> [--enabled true|false] [--minutes 30] [--threshold 6:00]
-                                       --threshold accepteert 6:00, 6u of 360 (minuten)
+  tickoala break set --profile <name> [--enabled true|false] [--minutes 30] [--threshold 6:00]
+                                       --threshold accepts 6:00, 6h or 360 (minutes)
 
 Timer:
-  tickoala timer start|stop --profile <naam>
-  tickoala pause  --profile <naam>
-  tickoala resume --profile <naam>
+  tickoala timer start|stop --profile <name>
+  tickoala pause  --profile <name>
+  tickoala resume --profile <name>
 
-Blokken corrigeren:
-  tickoala entry list [--period day|week|month] [--date <dag>] [--from <tijd> --to <tijd>] [--profile <naam>]
-  tickoala entry add --profile <naam> --number <projectnummer> --start <tijd> --end <tijd> [--note "..."]
-  tickoala entry edit --id <n> [--start <tijd>] [--end <tijd>] [--number <projectnummer>] [--status completed|open] [--note "..."]
+Correcting blocks:
+  tickoala entry list [--period day|week|month] [--date <day>] [--from <time> --to <time>] [--profile <name>]
+  tickoala entry add --profile <name> --number <project number> --start <time> --end <time> [--note "..."]
+  tickoala entry edit --id <n> [--start <time>] [--end <time>] [--number <project number>] [--status completed|open] [--note "..."]
   tickoala entry delete --id <n>
 
-Overzicht en export:
-  tickoala report [day|week|month] [--date <dag>] [--profile <naam>]
-  tickoala export [--period month] [--date <dag>] [--from <tijd> --to <tijd>] [--profile <naam>] [--out <bestand>]
+Overview and export:
+  tickoala report [day|week|month] [--date <day>] [--profile <name>]
+  tickoala export [--period month] [--date <day>] [--from <time> --to <time>] [--profile <name>] [--out <file>]
 
-Instellingen:
+Settings:
   tickoala config list
-  tickoala config set <sleutel> <waarde>
+  tickoala config set <key> <value>
 """
 
 func makeTracker() throws -> Tracker {
@@ -69,9 +69,9 @@ func resolveProfile(_ arguments: Arguments, _ store: Store) throws -> Profile {
     let profiles = try store.profiles(includeInactive: false)
     if profiles.count == 1 { return profiles[0] }
     if profiles.isEmpty {
-        throw CLIError.failure("nog geen profiel aangemaakt — gebruik: tickoala profile add --name ... --context ...")
+        throw CLIError.failure("no profile created yet — use: tickoala profile add --name ... --context ...")
     }
-    throw CLIError.usage("meerdere profielen; geef --profile <naam> op (\(profiles.map(\.name).joined(separator: ", ")))")
+    throw CLIError.usage("multiple profiles; specify --profile <name> (\(profiles.map(\.name).joined(separator: ", ")))")
 }
 
 func resolvePeriod(_ arguments: Arguments, positionalIndex: Int) -> ReportPeriod? {
@@ -83,8 +83,8 @@ func resolvePeriod(_ arguments: Arguments, positionalIndex: Int) -> ReportPeriod
 
 func boolOption(_ arguments: Arguments, _ name: String) -> Bool? {
     guard let raw = arguments.string(name)?.lowercased() else { return nil }
-    if ["true", "ja", "yes", "1", "aan"].contains(raw) { return true }
-    if ["false", "nee", "no", "0", "uit"].contains(raw) { return false }
+    if ["true", "yes", "1", "on"].contains(raw) { return true }
+    if ["false", "no", "0", "off"].contains(raw) { return false }
     return nil
 }
 
@@ -120,7 +120,7 @@ func run() throws {
     case "events":
         let tracker = try makeTracker()
         let events = try tracker.store.recentEvents(limit: arguments.int("limit") ?? 20)
-        if events.isEmpty { print("nog geen events"); return }
+        if events.isEmpty { print("no events yet"); return }
         for event in events {
             print("\(Formatting.timestamp(event.at))  \(event.context)  \(event.kind)  \(event.outcome)  \(event.detail ?? "")")
         }
@@ -142,10 +142,10 @@ func run() throws {
         let profile = try resolveProfile(arguments, tracker.store)
         if command == "pause" {
             let closed = try tracker.pause(profileId: profile.id)
-            print(closed.map { "pauze — blok \($0.id) afgesloten (\(Formatting.duration($0.duration())))" } ?? "pauze — er liep geen timer")
+            print(closed.map { "paused — block \($0.id) closed (\(Formatting.duration($0.duration())))" } ?? "paused — no timer was running")
         } else {
             let entry = try tracker.resume(profileId: profile.id)
-            print("hervat — nieuw blok \(entry.id) om \(Formatting.clock(entry.startedAt))")
+            print("resumed — new block \(entry.id) at \(Formatting.clock(entry.startedAt))")
         }
 
     case "break":
@@ -167,7 +167,7 @@ func run() throws {
         try runConfig(arguments)
 
     default:
-        throw CLIError.usage("onbekend commando: \(command)\n\n\(usage)")
+        throw CLIError.usage("unknown command: \(command)\n\n\(usage)")
     }
 }
 
@@ -181,44 +181,44 @@ func printStatus(_ arguments: Arguments) throws {
         var profiles: [String] = []
         for item in status.profiles {
             let fields: [String] = [
-                "\"profiel\":\"\(jsonEscape(item.profile.name))\"",
-                "\"contexten\":\(jsonArray(item.profile.contexts))",
-                "\"modus\":\"\(item.mode.rawValue)\"",
+                "\"profile\":\"\(jsonEscape(item.profile.name))\"",
+                "\"contexts\":\(jsonArray(item.profile.contexts))",
+                "\"mode\":\"\(item.mode.rawValue)\"",
                 "\"project\":\(item.project.map { "\"\(jsonEscape($0.label))\"" } ?? "null")",
-                "\"blok_seconden\":\(Int(item.elapsedCurrent))",
-                "\"vandaag_seconden\":\(Int(item.todayTotal))",
-                "\"week_seconden\":\(Int(item.weekTotal))",
-                "\"aandacht\":\(item.attention.map { "\"\(jsonEscape($0))\"" } ?? "null")",
+                "\"block_seconds\":\(Int(item.elapsedCurrent))",
+                "\"today_seconds\":\(Int(item.todayTotal))",
+                "\"week_seconds\":\(Int(item.weekTotal))",
+                "\"attention\":\(item.attention.map { "\"\(jsonEscape($0))\"" } ?? "null")",
             ]
             profiles.append("{\(fields.joined(separator: ","))}")
         }
-        print("{\"modus\":\"\(status.mode.rawValue)\",\"titel\":\"\(jsonEscape(status.menuBarTitle))\",\"open_blokken\":\(status.openEntryCount),\"profielen\":[\(profiles.joined(separator: ","))]}")
+        print("{\"mode\":\"\(status.mode.rawValue)\",\"title\":\"\(jsonEscape(status.menuBarTitle))\",\"open_blocks\":\(status.openEntryCount),\"profiles\":[\(profiles.joined(separator: ","))]}")
         return
     }
 
     if status.profiles.isEmpty {
-        print("nog geen profiel aangemaakt — gebruik: tickoala profile add --name ... --context ...")
+        print("no profile created yet — use: tickoala profile add --name ... --context ...")
         return
     }
     print("\(status.mode.label)  \(status.menuBarTitle)")
     for item in status.profiles {
         var line = "  \(item.profile.name) [\(item.profile.contextsLabel)] — \(item.mode.label)"
-        line += "  project: \(item.project?.label ?? "geen")"
+        line += "  project: \(item.project?.label ?? "none")"
         if let running = item.runningEntry {
-            line += "  loopt sinds \(Formatting.clock(running.startedAt)) (\(Formatting.duration(item.elapsedCurrent)))"
+            line += "  running since \(Formatting.clock(running.startedAt)) (\(Formatting.duration(item.elapsedCurrent)))"
         }
         if let pending = item.pendingStopAt {
-            line += "  stop gepland vanaf \(Formatting.clock(pending))"
+            line += "  stop scheduled from \(Formatting.clock(pending))"
         }
-        line += "  vandaag \(Formatting.duration(item.todayTotal))  week \(Formatting.duration(item.weekTotal))"
+        line += "  today \(Formatting.duration(item.todayTotal))  week \(Formatting.duration(item.weekTotal))"
         if item.todayBreak > 0 || item.weekBreak > 0 {
-            line += "  (netto; pauze vandaag -\(Formatting.duration(item.todayBreak)), week -\(Formatting.duration(item.weekBreak)))"
+            line += "  (net; break today -\(Formatting.duration(item.todayBreak)), week -\(Formatting.duration(item.weekBreak)))"
         }
         print(line)
         if let attention = item.attention { print("    ! \(attention)") }
     }
     if status.openEntryCount > 0 {
-        print("  \(status.openEntryCount) blok(ken) met status 'open' wachten op correctie (tickoala entry list --period week)")
+        print("  \(status.openEntryCount) block(s) with status 'open' awaiting correction (tickoala entry list --period week)")
     }
 }
 
@@ -230,8 +230,8 @@ func jsonArray(_ values: [String]) -> String {
     "[" + values.map { "\"\(jsonEscape($0))\"" }.joined(separator: ",") + "]"
 }
 
-/// Splitst een --context-optie met komma's in losse, opgeschoonde wifi-namen
-/// en filtert lege of herhaalde waarden eruit.
+/// Splits a --context option on commas into separate, cleaned Wi-Fi names and
+/// filters out empty or duplicate values.
 func contextsList(_ raw: String) -> [String] {
     var seen = Set<String>()
     var result: [String] = []
@@ -244,38 +244,40 @@ func contextsList(_ raw: String) -> [String] {
     return result
 }
 
-// MARK: - Profielen
+// MARK: - Profiles
 
 func runProfile(_ arguments: Arguments) throws {
     let tracker = try makeTracker()
     switch arguments.word(1) ?? "list" {
     case "list":
         let profiles = try tracker.store.profiles()
-        if profiles.isEmpty { print("nog geen profielen"); return }
+        if profiles.isEmpty { print("no profiles yet"); return }
         for profile in profiles {
             let state = try tracker.store.state(profileId: profile.id)
             let project = try state.activeProjectId.flatMap { try tracker.store.project(id: $0) }
-            let rate = profile.hasHourlyRate ? "  uurtarief: \(Formatting.money(cents: profile.hourlyRateCents))" : ""
-            print("\(profile.id)  \(profile.name)  contexten: \(profile.contextsLabel)  actief project: \(project?.label ?? "geen")\(rate)\(profile.active ? "" : "  [inactief]")")
+            let rate = profile.hasHourlyRate ? "  hourly rate: \(Formatting.money(cents: profile.hourlyRateCents, currency: profile.currency))" : ""
+            print("\(profile.id)  \(profile.name)  contexts: \(profile.contextsLabel)  active project: \(project?.label ?? "none")\(rate)\(profile.active ? "" : "  [inactive]")")
         }
     case "add":
         let contexts = contextsList(try arguments.require("context"))
         let rate = try optionalRateCents(arguments)
-        let profile = try tracker.store.createProfile(name: try arguments.require("name"), contexts: contexts, hourlyRateCents: rate ?? 0)
-        print("profiel \(profile.id) aangemaakt: \(profile.name) → \(profile.contextsLabel)")
+        let currency = try optionalCurrency(arguments) ?? .eur
+        let profile = try tracker.store.createProfile(name: try arguments.require("name"), contexts: contexts, hourlyRateCents: rate ?? 0, currency: currency)
+        print("profile \(profile.id) created: \(profile.name) → \(profile.contextsLabel)")
     case "edit":
         let profile = try resolveProfile(arguments, tracker.store)
         try tracker.store.updateProfile(
             id: profile.id,
             name: arguments.string("name"),
             active: boolOption(arguments, "active"),
-            hourlyRateCents: try optionalRateCents(arguments)
+            hourlyRateCents: try optionalRateCents(arguments),
+            currency: try optionalCurrency(arguments)
         )
-        print("profiel \(profile.id) bijgewerkt")
+        print("profile \(profile.id) updated")
     case "context":
         try runProfileContext(arguments, tracker)
     default:
-        throw CLIError.usage("gebruik: tickoala profile list|add|edit|context")
+        throw CLIError.usage("usage: tickoala profile list|add|edit|context")
     }
 }
 
@@ -284,26 +286,26 @@ func runProfileContext(_ arguments: Arguments, _ tracker: Tracker) throws {
     switch arguments.word(2) ?? "list" {
     case "list":
         let contexts = try tracker.store.contexts(profileId: profile.id)
-        if contexts.isEmpty { print("(geen wifi-contexten gekoppeld)"); return }
+        if contexts.isEmpty { print("(no Wi-Fi contexts linked)"); return }
         for context in contexts { print(context) }
     case "add":
         var updated = profile
         for context in contextsList(try arguments.require("context")) {
             updated = try tracker.store.addContext(profileId: profile.id, context: context)
         }
-        print("wifi-contexten van \(profile.name): \(updated.contextsLabel)")
+        print("Wi-Fi contexts of \(profile.name): \(updated.contextsLabel)")
     case "remove":
         var updated = profile
         for context in contextsList(try arguments.require("context")) {
             updated = try tracker.store.removeContext(profileId: profile.id, context: context)
         }
-        print("wifi-contexten van \(profile.name): \(updated.contextsLabel)")
+        print("Wi-Fi contexts of \(profile.name): \(updated.contextsLabel)")
     default:
-        throw CLIError.usage("gebruik: tickoala profile context list|add|remove --profile <naam> --context <ssid>[,ssid2,...]")
+        throw CLIError.usage("usage: tickoala profile context list|add|remove --profile <name> --context <ssid>[,ssid2,...]")
     }
 }
 
-// MARK: - Projecten
+// MARK: - Projects
 
 func runProject(_ arguments: Arguments) throws {
     let tracker = try makeTracker()
@@ -316,10 +318,10 @@ func runProject(_ arguments: Arguments) throws {
             let state = try tracker.store.state(profileId: profile.id)
             print("\(profile.name):")
             let projects = try tracker.store.projects(profileId: profile.id)
-            if projects.isEmpty { print("  (geen projecten)") }
+            if projects.isEmpty { print("  (no projects)") }
             for project in projects {
                 let marker = state.activeProjectId == project.id ? "→" : " "
-                print("  \(marker) \(project.label)\(project.active ? "" : "  [inactief]")")
+                print("  \(marker) \(project.label)\(project.active ? "" : "  [inactive]")")
             }
         }
     case "add":
@@ -329,9 +331,9 @@ func runProject(_ arguments: Arguments) throws {
             number: try arguments.require("number"),
             name: try arguments.require("name")
         )
-        var message = "project toegevoegd aan \(profile.name): \(project.label)"
+        var message = "project added to \(profile.name): \(project.label)"
         if try tracker.store.state(profileId: profile.id).activeProjectId == project.id {
-            message += " (meteen als actief project gezet)"
+            message += " (set as the active project immediately)"
         }
         print(message)
     case "select":
@@ -341,9 +343,9 @@ func runProject(_ arguments: Arguments) throws {
             throw TrackerError.unknownProject(number)
         }
         let entry = try tracker.selectProject(profileId: profile.id, projectId: project.id)
-        var message = "actief project voor \(profile.name): \(project.label)"
+        var message = "active project for \(profile.name): \(project.label)"
         if let entry, entry.projectId == project.id, entry.status == .running {
-            message += " (blok \(entry.id) loopt door op dit project)"
+            message += " (block \(entry.id) keeps running on this project)"
         }
         print(message)
     case "edit":
@@ -359,31 +361,31 @@ func runProject(_ arguments: Arguments) throws {
             active: boolOption(arguments, "active")
         )
         if let updated = try tracker.store.project(id: project.id) {
-            print("project bijgewerkt: \(updated.label)\(updated.active ? "" : "  [inactief]")")
+            print("project updated: \(updated.label)\(updated.active ? "" : "  [inactive]")")
         }
     default:
-        throw CLIError.usage("gebruik: tickoala project list|add|select|edit")
+        throw CLIError.usage("usage: tickoala project list|add|select|edit")
     }
 }
 
-// MARK: - Pauzeaftrek
+// MARK: - Break deduction
 
-/// Leest een drempel als `6:00`, `6u`, `6` (uren) of `360m` (minuten).
+/// Reads a threshold as `6:00`, `6h`, `6` (hours) or `360m` (minutes).
 func parseMinutes(_ raw: String) throws -> Int {
     let text = raw.trimmingCharacters(in: .whitespaces).lowercased()
     if text.contains(":") {
         let parts = text.split(separator: ":")
         guard parts.count == 2, let hours = Int(parts[0]), let minutes = Int(parts[1]), minutes < 60 else {
-            throw CLIError.usage("kan tijd niet lezen: '\(raw)' (gebruik bijvoorbeeld 6:00)")
+            throw CLIError.usage("cannot read time: '\(raw)' (for example 6:00)")
         }
         return hours * 60 + minutes
     }
     if text.hasSuffix("m"), let minutes = Int(text.dropLast()) { return minutes }
-    if text.hasSuffix("u"), let hours = Int(text.dropLast()) { return hours * 60 }
+    if text.hasSuffix("h"), let hours = Int(text.dropLast()) { return hours * 60 }
     guard let value = Int(text) else {
-        throw CLIError.usage("kan tijd niet lezen: '\(raw)' (gebruik 6:00, 6u of 360)")
+        throw CLIError.usage("cannot read time: '\(raw)' (use 6:00, 6h or 360)")
     }
-    // Kaal getal: kleine waarden zijn vrijwel zeker uren, grote zijn minuten.
+    // Bare number: small values are almost certainly hours, large ones are minutes.
     return value <= 24 ? value * 60 : value
 }
 
@@ -392,7 +394,7 @@ func runBreak(_ arguments: Arguments) throws {
     switch arguments.word(1) ?? "list" {
     case "list":
         let profiles = try tracker.store.profiles()
-        if profiles.isEmpty { print("nog geen profielen"); return }
+        if profiles.isEmpty { print("no profiles yet"); return }
         for profile in profiles {
             print("\(profile.name): \(profile.breakRule.summary)")
         }
@@ -402,7 +404,7 @@ func runBreak(_ arguments: Arguments) throws {
         if let enabled = boolOption(arguments, "enabled") { rule.enabled = enabled }
         if let minutes = arguments.string("minutes") {
             rule.minutes = try parseMinutes(minutes.allSatisfy(\.isNumber) ? "\(minutes)m" : minutes)
-            // Een pauzeduur instellen betekent vrijwel altijd: zet hem ook aan.
+            // Setting a break duration almost always means: turn it on too.
             if boolOption(arguments, "enabled") == nil { rule.enabled = rule.minutes > 0 }
         }
         if let threshold = arguments.string("threshold") {
@@ -411,19 +413,29 @@ func runBreak(_ arguments: Arguments) throws {
         try tracker.store.updateBreakRule(profileId: profile.id, rule: rule)
         print("\(profile.name): \(rule.summary)")
     default:
-        throw CLIError.usage("gebruik: tickoala break list|set")
+        throw CLIError.usage("usage: tickoala break list|set")
     }
 }
 
-// MARK: - Uurtarief
+// MARK: - Hourly rate
 
-/// Leest het optionele `--rate` als centen; `nil` als de optie ontbreekt.
+/// Reads the optional `--rate` as cents; `nil` if the option is absent.
 func optionalRateCents(_ arguments: Arguments) throws -> Int? {
     guard let raw = arguments.string("rate") else { return nil }
     guard let cents = Formatting.parseMoneyCents(raw) else {
-        throw CLIError.usage("kan het uurtarief niet lezen: '\(raw)' (gebruik bijvoorbeeld 87,50)")
+        throw CLIError.usage("cannot read the hourly rate: '\(raw)' (for example 87.50)")
     }
     return cents
+}
+
+/// Reads the optional `--currency` as a currency; `nil` if the option is absent.
+func optionalCurrency(_ arguments: Arguments) throws -> Currency? {
+    guard let raw = arguments.string("currency")?.trimmingCharacters(in: .whitespaces).lowercased() else { return nil }
+    switch raw {
+    case "eur", "euro", "€": return .eur
+    case "usd", "dollar", "$": return .usd
+    default: throw CLIError.usage("unknown currency: '\(raw)' (use eur or usd)")
+    }
 }
 
 func runRate(_ arguments: Arguments) throws {
@@ -431,25 +443,27 @@ func runRate(_ arguments: Arguments) throws {
     switch arguments.word(1) ?? "list" {
     case "list":
         let profiles = try tracker.store.profiles()
-        if profiles.isEmpty { print("nog geen profielen"); return }
+        if profiles.isEmpty { print("no profiles yet"); return }
         for profile in profiles {
             let text = profile.hasHourlyRate
-                ? "\(Formatting.money(cents: profile.hourlyRateCents)) per uur"
-                : "geen uurtarief"
+                ? "\(Formatting.money(cents: profile.hourlyRateCents, currency: profile.currency)) per hour"
+                : "no hourly rate"
             print("\(profile.name): \(text)")
         }
     case "set":
         let profile = try resolveProfile(arguments, tracker.store)
         guard let raw = arguments.string("rate") else {
-            throw CLIError.usage("gebruik: tickoala rate set --profile <naam> --rate 87,50")
+            throw CLIError.usage("usage: tickoala rate set --profile <name> --rate 87.50 [--currency eur|usd]")
         }
         guard let cents = Formatting.parseMoneyCents(raw) else {
-            throw CLIError.usage("kan het uurtarief niet lezen: '\(raw)'")
+            throw CLIError.usage("cannot read the hourly rate: '\(raw)'")
         }
-        try tracker.store.updateProfile(id: profile.id, hourlyRateCents: cents)
-        print("\(profile.name): \(Formatting.money(cents: cents)) per uur")
+        let currency = try optionalCurrency(arguments)
+        try tracker.store.updateProfile(id: profile.id, hourlyRateCents: cents, currency: currency)
+        let shown = currency ?? profile.currency
+        print("\(profile.name): \(Formatting.money(cents: cents, currency: shown)) per hour")
     default:
-        throw CLIError.usage("gebruik: tickoala rate list|set")
+        throw CLIError.usage("usage: tickoala rate list|set")
     }
 }
 
@@ -461,16 +475,16 @@ func runTimer(_ arguments: Arguments) throws {
     switch arguments.word(1) ?? "" {
     case "start":
         let entry = try tracker.start(profileId: profile.id)
-        print("blok \(entry.id) loopt sinds \(Formatting.clock(entry.startedAt))")
+        print("block \(entry.id) running since \(Formatting.clock(entry.startedAt))")
     case "stop":
         let entry = try tracker.stop(profileId: profile.id)
-        print(entry.map { "blok \($0.id) gestopt — \(Formatting.duration($0.duration()))" } ?? "er liep geen timer")
+        print(entry.map { "block \($0.id) stopped — \(Formatting.duration($0.duration()))" } ?? "no timer was running")
     default:
-        throw CLIError.usage("gebruik: tickoala timer start|stop --profile <naam>")
+        throw CLIError.usage("usage: tickoala timer start|stop --profile <name>")
     }
 }
 
-// MARK: - Blokken
+// MARK: - Blocks
 
 func runEntry(_ arguments: Arguments) throws {
     let tracker = try makeTracker()
@@ -479,18 +493,18 @@ func runEntry(_ arguments: Arguments) throws {
         let profileId = arguments.string("profile") != nil ? try resolveProfile(arguments, tracker.store).id : nil
         let window = try resolveWindow(arguments, defaultPeriod: .day)
         let entries = try tracker.store.entries(from: window.start, to: window.end, profileId: profileId)
-        if entries.isEmpty { print("geen blokken tussen \(Formatting.timestamp(window.start)) en \(Formatting.timestamp(window.end))"); return }
+        if entries.isEmpty { print("no blocks between \(Formatting.timestamp(window.start)) and \(Formatting.timestamp(window.end))"); return }
         for entry in entries {
             let project = try entry.projectId.flatMap { try tracker.store.project(id: $0) }
             let profile = try tracker.store.profile(id: entry.profileId)
             let end = entry.endedAt.map(Formatting.clock) ?? "…"
-            print("\(entry.id)  \(Formatting.day(entry.startedAt))  \(Formatting.clock(entry.startedAt))–\(end)  \(Formatting.duration(entry.duration()))  \(profile?.name ?? "?")  \(project?.label ?? "(geen project)")  \(entry.status.rawValue)  \(entry.source.rawValue)\(entry.note.map { "  \"\($0)\"" } ?? "")")
+            print("\(entry.id)  \(Formatting.day(entry.startedAt))  \(Formatting.clock(entry.startedAt))–\(end)  \(Formatting.duration(entry.duration()))  \(profile?.name ?? "?")  \(project?.label ?? "(no project)")  \(entry.status.rawValue)  \(entry.source.rawValue)\(entry.note.map { "  \"\($0)\"" } ?? "")")
         }
     case "add":
         let profile = try resolveProfile(arguments, tracker.store)
         let start = try arguments.requireDate("start")
         let end = try arguments.requireDate("end")
-        guard end > start else { throw CLIError.usage("--end moet na --start liggen") }
+        guard end > start else { throw CLIError.usage("--end must be after --start") }
         var projectId: Int64?
         if let number = arguments.string("number") {
             guard let project = try tracker.store.project(profileId: profile.id, number: number) else {
@@ -504,9 +518,9 @@ func runEntry(_ arguments: Arguments) throws {
             profileId: profile.id, projectId: projectId, startedAt: start, endedAt: end,
             status: .completed, source: .manual, note: arguments.string("note")
         )
-        print("blok \(entry.id) toegevoegd: \(Formatting.timestamp(start)) – \(Formatting.clock(end)) (\(Formatting.duration(entry.duration())))")
+        print("block \(entry.id) added: \(Formatting.timestamp(start)) – \(Formatting.clock(end)) (\(Formatting.duration(entry.duration())))")
     case "edit":
-        guard let id = arguments.int("id").map(Int64.init) else { throw CLIError.usage("ontbrekende optie --id") }
+        guard let id = arguments.int("id").map(Int64.init) else { throw CLIError.usage("missing option --id") }
         guard let existing = try tracker.store.entry(id: id) else { throw TrackerError.unknownEntry(id) }
         var projectId: Int64??
         if let number = arguments.string("number") {
@@ -517,7 +531,7 @@ func runEntry(_ arguments: Arguments) throws {
         }
         var status: EntryStatus?
         if let raw = arguments.string("status") {
-            guard let parsed = EntryStatus(rawValue: raw) else { throw CLIError.usage("status moet running, completed of open zijn") }
+            guard let parsed = EntryStatus(rawValue: raw) else { throw CLIError.usage("status must be running, completed or open") }
             status = parsed
         }
         let start = try arguments.date("start", default: nil)
@@ -530,9 +544,9 @@ func runEntry(_ arguments: Arguments) throws {
             }
         }
         if let start, let newEnd = end ?? .some(existing.endedAt), let newEnd, newEnd < start {
-            throw CLIError.usage("het einde ligt voor het begin")
+            throw CLIError.usage("the end is before the start")
         }
-        // Een blok met een einde is niet meer 'running'.
+        // A block with an end is no longer 'running'.
         if status == nil, case .some(.some) = end, existing.status == .running || existing.status == .open {
             status = .completed
         }
@@ -545,22 +559,22 @@ func runEntry(_ arguments: Arguments) throws {
             note: arguments.string("note").map { Optional($0) }
         )
         if let updated = try tracker.store.entry(id: id) {
-            print("blok \(id) bijgewerkt: \(Formatting.timestamp(updated.startedAt)) – \(updated.endedAt.map(Formatting.clock) ?? "…") (\(Formatting.duration(updated.duration())), \(updated.status.rawValue))")
+            print("block \(id) updated: \(Formatting.timestamp(updated.startedAt)) – \(updated.endedAt.map(Formatting.clock) ?? "…") (\(Formatting.duration(updated.duration())), \(updated.status.rawValue))")
         }
     case "delete":
-        guard let id = arguments.int("id").map(Int64.init) else { throw CLIError.usage("ontbrekende optie --id") }
+        guard let id = arguments.int("id").map(Int64.init) else { throw CLIError.usage("missing option --id") }
         try tracker.store.deleteEntry(id: id)
-        print("blok \(id) verwijderd")
+        print("block \(id) deleted")
     default:
-        throw CLIError.usage("gebruik: tickoala entry list|add|edit|delete")
+        throw CLIError.usage("usage: tickoala entry list|add|edit|delete")
     }
 }
 
-/// Bepaalt het venster uit --from/--to of uit --period/--date.
+/// Determines the window from --from/--to or from --period/--date.
 func resolveWindow(_ arguments: Arguments, defaultPeriod: ReportPeriod) throws -> DateRange {
     if let from = try arguments.date("from", default: nil) {
         let to = try arguments.date("to", default: nil) ?? Date()
-        guard to > from else { throw CLIError.usage("--to moet na --from liggen") }
+        guard to > from else { throw CLIError.usage("--to must be after --from") }
         return DateRange(start: from, end: to)
     }
     let period = resolvePeriod(arguments, positionalIndex: 1) ?? defaultPeriod
@@ -568,7 +582,7 @@ func resolveWindow(_ arguments: Arguments, defaultPeriod: ReportPeriod) throws -
     return Reporting.range(period, containing: anchor)
 }
 
-// MARK: - Rapport
+// MARK: - Report
 
 func runReport(_ arguments: Arguments) throws {
     let tracker = try makeTracker()
@@ -578,20 +592,22 @@ func runReport(_ arguments: Arguments) throws {
     let report = try Reporting.report(store: tracker.store, period: period, containing: anchor, profileId: profile?.id)
 
     let end = Formatting.calendar.date(byAdding: .second, value: -1, to: report.range.end) ?? report.range.end
-    print("\(period.label): \(Formatting.day(report.range.start)) t/m \(Formatting.day(end))\(profile.map { " — \($0.name)" } ?? "")")
+    print("\(period.label): \(Formatting.day(report.range.start)) to \(Formatting.day(end))\(profile.map { " — \($0.name)" } ?? "")")
     if report.breakDeduction > 0 {
-        print("gewerkt: \(Formatting.duration(report.total))  (\(Formatting.decimalHours(report.total)) uur)")
-        print("pauze:  -\(Formatting.duration(report.breakDeduction))")
-        print("totaal: \(Formatting.duration(report.netTotal))  (\(Formatting.decimalHours(report.netTotal)) uur)")
+        print("worked: \(Formatting.duration(report.total))  (\(Formatting.decimalHours(report.total)) hours)")
+        print("break:  -\(Formatting.duration(report.breakDeduction))")
+        print("total:  \(Formatting.duration(report.netTotal))  (\(Formatting.decimalHours(report.netTotal)) hours)")
     } else {
-        print("totaal: \(Formatting.duration(report.total))  (\(Formatting.decimalHours(report.total)) uur)")
+        print("total: \(Formatting.duration(report.total))  (\(Formatting.decimalHours(report.total)) hours)")
     }
     if report.amountCents > 0 {
-        print("bedrag: \(Formatting.money(cents: report.amountCents))")
+        let currencies = Set(report.byProfile.map(\.currency))
+        let currency = currencies.count == 1 ? (currencies.first ?? .eur) : (profile?.currency ?? .eur)
+        print("amount: \(Formatting.money(cents: report.amountCents, currency: currency))")
         let withRate = report.byProfile.filter { $0.hasHourlyRate }
         if profile == nil, withRate.count > 1 {
             for item in withRate {
-                print("  \(item.label): \(Formatting.money(cents: item.amountCents))")
+                print("  \(item.label): \(Formatting.money(cents: item.amountCents, currency: item.currency))")
             }
         }
     }
@@ -602,20 +618,20 @@ func runReport(_ arguments: Arguments) throws {
         }
     }
     if report.breakDeduction > 0 {
-        print("(pauze hangt aan een dag, niet aan een project; de projectregels hierboven zijn bruto)")
+        print("(break belongs to a day, not to a project; the project rows above are gross)")
     }
     if period != .day, !report.byDay.isEmpty {
-        print("per dag:")
+        print("per day:")
         for item in report.byDay {
             var line = "  \(Formatting.day(item.day))  \(Formatting.duration(item.net))"
             if item.breakDeduction > 0 {
-                line += "  (gewerkt \(Formatting.duration(item.total)), pauze -\(Formatting.duration(item.breakDeduction)))"
+                line += "  (worked \(Formatting.duration(item.total)), break -\(Formatting.duration(item.breakDeduction)))"
             }
             print(line)
         }
     }
-    if report.runningCount > 0 { print("let op: \(report.runningCount) lopend blok meegeteld tot nu") }
-    if report.openCount > 0 { print("let op: \(report.openCount) blok(ken) met status 'open' — corrigeer met tickoala entry edit") }
+    if report.runningCount > 0 { print("note: \(report.runningCount) running block counted up to now") }
+    if report.openCount > 0 { print("note: \(report.openCount) block(s) with status 'open' — correct with tickoala entry edit") }
 }
 
 // MARK: - Export
@@ -629,48 +645,48 @@ func runExport(_ arguments: Arguments) throws {
         from: window.start,
         to: window.end,
         profileId: profile?.id,
-        includeBreaks: !arguments.flag("bruto")
+        includeBreaks: !arguments.flag("gross")
     )
     if let path = arguments.string("out") {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         try csv.write(to: url, atomically: true, encoding: .utf8)
-        print("geëxporteerd naar \(url.path)")
+        print("exported to \(url.path)")
     } else {
         print(csv, terminator: "")
     }
 }
 
-// MARK: - Instellingen
+// MARK: - Settings
 
 func runConfig(_ arguments: Arguments) throws {
     let tracker = try makeTracker()
     switch arguments.word(1) ?? "list" {
     case "list":
         let settings = try tracker.store.settings()
-        print("stop-grace-seconds    \(settings.stopGraceSeconds)   wachttijd voor een stop definitief wordt")
-        print("dedupe-window-seconds \(settings.dedupeWindowSeconds)   venster waarin herhaalde events genegeerd worden")
-        print("max-entry-seconds     \(settings.maxEntrySeconds)   daarna wordt een lopend blok 'open'")
+        print("stop-grace-seconds    \(settings.stopGraceSeconds)   grace period before a stop becomes final")
+        print("dedupe-window-seconds \(settings.dedupeWindowSeconds)   window in which repeated events are ignored")
+        print("max-entry-seconds     \(settings.maxEntrySeconds)   after this a running block becomes 'open'")
     case "set":
         guard let key = arguments.word(2), let raw = arguments.word(3), let value = Int(raw) else {
-            throw CLIError.usage("gebruik: tickoala config set <sleutel> <waarde>")
+            throw CLIError.usage("usage: tickoala config set <key> <value>")
         }
-        guard value >= 0 else { throw CLIError.usage("waarde mag niet negatief zijn") }
+        guard value >= 0 else { throw CLIError.usage("value must not be negative") }
         try tracker.store.setSetting(key: key, value: value)
         print("\(key) = \(value)")
     default:
-        throw CLIError.usage("gebruik: tickoala config list|set")
+        throw CLIError.usage("usage: tickoala config list|set")
     }
 }
 
-// MARK: - Entree
+// MARK: - Entry point
 
 do {
     try run()
 } catch let error as CLIError {
-    FileHandle.standardError.write(Data("fout: \(error.description)\n".utf8))
+    FileHandle.standardError.write(Data("error: \(error.description)\n".utf8))
     exit(error.isUsage ? 2 : 1)
 } catch {
-    FileHandle.standardError.write(Data("fout: \(error)\n".utf8))
+    FileHandle.standardError.write(Data("error: \(error)\n".utf8))
     exit(1)
 }
 

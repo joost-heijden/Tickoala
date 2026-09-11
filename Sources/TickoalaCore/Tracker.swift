@@ -6,13 +6,13 @@ public enum TrackerMode: String, Sendable {
     case stopped
     case attention
 
-    /// Label voor de menubalk.
+    /// Label for the menu bar.
     public var label: String {
         switch self {
-        case .working: return "Werkend"
-        case .paused: return "Pauze"
-        case .stopped: return "Gestopt"
-        case .attention: return "Aandacht nodig"
+        case .working: return "Working"
+        case .paused: return "Paused"
+        case .stopped: return "Stopped"
+        case .attention: return "Needs attention"
         }
     }
 
@@ -33,10 +33,10 @@ public struct ProfileStatus: Sendable {
     public var runningEntry: TimeEntry?
     public var pendingStopAt: Date?
     public var elapsedCurrent: TimeInterval
-    /// Netto, dus na aftrek van de automatische pauze.
+    /// Net, so after deducting the automatic break.
     public var todayTotal: TimeInterval
     public var weekTotal: TimeInterval
-    /// Wat er vandaag/deze week automatisch is afgetrokken; 0 als de regel uitstaat.
+    /// What was automatically deducted today/this week; 0 if the rule is off.
     public var todayBreak: TimeInterval
     public var weekBreak: TimeInterval
     public var attention: String?
@@ -51,13 +51,13 @@ public struct TrackerStatus: Sendable {
     public var mode: TrackerMode
     public var openEntryCount: Int
 
-    /// Wat er in de menubalk staat: klok als er iets loopt, anders een kort statuswoord.
+    /// What is shown in the menu bar: the clock if something is running, otherwise a short status word.
     public var menuBarTitle: String {
         switch mode {
         case .working:
             return Formatting.duration(primary?.elapsedCurrent ?? 0)
         case .paused:
-            return "Pauze"
+            return "Paused"
         case .attention:
             return "!"
         case .stopped:
@@ -66,7 +66,7 @@ public struct TrackerStatus: Sendable {
     }
 }
 
-/// Alle timerregels. De adapter en de menubalk-app gebruiken exact deze logica.
+/// All timer rules. The adapter and the menu bar app use exactly this logic.
 public final class Tracker {
     public let store: Store
 
@@ -74,14 +74,14 @@ public final class Tracker {
         self.store = store
     }
 
-    // MARK: - Contextevents
+    // MARK: - Context events
 
-    /// Verwerkt een start- of stopsignaal van ControlPlane. Idempotent en altijd gelogd.
+    /// Processes a start or stop signal from ControlPlane. Idempotent and always logged.
     @discardableResult
     public func handle(_ event: ContextEvent, now: Date = Date()) throws -> EventOutcome {
         let settings = try store.settings()
 
-        // Een stop die zijn wachttijd heeft uitgezeten telt eerst; daarna pas dit event.
+        // A stop that has served its grace period counts first; only then this event.
         _ = try finalizePendingStops(now: now)
 
         let key = dedupeKey(for: event, window: settings.dedupeWindowSeconds)
@@ -114,7 +114,7 @@ public final class Tracker {
     private func handleStart(profile: Profile, event: ContextEvent, now: Date) throws -> EventOutcome {
         var state = try store.state(profileId: profile.id)
 
-        // Korte wifi-onderbreking: de geplande stop verdwijnt, het blok loopt gewoon door.
+        // Brief Wi-Fi interruption: the scheduled stop disappears, the block keeps running.
         if let pendingEntryId = state.pendingStopEntryId,
            let pending = try store.entry(id: pendingEntryId),
            pending.status == .running {
@@ -132,10 +132,10 @@ public final class Tracker {
             return .alreadyRunning(entryId: running.id)
         }
 
-        // Twee werkcontexten tegelijk: niets automatisch stoppen, wel waarschuwen.
+        // Two work contexts at once: don't stop anything automatically, but warn.
         if let other = try store.runningEntries().first(where: { $0.profileId != profile.id }) {
             let otherProfile = try store.profile(id: other.profileId)
-            let message = "Twee werkcontexten actief: \(otherProfile?.name ?? "onbekend") loopt nog. Kies zelf welke telt."
+            let message = "Two work contexts active: \(otherProfile?.name ?? "unknown") is still running. Decide which one counts."
             try setAttention(message, on: [profile.id, other.profileId])
             return .conflict(runningProfileId: other.profileId)
         }
@@ -162,7 +162,7 @@ public final class Tracker {
             return .needsProjectChoice(profileId: profile.id, projectIds: activeProjects.map(\.id))
         }
 
-        try setAttention("Kies eerst een project voor \(profile.name).", on: [profile.id])
+        try setAttention("Choose a project for \(profile.name) first.", on: [profile.id])
         return .needsProject(profileId: profile.id)
     }
 
@@ -184,10 +184,10 @@ public final class Tracker {
         return .stopScheduled(effectiveAt: effectiveAt)
     }
 
-    // MARK: - Achtergrondwerk
+    // MARK: - Background work
 
-    /// Sluit stops af waarvan de wachttijd verstreken is. Het einde is het moment
-    /// van het stopsignaal, niet het moment van afronden.
+    /// Closes stops whose grace period has passed. The end is the moment of the
+    /// stop signal, not the moment of finalizing.
     @discardableResult
     public func finalizePendingStops(now: Date = Date()) throws -> [TimeEntry] {
         let settings = try store.settings()
@@ -211,8 +211,8 @@ public final class Tracker {
         return closed
     }
 
-    /// Markeert onwaarschijnlijk lange blokken (slaapstand, herstart) als `open`,
-    /// zodat de gebruiker ze corrigeert. Er wordt geen einde verzonnen.
+    /// Flags implausibly long blocks (sleep, restart) as `open`, so the user can
+    /// correct them. No end is invented.
     @discardableResult
     public func flagStaleEntries(now: Date = Date()) throws -> [TimeEntry] {
         let settings = try store.settings()
@@ -225,23 +225,23 @@ public final class Tracker {
                 state.pendingStopAt = nil
                 state.pendingStopEntryId = nil
             }
-            state.attention = "Blok \(entry.id) loopt sinds \(Formatting.timestamp(entry.startedAt)) en vraagt om correctie."
+            state.attention = "Block \(entry.id) has been running since \(Formatting.timestamp(entry.startedAt)) and needs correction."
             try store.save(state)
             if let updated = try store.entry(id: entry.id) { flagged.append(updated) }
         }
         return flagged
     }
 
-    /// Eén onderhoudsronde: uitgestelde stops afronden en vastgelopen blokken markeren.
+    /// One maintenance round: finalize delayed stops and flag stuck blocks.
     public func tick(now: Date = Date()) throws {
         _ = try finalizePendingStops(now: now)
         _ = try flagStaleEntries(now: now)
     }
 
-    // MARK: - Projecten
+    // MARK: - Projects
 
-    /// Maakt een project. Heeft het profiel nog geen actief project, dan wordt dit
-    /// het actieve project — anders zou de tracker bij binnenkomst nog steeds niet starten.
+    /// Creates a project. If the profile has no active project yet, this becomes
+    /// the active project — otherwise the tracker still wouldn't start on arrival.
     @discardableResult
     public func createProject(profileId: Int64, number: String, name: String) throws -> Project {
         let project = try store.createProject(profileId: profileId, number: number, name: name)
@@ -251,14 +251,14 @@ public final class Tracker {
         return project
     }
 
-    // MARK: - Handmatige bediening
+    // MARK: - Manual control
 
     @discardableResult
     public func start(profileId: Int64, now: Date = Date(), source: EntrySource = .manual) throws -> TimeEntry {
         var state = try store.state(profileId: profileId)
         if let running = try store.runningEntry(profileId: profileId) { return running }
         guard let projectId = state.activeProjectId, let project = try store.project(id: projectId) else {
-            throw TrackerError.unknownProject("geen actief project voor dit profiel")
+            throw TrackerError.unknownProject("no active project for this profile")
         }
         state.paused = false
         state.pendingStopAt = nil
@@ -283,7 +283,7 @@ public final class Tracker {
         return try store.entry(id: running.id)
     }
 
-    /// Pauzeren sluit het lopende blok af; hervatten maakt een nieuw blok.
+    /// Pausing closes the running block; resuming starts a new block.
     @discardableResult
     public func pause(profileId: Int64, now: Date = Date()) throws -> TimeEntry? {
         var state = try store.state(profileId: profileId)
@@ -306,8 +306,8 @@ public final class Tracker {
         return try start(profileId: profileId, now: now)
     }
 
-    /// Wisselt van project. Loopt er een blok, dan wordt dat afgesloten en begint een
-    /// nieuw blok op het nieuwe project, zodat de tijd bij het juiste project blijft.
+    /// Switches project. If a block is running, it is closed and a new block starts
+    /// on the new project, so the time stays with the right project.
     @discardableResult
     public func selectProject(profileId: Int64, projectId: Int64, now: Date = Date()) throws -> TimeEntry? {
         guard let project = try store.project(id: projectId), project.profileId == profileId else {
@@ -316,14 +316,14 @@ public final class Tracker {
         var state = try store.state(profileId: profileId)
         let previousProjectId = state.activeProjectId
         state.activeProjectId = projectId
-        if state.attention?.hasPrefix("Kies eerst een project") == true { state.attention = nil }
+        if state.attention?.hasPrefix("Choose a project") == true { state.attention = nil }
         try store.save(state)
 
         guard let running = try store.runningEntry(profileId: profileId), previousProjectId != projectId else {
             return try store.runningEntry(profileId: profileId)
         }
         if now <= running.startedAt {
-            // Wissel binnen dezelfde seconde: geen leeg blok, alleen omhangen.
+            // Switch within the same second: no empty block, just reattach.
             try store.updateEntry(id: running.id, projectId: .some(projectId))
             return try store.entry(id: running.id)
         }
@@ -401,7 +401,7 @@ public final class Tracker {
         )
     }
 
-    // MARK: - Hulp
+    // MARK: - Helpers
 
     private func setAttention(_ message: String, on profileIds: [Int64]) throws {
         for profileId in profileIds {
@@ -417,7 +417,7 @@ public final class Tracker {
         return "\(event.context.lowercased())|\(event.kind.rawValue)|\(bucket)"
     }
 
-    /// Vangt herhalingen die net over een bucketgrens vallen.
+    /// Catches repeats that fall just across a bucket boundary.
     private func isRepeat(of event: ContextEvent, window: Int) throws -> Bool {
         guard window > 0 else { return false }
         let at = Int64(event.at.timeIntervalSince1970)

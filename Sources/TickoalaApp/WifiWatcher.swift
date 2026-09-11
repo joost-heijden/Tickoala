@@ -4,14 +4,14 @@ import CoreLocation
 import CoreWLAN
 import TickoalaCore
 
-/// Houdt in de gaten op welk wifinetwerk de Mac zit en zet elke wisseling om in
-/// een start- of stopsignaal. Dit vervangt ControlPlane als bron van de events;
-/// de tracker krijgt precies dezelfde `ContextEvent`s als voorheen.
+/// Watches which Wi-Fi network the Mac is on and turns every change into a start
+/// or stop signal. This replaces ControlPlane as the source of the events; the
+/// tracker receives exactly the same `ContextEvent`s as before.
 ///
-/// macOS geeft de netwerknaam sinds Sonoma alleen vrij aan programma's met
-/// toestemming voor Locatievoorzieningen. Zonder die toestemming levert het
-/// systeem `nil` op, wat niet te onderscheiden is van "geen wifi". Daarom worden
-/// er alleen events verstuurd zolang de toestemming er is.
+/// Since Sonoma, macOS only reveals the network name to programs with Location
+/// Services permission. Without that permission the system returns `nil`, which
+/// cannot be distinguished from "no Wi-Fi". That is why events are only sent as
+/// long as the permission is there.
 @MainActor
 final class WifiWatcher: NSObject, ObservableObject {
     enum Access: Equatable {
@@ -27,12 +27,12 @@ final class WifiWatcher: NSObject, ObservableObject {
             case .granted:
                 return nil
             case .unknown:
-                return "Tickoala heeft toegang tot Locatievoorzieningen nodig om de netwerknaam te kunnen zien."
+                return "Tickoala needs Location Services access to be able to see the network name."
             case .denied:
-                return "Zonder toegang tot Locatievoorzieningen kan macOS de netwerknaam niet vrijgeven, "
-                     + "dus start en stopt de registratie niet vanzelf."
+                return "Without Location Services access, macOS cannot reveal the network name, "
+                     + "so tracking will not start and stop automatically."
             case .locationServicesOff:
-                return "Locatievoorzieningen staan uit op deze Mac; de netwerknaam is daardoor niet te zien."
+                return "Location Services is turned off on this Mac; the network name is therefore not visible."
             }
         }
     }
@@ -40,17 +40,17 @@ final class WifiWatcher: NSObject, ObservableObject {
     @Published private(set) var currentSSID: String?
     @Published private(set) var access: Access = .unknown
 
-    /// Wordt aangeroepen bij elke wisseling van netwerk.
+    /// Called on every network change.
     var onEvent: ((ContextEvent) -> Void)?
 
     private let locationManager = CLLocationManager()
     private let wifiClient = CWWiFiClient.shared()
     private var timer: Timer?
-    /// `nil` = nog niets gemeten; `.some(nil)` = gemeten en geen netwerk.
+    /// `nil` = nothing measured yet; `.some(nil)` = measured and no network.
     private var lastSeen: String??
 
-    /// Hoe vaak er gekeken wordt. De systeemmeldingen over netwerkwissels zijn niet
-    /// altijd betrouwbaar, dus dit is bewust gewoon periodiek opvragen.
+    /// How often it checks. The system notifications about network changes are not
+    /// always reliable, so this deliberately just polls periodically.
     private let interval: TimeInterval = 5
 
     override init() {
@@ -69,7 +69,7 @@ final class WifiWatcher: NSObject, ObservableObject {
         }
     }
 
-    /// Opent de vraag om toestemming, of de systeeminstellingen als die al beantwoord is.
+    /// Opens the permission prompt, or the system settings if it has already been answered.
     func requestAccess() {
         switch access {
         case .unknown:
@@ -98,7 +98,7 @@ final class WifiWatcher: NSObject, ObservableObject {
     private func poll() {
         updateAccess()
 
-        // Zonder toestemming is `nil` betekenisloos: dat zou een vals stopsignaal geven.
+        // Without permission, `nil` is meaningless: it would give a false stop signal.
         guard access == .granted else {
             currentSSID = nil
             lastSeen = nil
@@ -109,7 +109,7 @@ final class WifiWatcher: NSObject, ObservableObject {
         currentSSID = ssid
 
         guard let previous = lastSeen else {
-            // Eerste meting na het opstarten: meteen starten als we al op een bekend net zitten.
+            // First measurement after startup: start right away if we are already on a known network.
             lastSeen = .some(ssid)
             if let ssid { emit(ssid, .start) }
             return

@@ -1,7 +1,7 @@
 import SwiftUI
 import TickoalaCore
 
-/// Automatische pauzeaftrek per klant instellen.
+/// Configure automatic break deduction per customer.
 struct BreakWindow: View {
     @ObservedObject var model: AppModel
 
@@ -9,7 +9,7 @@ struct BreakWindow: View {
         VStack(spacing: 0) {
             if model.profiles.isEmpty {
                 Spacer()
-                Text("Nog geen klant ingesteld.")
+                Text("No customer configured yet.")
                     .font(.headline)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -26,8 +26,8 @@ struct BreakWindow: View {
 
                 Divider()
                 HStack {
-                    Text("De aftrek is een rekenregel: je tijdregistraties blijven ongewijzigd, "
-                         + "dus je kunt de pauze altijd aanpassen of uitzetten.")
+                    Text("The deduction is a calculation: your time entries stay unchanged, "
+                         + "so you can always adjust or turn off the break.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -52,14 +52,14 @@ private struct BreakRuleForm: View {
     var body: some View {
         GroupBox(profile.name) {
             VStack(alignment: .leading, spacing: 10) {
-                Toggle("Automatisch pauze aftrekken", isOn: $enabled)
+                Toggle("Automatically deduct break", isOn: $enabled)
                     .onChange(of: enabled) { _ in save() }
 
                 HStack {
-                    Text("Pauzeduur")
+                    Text("Break duration")
                     Spacer()
                     Stepper(value: $minutes, in: 0...240, step: 5) {
-                        Text("\(minutes) minuten")
+                        Text("\(minutes) minutes")
                             .monospacedDigit()
                     }
                     .onChange(of: minutes) { _ in save() }
@@ -69,14 +69,14 @@ private struct BreakRuleForm: View {
 
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Aftrekken vanaf")
-                        Text("Werk je die dag minder, dan gaat er niets af.")
+                        Text("Deduct from")
+                        Text("If you work less that day, nothing is deducted.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Stepper(value: $thresholdHours, in: 0...24) {
-                        Text("\(thresholdHours) uur")
+                        Text("\(thresholdHours) hours")
                             .monospacedDigit()
                     }
                     .onChange(of: thresholdHours) { _ in save() }
@@ -103,13 +103,13 @@ private struct BreakRuleForm: View {
 
     private var explanation: String {
         guard enabled, minutes > 0 else {
-            return "Uit: de uren van \(profile.name) worden volledig geteld."
+            return "Off: the hours of \(profile.name) are counted in full."
         }
         let threshold = thresholdHours * 60 + thresholdMinutes
         let net = max(0, threshold - minutes)
-        return "Vanaf \(Formatting.duration(TimeInterval(threshold) * 60)) werk op een dag "
-            + "gaat er \(minutes) minuten af. Een dag van precies "
-            + "\(Formatting.duration(TimeInterval(threshold) * 60)) telt dan als "
+        return "From \(Formatting.duration(TimeInterval(threshold) * 60)) of work on a day, "
+            + "\(minutes) minutes are deducted. A day of exactly "
+            + "\(Formatting.duration(TimeInterval(threshold) * 60)) then counts as "
             + "\(Formatting.duration(TimeInterval(net) * 60))."
     }
 

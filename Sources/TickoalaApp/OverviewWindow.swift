@@ -1,14 +1,14 @@
 import SwiftUI
 import TickoalaCore
 
-/// Dag-, week- en maandoverzicht met correcties.
+/// Day, week and month overview with corrections.
 struct OverviewWindow: View {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
     @State private var selection: Int64?
     @State private var addingFor: Int64?
-    /// Sneltoetsen mogen alleen vuren als de tabel de actieve kant is; staat de
-    /// cursor in het correctieformulier, dan wint dat formulier.
+    /// Shortcuts may only fire when the table is the active side; if the cursor is
+    /// in the correction form, that form wins.
     @FocusState private var tableFocused: Bool
     @State private var confirmDelete = false
     @State private var deleteTarget: Int64?
@@ -35,7 +35,7 @@ struct OverviewWindow: View {
                     .frame(minWidth: 280, maxWidth: 360)
             } else {
                 VStack {
-                    Text("Kies een blok om het te corrigeren.")
+                    Text("Choose a block to correct it.")
                         .foregroundStyle(.secondary)
                         .padding()
                     Spacer()
@@ -44,23 +44,23 @@ struct OverviewWindow: View {
             }
         }
         .frame(minWidth: 900, minHeight: 460)
-        // Een verdwenen blok (andere periode, weggegooid) mag niet geselecteerd
-        // blijven staan; anders wijst het formulier naar iets dat er niet meer is.
+        // A disappeared block (different period, deleted) must not stay selected;
+        // otherwise the form points at something that no longer exists.
         .onChange(of: model.overviewEntries.map { $0.id }) { ids in
             if let selection, !ids.contains(selection) {
                 self.selection = nil
             }
         }
-        .confirmationDialog("Blok \(deleteTarget ?? 0) verwijderen?", isPresented: $confirmDelete) {
-            Button("Verwijderen", role: .destructive) {
+        .confirmationDialog("Delete block \(deleteTarget ?? 0)?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) {
                 if let id = deleteTarget, model.deleteEntry(id: id) {
                     selection = nil
                     deleteTarget = nil
                 }
             }
-            Button("Annuleren", role: .cancel) { deleteTarget = nil }
+            Button("Cancel", role: .cancel) { deleteTarget = nil }
         } message: {
-            Text("Deze actie kan niet ongedaan worden gemaakt.")
+            Text("This action cannot be undone.")
         }
         .sheet(item: Binding(get: { addingFor.map(ProfileBox.init) }, set: { addingFor = $0?.id })) { box in
             AddEntrySheet(model: model, profileId: box.id) { addingFor = nil }
@@ -85,7 +85,7 @@ struct OverviewWindow: View {
             } label: {
                 Image(systemName: "chevron.left")
             }
-            Button("Vandaag") { model.anchor = Date() }
+            Button("Today") { model.anchor = Date() }
                 .fixedSize()
             Button {
                 model.shiftPeriod(1)
@@ -93,7 +93,7 @@ struct OverviewWindow: View {
                 Image(systemName: "chevron.right")
             }
 
-            // Één regel, en mag krimpen voordat de knoppen dat doen.
+            // One line, and allowed to shrink before the buttons do.
             Text(rangeLabel)
                 .font(.headline)
                 .lineLimit(1)
@@ -103,7 +103,7 @@ struct OverviewWindow: View {
             Spacer(minLength: 8)
 
             Picker("", selection: $model.profileFilter) {
-                Text("Alle klanten").tag(Int64?.none)
+                Text("All customers").tag(Int64?.none)
                 ForEach(model.profiles, id: \.profile.id) { item in
                     Text(item.profile.name).tag(Int64?.some(item.profile.id))
                 }
@@ -111,7 +111,7 @@ struct OverviewWindow: View {
             .frame(width: 180)
             .fixedSize()
 
-            // Vaste maat, anders rekt deze verticale streep de hele werkbalk op.
+            // Fixed size, otherwise this vertical line stretches the whole toolbar.
             Rectangle()
                 .fill(.separator)
                 .frame(width: 1, height: 22)
@@ -120,9 +120,9 @@ struct OverviewWindow: View {
                 duplicateSelectedEntry()
             } label: {
                 Image(systemName: "plus")
-                    .accessibilityLabel("Dupliceer")
+                    .accessibilityLabel("Duplicate")
             }
-            .help("Dupliceer het geselecteerde blok (⌘D)")
+            .help("Duplicate the selected block (⌘D)")
             .keyboardShortcut("d", modifiers: .command)
             .disabled(!canDuplicate || !tableFocused)
 
@@ -130,9 +130,9 @@ struct OverviewWindow: View {
                 deleteSelectedEntry()
             } label: {
                 Image(systemName: "trash")
-                    .accessibilityLabel("Verwijder")
+                    .accessibilityLabel("Delete")
             }
-            .help("Verwijder het geselecteerde blok (Delete)")
+            .help("Delete the selected block (Delete)")
             .disabled(!canDelete || !tableFocused)
         }
         .padding(10)
@@ -140,36 +140,36 @@ struct OverviewWindow: View {
 
     private var table: some View {
         Table(of: AppModel.EntryRow.self, selection: $selection) {
-            TableColumn("Datum") { Text(Formatting.day($0.entry.startedAt)) }.width(90)
+            TableColumn("Date") { Text(Formatting.day($0.entry.startedAt)) }.width(90)
             TableColumn("Start") { Text(Formatting.clock($0.entry.startedAt)) }.width(50)
-            TableColumn("Einde") { Text($0.entry.endedAt.map(Formatting.clock) ?? "—") }.width(50)
-            TableColumn("Duur") { Text(Formatting.duration($0.entry.duration())) }.width(60)
-            TableColumn("Klant") { Text($0.profileName) }.width(min: 100, ideal: 120)
+            TableColumn("End") { Text($0.entry.endedAt.map(Formatting.clock) ?? "—") }.width(50)
+            TableColumn("Duration") { Text(Formatting.duration($0.entry.duration())) }.width(60)
+            TableColumn("Customer") { Text($0.profileName) }.width(min: 100, ideal: 120)
             TableColumn("Project") { Text($0.projectLabel) }.width(min: 160, ideal: 220)
-            TableColumn("Bedrag") { row in
-                Text(row.hourlyRateCents > 0 ? Formatting.money(cents: row.amountCents) : "—")
+            TableColumn("Amount") { row in
+                Text(row.hourlyRateCents > 0 ? Formatting.money(cents: row.amountCents, currency: row.currency) : "—")
                     .foregroundStyle(row.hourlyRateCents > 0 ? .primary : .secondary)
             }.width(90)
             TableColumn("Status") { row in
                 Text(row.entry.status.rawValue)
                     .foregroundStyle(row.entry.status == .open ? Color.orange : .secondary)
             }.width(80)
-            TableColumn("Bron") { Text($0.entry.source.rawValue).foregroundStyle(.secondary) }.width(90)
-            TableColumn("Notitie") { Text($0.entry.note ?? "") }
+            TableColumn("Source") { Text($0.entry.source.rawValue).foregroundStyle(.secondary) }.width(90)
+            TableColumn("Note") { Text($0.entry.note ?? "") }
         } rows: {
             ForEach(model.overviewEntries) { row in
                 TableRow(row)
                     .contextMenu {
-                        Button("Bewerk") { selection = row.id }
-                        Button("Dupliceer") { duplicateSelectedEntry(row.id) }
+                        Button("Edit") { selection = row.id }
+                        Button("Duplicate") { duplicateSelectedEntry(row.id) }
                             .disabled(row.entry.status == .running)
                         Divider()
-                        Button("Verwijder", role: .destructive) { requestDelete(row.id) }
+                        Button("Delete", role: .destructive) { requestDelete(row.id) }
                     }
             }
         }
-        // Alleen met de tabel als eerste aanspreekpunt werken Delete en ⌘D; anders
-        // zou Backspace in de notitie een hele regel wissen.
+        // Delete and ⌘D only work with the table as the first responder; otherwise
+        // Backspace in the note would wipe a whole row.
         .focusable()
         .focused($tableFocused)
         .onDeleteCommand { deleteSelectedEntry() }
@@ -177,13 +177,13 @@ struct OverviewWindow: View {
 
     private var footer: some View {
         HStack(spacing: 16) {
-            Text("Totaal \(Formatting.duration(model.overviewTotal))  (\(Formatting.decimalHours(model.overviewTotal)) uur)")
+            Text("Total \(Formatting.duration(model.overviewTotal))  (\(Formatting.decimalHours(model.overviewTotal)) hours)")
                 .font(.headline)
 
             if model.overviewAmountCents > 0 {
-                Text("Bedrag \(Formatting.money(cents: model.overviewAmountCents))")
+                Text("Amount \(Formatting.money(cents: model.overviewAmountCents, currency: model.overviewCurrency))")
                     .font(.headline)
-                    .help("Netto uren × het uurtarief van de klant")
+                    .help("Net hours × the customer's hourly rate")
             }
 
             ForEach(model.overviewByProject.prefix(4), id: \.label) { item in
@@ -194,13 +194,13 @@ struct OverviewWindow: View {
 
             Spacer()
 
-            Button("Projecten") {
+            Button("Projects") {
                 NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "projecten")
+                openWindow(id: "projects")
             }
             .fixedSize()
 
-            Menu("Blok toevoegen") {
+            Menu("Add block") {
                 ForEach(model.profiles, id: \.profile.id) { item in
                     Button(item.profile.name) { addingFor = item.profile.id }
                 }
@@ -216,7 +216,7 @@ struct OverviewWindow: View {
         let last = range.end.addingTimeInterval(-1)
         switch model.period {
         case .day: return Formatting.day(range.start)
-        case .week, .month: return "\(Formatting.day(range.start)) t/m \(Formatting.day(last))"
+        case .week, .month: return "\(Formatting.day(range.start)) to \(Formatting.day(last))"
         }
     }
 
@@ -225,15 +225,15 @@ struct OverviewWindow: View {
         return model.overviewEntries.first(where: { $0.id == selection })
     }
 
-    /// Een lopend blok heeft nog geen einde en kan dus niet worden gekopieerd.
+    /// A running block has no end yet and therefore cannot be copied.
     private var canDuplicate: Bool {
         selectedRow.map { $0.entry.status != .running } ?? false
     }
 
     private var canDelete: Bool { selectedRow != nil }
 
-    /// Dupliceren vanaf het toetsenbord of de knoppen: alleen als de tabel de
-    /// actieve kant is, zodat ⌘D niet afgaat terwijl het formulier focus heeft.
+    /// Duplicate from the keyboard or the buttons: only when the table is the
+    /// active side, so ⌘D doesn't fire while the form has focus.
     private func duplicateSelectedEntry() {
         guard tableFocused, let id = selectedRow?.id else { return }
         duplicateSelectedEntry(id)
@@ -249,7 +249,7 @@ struct OverviewWindow: View {
         requestDelete(id)
     }
 
-    /// Verwijderen is onomkeerbaar, dus eerst een bevestiging.
+    /// Deleting is irreversible, so a confirmation first.
     private func requestDelete(_ id: Int64) {
         guard model.overviewEntries.contains(where: { $0.id == id }) else { return }
         deleteTarget = id
@@ -257,12 +257,12 @@ struct OverviewWindow: View {
     }
 }
 
-/// Correctieformulier voor één blok.
+/// Correction form for one block.
 struct EntryEditor: View {
     @ObservedObject var model: AppModel
     let row: AppModel.EntryRow
     var onClose: () -> Void
-    /// Krijgt het id van het nieuwe tweede blok nadat er een pauze is ingevoegd.
+    /// Receives the id of the new second block after a break has been inserted.
     var onSplit: (Int64) -> Void
 
     @State private var start: Date
@@ -290,78 +290,78 @@ struct EntryEditor: View {
         _note = State(initialValue: row.entry.note ?? "")
         _projectId = State(initialValue: row.entry.projectId)
 
-        // Standaard een half uur pauze rond het midden, zodat er meteen iets
-        // zinnigs staat zonder dat de gebruiker hoeft te rekenen.
+        // By default a half hour of break around the middle, so something sensible
+        // is there immediately without the user having to calculate.
         let begin = row.entry.startedAt
-        let einde = row.entry.endedAt ?? begin.addingTimeInterval(3600)
-        let midden = begin.addingTimeInterval(einde.timeIntervalSince(begin) / 2)
-        let lengte = min(30 * 60, max(0, einde.timeIntervalSince(midden)))
-        _pauseStart = State(initialValue: midden)
-        _pauseEnd = State(initialValue: midden.addingTimeInterval(lengte))
+        let end = row.entry.endedAt ?? begin.addingTimeInterval(3600)
+        let middle = begin.addingTimeInterval(end.timeIntervalSince(begin) / 2)
+        let length = min(30 * 60, max(0, end.timeIntervalSince(middle)))
+        _pauseStart = State(initialValue: middle)
+        _pauseEnd = State(initialValue: middle.addingTimeInterval(length))
     }
 
     var body: some View {
         Form {
-            Section("Blok \(row.entry.id) — \(row.profileName)") {
-                DatePicker("Begin", selection: $start)
-                Toggle("Einde vastgelegd", isOn: $hasEnd)
-                DatePicker("Einde", selection: $end)
+            Section("Block \(row.entry.id) — \(row.profileName)") {
+                DatePicker("Start", selection: $start)
+                Toggle("End recorded", isOn: $hasEnd)
+                DatePicker("End", selection: $end)
                     .disabled(!hasEnd)
                 Picker("Project", selection: $projectId) {
-                    Text("(geen project)").tag(Int64?.none)
+                    Text("(no project)").tag(Int64?.none)
                     ForEach(model.projects(for: row.entry.profileId)) { project in
                         Text(project.label).tag(Int64?.some(project.id))
                     }
                 }
-                TextField("Notitie", text: $note, axis: .vertical)
+                TextField("Note", text: $note, axis: .vertical)
                     .lineLimit(2...4)
-                LabeledContent("Duur", value: Formatting.duration(hasEnd ? end.timeIntervalSince(start) : row.entry.duration()))
-                LabeledContent("Bron", value: row.entry.source.rawValue)
+                LabeledContent("Duration", value: Formatting.duration(hasEnd ? end.timeIntervalSince(start) : row.entry.duration()))
+                LabeledContent("Source", value: row.entry.source.rawValue)
             }
 
             if row.entry.status == .open {
-                Text("Dit blok mist een geloofwaardig einde. Vul het einde in en bewaar; de status wordt dan afgerond.")
+                Text("This block is missing a credible end. Enter the end and save; the status will then be completed.")
                     .foregroundStyle(.orange)
             }
 
             HStack {
-                Button("Bewaren") { save() }
+                Button("Save") { save() }
                     .keyboardShortcut(.defaultAction)
 
-                Button("Verwijderen", role: .destructive) { confirmDelete = true }
+                Button("Delete", role: .destructive) { confirmDelete = true }
                 Spacer()
             }
 
             if hasEnd {
-                Section("Pauze toevoegen") {
-                    DatePicker("Pauze begint", selection: $pauseStart)
-                    DatePicker("Pauze eindigt", selection: $pauseEnd)
-                    LabeledContent("Pauzeduur", value: Formatting.duration(max(0, pauseEnd.timeIntervalSince(pauseStart))))
+                Section("Add break") {
+                    DatePicker("Break starts", selection: $pauseStart)
+                    DatePicker("Break ends", selection: $pauseEnd)
+                    LabeledContent("Break duration", value: Formatting.duration(max(0, pauseEnd.timeIntervalSince(pauseStart))))
                     Button {
-                        // Eerst de correcties bewaren, dan pas splitsen: de pauze
-                        // wordt tegen de zojuist bewaarde begin en eind getoetst.
+                        // Save the corrections first, then split: the break is
+                        // validated against the just-saved start and end.
                         save()
-                        if let tweede = model.splitEntry(id: row.entry.id, pauseStart: pauseStart, pauseEnd: pauseEnd) {
-                            onSplit(tweede)
+                        if let second = model.splitEntry(id: row.entry.id, pauseStart: pauseStart, pauseEnd: pauseEnd) {
+                            onSplit(second)
                         }
                     } label: {
-                        Label("Pauze invoegen", systemImage: "pause.circle")
+                        Label("Insert break", systemImage: "pause.circle")
                     }
                     .disabled(!canSplit)
                 }
             }
         }
         .formStyle(.grouped)
-        .confirmationDialog("Blok \(row.entry.id) verwijderen?", isPresented: $confirmDelete) {
-            Button("Verwijderen", role: .destructive) {
+        .confirmationDialog("Delete block \(row.entry.id)?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) {
                 model.deleteEntry(id: row.entry.id)
                 onClose()
             }
-            Button("Annuleren", role: .cancel) {}
+            Button("Cancel", role: .cancel) {}
         }
     }
 
-    /// Een pauze kan alleen binnen de (bewerkte) begin- en eindtijd vallen.
+    /// A break can only fall within the (edited) start and end.
     private var canSplit: Bool {
         row.entry.status != .running
             && pauseStart >= start
@@ -381,7 +381,7 @@ struct EntryEditor: View {
     }
 }
 
-/// Blok met de hand toevoegen, bijvoorbeeld na een slaapstand.
+/// Add a block by hand, for example after sleep.
 struct AddEntrySheet: View {
     @ObservedObject var model: AppModel
     let profileId: Int64
@@ -394,26 +394,26 @@ struct AddEntrySheet: View {
 
     var body: some View {
         Form {
-            Section("Blok toevoegen") {
-                DatePicker("Begin", selection: $start)
-                DatePicker("Einde", selection: $end)
+            Section("Add block") {
+                DatePicker("Start", selection: $start)
+                DatePicker("End", selection: $end)
                 Picker("Project", selection: $projectId) {
-                    Text("(geen project)").tag(Int64?.none)
+                    Text("(no project)").tag(Int64?.none)
                     ForEach(model.projects(for: profileId)) { project in
                         Text(project.label).tag(Int64?.some(project.id))
                     }
                 }
-                TextField("Notitie", text: $note)
-                LabeledContent("Duur", value: Formatting.duration(end.timeIntervalSince(start)))
+                TextField("Note", text: $note)
+                LabeledContent("Duration", value: Formatting.duration(end.timeIntervalSince(start)))
             }
             HStack {
-                Button("Toevoegen") {
+                Button("Add") {
                     model.addEntry(profileId: profileId, projectId: projectId, start: start, end: end, note: note)
                     onClose()
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(end <= start)
-                Button("Annuleren", role: .cancel) { onClose() }
+                Button("Cancel", role: .cancel) { onClose() }
                 Spacer()
             }
         }

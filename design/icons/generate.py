@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Genereert de icoonvarianten voor Tickoala als SVG.
+"""Generates the icon variants for Tickoala as SVG.
 
-Alle varianten delen dezelfde koala-geometrie, zodat de vergelijking echt over
-stijl en kleur gaat en niet over toevallige vormverschillen.
+All variants share the same koala geometry, so the comparison is really about
+style and colour and not about accidental shape differences.
 """
 import pathlib
 
-S = 512           # canvasgrootte
-R = 114           # hoekradius van de app-icoon-achtergrond
+S = 512           # canvas size
+R = 114           # corner radius of the app icon background
 
-# Gedeelde koala-geometrie
+# Shared koala geometry
 EAR_L, EAR_R, EAR_Y, EAR_OUT, EAR_IN = 138, 374, 196, 74, 46
 HEAD_CX, HEAD_CY, HEAD_RX, HEAD_RY = 256, 288, 124, 118
 EYE_L, EYE_R, EYE_Y = 198, 314, 262
@@ -59,7 +59,7 @@ def wrap(body):
 
 variants = {}
 
-# 1. Flat & friendly — de klassieke lezing, warme achtergrond
+# 1. Flat & friendly — the classic reading, warm background
 variants["1-flat"] = wrap(
     bg("#E9A23B")
     + ears("#9AA3AD", "#C9CFD6")
@@ -68,13 +68,13 @@ variants["1-flat"] = wrap(
     + nose("#2C3038")
 )
 
-# 2. Klokneus — de neus is de wijzerplaat, met uurstreepjes rond de kop
+# 2. Clock nose — the nose is the dial, with hour ticks around the head
 ticks = "".join(
     f'<rect x="254" y="{y}" width="4" height="14" rx="2" fill="#ffffff" opacity="0.55" '
     f'transform="rotate({a} 256 288)"/>'
     for a, y in [(0, 150), (90, 150), (180, 150), (270, 150)]
 )
-variants["2-klok"] = wrap(
+variants["2-clock"] = wrap(
     bg("#2F6F4E")
     + ticks
     + ears("#A8B0B8", "#CDD3D9")
@@ -88,7 +88,7 @@ variants["2-klok"] = wrap(
         transform="rotate(115 256 312)"/>"""
 )
 
-# 3. Monoline — alleen lijnen, licht en modern
+# 3. Monoline — lines only, light and modern
 LINE = "#33405A"
 variants["3-monoline"] = wrap(
     bg("#F4F1E8")
@@ -102,8 +102,8 @@ variants["3-monoline"] = wrap(
     + eyes_open(LINE, r=13)
 )
 
-# 4. Slaapkop — ogen dicht, knipoog naar de koala die 20 uur per dag slaapt
-variants["4-slaapkop"] = wrap(
+# 4. Sleepyhead — eyes closed, a nod to the koala that sleeps 20 hours a day
+variants["4-sleepyhead"] = wrap(
     bg("#3B4C6B")
     + ears("#B9C0C7", "#D8DDE2")
     + head("#B9C0C7")
@@ -116,8 +116,8 @@ variants["4-slaapkop"] = wrap(
         font-weight="700" fill="#F2C14E" opacity="0.75">z</text>"""
 )
 
-# 5. Geometrisch — strak, hoog contrast, houdt stand op klein formaat
-variants["5-geometrisch"] = wrap(
+# 5. Geometric — clean, high contrast, holds up at small sizes
+variants["5-geometric"] = wrap(
     bg("#1F2933")
     + ears("#F2C14E", "#1F2933")
     + head("#F2C14E")
@@ -125,9 +125,9 @@ variants["5-geometrisch"] = wrap(
     + nose("#1F2933")
 )
 
-# 6. Silhouet — één kleur, werkt ook als sjabloon voor de menubalk
+# 6. Silhouette — one colour, also works as a template for the menu bar
 SIL = "#FFFFFF"
-variants["6-silhouet"] = wrap(
+variants["6-silhouette"] = wrap(
     bg("#6C7A89")
     + f"""
   <g fill="{SIL}">
@@ -146,4 +146,4 @@ variants["6-silhouet"] = wrap(
 
 for name, svg in variants.items():
     pathlib.Path(f"{name}.svg").write_text(svg)
-    print("geschreven:", name + ".svg")
+    print("wrote:", name + ".svg")

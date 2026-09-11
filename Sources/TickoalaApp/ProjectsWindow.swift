@@ -1,8 +1,8 @@
 import SwiftUI
 import TickoalaCore
 
-/// Projectbeheer per klant: toevoegen, hernoemen, activeren en het
-/// actieve project kiezen. Projectnummers zijn uniek binnen één klant.
+/// Project management per customer: add, rename, activate and choose the active
+/// project. Project numbers are unique within one customer.
 struct ProjectsWindow: View {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
@@ -35,7 +35,7 @@ struct ProjectsWindow: View {
 
     private var header: some View {
         HStack {
-            Picker("Klant", selection: Binding(
+            Picker("Customer", selection: Binding(
                 get: { profileId },
                 set: { model.selectedCustomerId = $0 }
             )) {
@@ -45,9 +45,9 @@ struct ProjectsWindow: View {
             }
             .frame(maxWidth: 320)
 
-            Button("Klanten beheren") {
+            Button("Manage customers") {
                 NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "klanten")
+                openWindow(id: "customers")
             }
             .fixedSize()
 
@@ -56,7 +56,7 @@ struct ProjectsWindow: View {
             Button {
                 showingAdd = true
             } label: {
-                Label("Project toevoegen", systemImage: "plus")
+                Label("Add project", systemImage: "plus")
             }
             .disabled(profileId == nil)
         }
@@ -66,15 +66,15 @@ struct ProjectsWindow: View {
     private var emptyState: some View {
         VStack(spacing: 8) {
             Spacer()
-            Text("Nog geen klant ingesteld.")
+            Text("No customer configured yet.")
                 .font(.headline)
-            Text("Voeg er een toe in het venster Klanten.")
+            Text("Add one in the Customers window.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Klanten beheren") {
+            Button("Manage customers") {
                 NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "klanten")
+                openWindow(id: "customers")
             }
             Spacer()
         }
@@ -89,12 +89,12 @@ struct ProjectsWindow: View {
             if projects.isEmpty {
                 VStack(spacing: 8) {
                     Spacer()
-                    Text("Deze klant heeft nog geen projecten.")
+                    Text("This customer has no projects yet.")
                         .font(.headline)
-                    Text("Zonder project start de tracker niet automatisch bij binnenkomst.")
+                    Text("Without a project the tracker does not start automatically on arrival.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                    Button("Project toevoegen") { showingAdd = true }
+                    Button("Add project") { showingAdd = true }
                         .padding(.top, 4)
                     Spacer()
                 }
@@ -117,10 +117,10 @@ struct ProjectsWindow: View {
     private func footer(for profileId: Int64) -> some View {
         HStack {
             if let active = model.profiles.first(where: { $0.profile.id == profileId })?.project {
-                Text("Actief project: \(active.label)")
+                Text("Active project: \(active.label)")
                     .foregroundStyle(.secondary)
             } else {
-                Text("Nog geen actief project gekozen — de tracker start dan niet automatisch.")
+                Text("No active project chosen yet — the tracker will not start automatically.")
                     .foregroundStyle(.orange)
             }
             Spacer()
@@ -134,7 +134,7 @@ struct ProjectsWindow: View {
     }
 }
 
-/// Eén projectregel: naam bewerken, actief project kiezen, in- of uitschakelen.
+/// One project row: edit the name, choose the active project, enable or disable it.
 private struct ProjectRow: View {
     @ObservedObject var model: AppModel
     let project: Project
@@ -147,16 +147,16 @@ private struct ProjectRow: View {
     var body: some View {
         HStack(spacing: 12) {
             if editing {
-                TextField("Nummer", text: $number)
+                TextField("Number", text: $number)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.body, design: .monospaced))
                     .frame(width: 90)
                     .onSubmit { commit() }
-                TextField("Projectnaam", text: $name)
+                TextField("Project name", text: $name)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { commit() }
-                Button("Bewaren") { commit() }
-                Button("Annuleren") { editing = false }
+                Button("Save") { commit() }
+                Button("Cancel") { editing = false }
             } else {
                 Text(project.number)
                     .font(.system(.body, design: .monospaced))
@@ -167,16 +167,16 @@ private struct ProjectRow: View {
                 Spacer()
 
                 if isActiveProject {
-                    Label("Actief project", systemImage: "checkmark.circle.fill")
+                    Label("Active project", systemImage: "checkmark.circle.fill")
                         .labelStyle(.titleAndIcon)
                         .foregroundStyle(.green)
                 } else if project.active {
-                    Button("Maak actief") {
+                    Button("Make active") {
                         model.selectProject(profileId: project.profileId, projectId: project.id)
                     }
                 }
 
-                Button(project.active ? "Deactiveren" : "Heractiveren") {
+                Button(project.active ? "Deactivate" : "Reactivate") {
                     model.setProjectActive(id: project.id, active: !project.active)
                 }
 
@@ -187,21 +187,21 @@ private struct ProjectRow: View {
                 } label: {
                     Image(systemName: "pencil")
                 }
-                .help("Projectnummer en naam wijzigen")
+                .help("Change project number and name")
             }
         }
         .padding(.vertical, 2)
     }
 
     private func commit() {
-        // Blijft open als het nummer al bestaat, zodat de invoer niet verloren gaat.
+        // Stays open if the number already exists, so the input isn't lost.
         if model.updateProject(id: project.id, number: number, name: name) {
             editing = false
         }
     }
 }
 
-/// Nieuw project aanmaken met nummer en naam.
+/// Create a new project with a number and name.
 private struct AddProjectSheet: View {
     @ObservedObject var model: AppModel
     let profileId: Int64
@@ -212,10 +212,10 @@ private struct AddProjectSheet: View {
 
     var body: some View {
         Form {
-            Section("Project toevoegen") {
-                TextField("Projectnummer", text: $number)
-                TextField("Projectnaam", text: $name)
-                Text("Het projectnummer is uniek binnen deze klant.")
+            Section("Add project") {
+                TextField("Project number", text: $number)
+                TextField("Project name", text: $name)
+                Text("The project number is unique within this customer.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -225,7 +225,7 @@ private struct AddProjectSheet: View {
             }
 
             HStack {
-                Button("Toevoegen") {
+                Button("Add") {
                     if model.addProject(profileId: profileId, number: number, name: name) {
                         onClose()
                     }
@@ -234,7 +234,7 @@ private struct AddProjectSheet: View {
                 .disabled(number.trimmingCharacters(in: .whitespaces).isEmpty
                           || name.trimmingCharacters(in: .whitespaces).isEmpty)
 
-                Button("Annuleren", role: .cancel) { onClose() }
+                Button("Cancel", role: .cancel) { onClose() }
                 Spacer()
             }
         }

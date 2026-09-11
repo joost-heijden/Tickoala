@@ -7,9 +7,9 @@ public enum ReportPeriod: String, CaseIterable, Sendable {
 
     public var label: String {
         switch self {
-        case .day: return "Dag"
+        case .day: return "Day"
         case .week: return "Week"
-        case .month: return "Maand"
+        case .month: return "Month"
         }
     }
 }
@@ -30,15 +30,17 @@ public struct ProjectTotal: Equatable, Sendable {
     public var total: TimeInterval
 }
 
-/// De uren van één klant binnen het venster, met het uurtarief erbij. Het bedrag
-/// rekent met de netto uren (na pauzeaftrek), want dat is wat er gefactureerd wordt.
+/// The hours of one client within the window, with the hourly rate. The amount is
+/// calculated from the net hours (after break deduction), because that is what
+/// gets invoiced.
 public struct ProfileTotal: Equatable, Sendable {
     public var profileId: Int64
     public var label: String
-    /// Geregistreerde tijd, vóór pauzeaftrek.
+    /// Recorded time, before break deduction.
     public var total: TimeInterval
     public var breakDeduction: TimeInterval
     public var hourlyRateCents: Int
+    public var currency: Currency
     public var amountCents: Int
 
     public var net: TimeInterval { max(0, total - breakDeduction) }
@@ -47,7 +49,7 @@ public struct ProfileTotal: Equatable, Sendable {
 
 public struct DayTotal: Equatable, Sendable {
     public var day: Date
-    /// Geregistreerde tijd, vóór pauzeaftrek.
+    /// Recorded time, before break deduction.
     public var total: TimeInterval
     public var breakDeduction: TimeInterval
 
@@ -57,28 +59,28 @@ public struct DayTotal: Equatable, Sendable {
 public struct Report: Sendable {
     public var period: ReportPeriod
     public var range: DateRange
-    /// Bruto: alles wat er aan blokken staat, zonder pauzeaftrek.
+    /// Gross: everything in the blocks, without break deduction.
     public var total: TimeInterval
-    /// Som van de automatische pauzeaftrek over de dagen in dit venster.
+    /// Sum of the automatic break deduction over the days in this window.
     public var breakDeduction: TimeInterval
-    /// De per-project verdeling blijft bruto: pauze hangt aan een dag, niet aan een project.
+    /// The per-project distribution stays gross: a break belongs to a day, not to a project.
     public var byProject: [ProjectTotal]
     public var byDay: [DayTotal]
-    /// De verdeling per klant, inclusief pauzeaftrek en het bedrag bij het tarief.
+    /// The distribution per client, including break deduction and the amount at the rate.
     public var byProfile: [ProfileTotal]
     public var openCount: Int
     public var runningCount: Int
 
-    /// Wat er onder de streep overblijft.
+    /// What remains after the deduction.
     public var netTotal: TimeInterval { max(0, total - breakDeduction) }
 
-    /// De som van de bedragen van alle klanten. Klanten zonder tarief tellen mee
-    /// met nul; is er nergens een tarief, dan is dit ook nul.
+    /// The sum of the amounts of all clients. Clients without a rate count as
+    /// zero; if there is no rate anywhere, this is zero too.
     public var amountCents: Int { byProfile.reduce(0) { $0 + $1.amountCents } }
 }
 
 public enum Reporting {
-    /// Halfopen venster [start, end) rond `date`, met maandag als eerste weekdag.
+    /// Half-open window [start, end) around `date`, with Monday as the first weekday.
     public static func range(_ period: ReportPeriod, containing date: Date, calendar: Calendar = Formatting.calendar) -> DateRange {
         let component: Calendar.Component
         switch period {
@@ -106,7 +108,7 @@ public enum Reporting {
 
         var perProject: [Int64?: TimeInterval] = [:]
         var perDay: [Date: TimeInterval] = [:]
-        // Pauze wordt per klant én per dag bepaald: elke klant heeft een eigen regel.
+        // A break is determined per client and per day: every client has its own rule.
         var perProfileDay: [ProfileDay: TimeInterval] = [:]
         var perProfileGross: [Int64: TimeInterval] = [:]
         var total: TimeInterval = 0
@@ -120,7 +122,7 @@ public enum Reporting {
             perProfileGross[entry.profileId, default: 0] += duration
         }
 
-        // Klanten één keer ophalen; zowel de pauzeregel als het tarief hangt eraan.
+        // Load clients once; both the break row and the rate depend on them.
         var profileCache: [Int64: Profile] = [:]
         func loadProfile(_ id: Int64) throws -> Profile? {
             if let cached = profileCache[id] { return cached }
@@ -160,6 +162,7 @@ public enum Reporting {
                 total: gross,
                 breakDeduction: breakDeduction,
                 hourlyRateCents: rate,
+                currency: profile?.currency ?? .eur,
                 amountCents: profile?.amountCents(for: net) ?? 0
             ))
         }
@@ -171,7 +174,7 @@ public enum Reporting {
             if let projectId, let project = try store.project(id: projectId) {
                 label = project.label
             } else {
-                label = "(geen project)"
+                label = "(no project)"
             }
             byProject.append(ProjectTotal(projectId: projectId, label: label, total: seconds))
         }
@@ -194,7 +197,7 @@ public enum Reporting {
         )
     }
 
-    /// Aftrek per klant per dag binnen een venster. Gebruikt voor totalen en export.
+    /// Deduction per client per day within a window. Used for totals and export.
     public static func breakDeductions(
         store: Store,
         from: Date,
@@ -226,7 +229,7 @@ public enum Reporting {
     }
 }
 
-/// Eén klant op één dag: de eenheid waarover pauze wordt berekend.
+/// One client on one day: the unit over which a break is calculated.
 public struct ProfileDay: Hashable, Sendable {
     public var profileId: Int64
     public var day: Date

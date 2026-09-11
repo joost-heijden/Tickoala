@@ -1,157 +1,155 @@
-# Opdracht: updates zichtbaar en makkelijk maken
+# Task: make updates visible and easy
 
-Werk dit uit in de repo `joost-heijden/Tickoala` (macOS-menubalkapp, Swift Package
-Manager, geen third-party dependencies). Deze opdracht is zelfstandig te lezen:
-alles wat je nodig hebt staat hieronder.
+Work this out in the repo `joost-heijden/Tickoala` (macOS menu bar app, Swift
+Package Manager, no third-party dependencies). This task can be read on its own:
+everything you need is below.
 
-## Waarom
+## Why
 
-Wie de app installeert volgt de README: `git clone` → `./scripts/build-app.sh` →
-`cp -R build/Tickoala.app /Applications/`. Dat is een momentopname. Er is niets
-dat later kijkt of er een nieuwere versie is, en de app weet zelf niet eens
-welke versie hij is: `CFBundleShortVersionString` staat hardgecodeerd op `1.0`
-in `scripts/build-app.sh`. Er zijn geen tags en geen releases.
+Anyone who installs the app follows the README: `git clone` → `./scripts/build-app.sh`
+→ `cp -R build/Tickoala.app /Applications/`. That is a snapshot. Nothing later
+checks whether a newer version exists, and the app doesn't even know which version
+it is: `CFBundleShortVersionString` is hardcoded to `1.0` in
+`scripts/build-app.sh`. There are no tags and no releases.
 
-Doel: iemand die de app draait merkt dát er een nieuwe versie is, en kan met één
-commando bij zijn.
+Goal: someone running the app notices that a new version exists, and can catch up
+with a single command.
 
-Bewust **niet** in scope: Sparkle, een Homebrew-cask, notarisatie, en de app die
-zichzelf downloadt en vervangt. De app wordt ad-hoc ondertekend
-(`codesign --sign -`); een zip die van GitHub gedownload wordt krijgt een
-quarantainevlag en wordt door Gatekeeper geweigerd zolang er geen Developer ID
-plus notarisatie is. Iedereen bouwt dus zelf, en daar is dit plan op gebouwd.
+Deliberately **not** in scope: Sparkle, a Homebrew cask, notarization, and the app
+downloading and replacing itself. The app is ad-hoc signed
+(`codesign --sign -`); a zip downloaded from GitHub gets a quarantine flag and is
+rejected by Gatekeeper as long as there is no Developer ID plus notarization.
+Everyone builds their own, and this plan is built on that.
 
-## Deel 1 — `scripts/update.sh`
+## Part 1 — `scripts/update.sh`
 
-Eén commando dat bijwerkt en herstart. Volg de stijl van `scripts/build-app.sh`
-(`set -euo pipefail`, `root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"`,
-meldingen in het Nederlands).
+One command that updates and restarts. Follow the style of
+`scripts/build-app.sh` (`set -euo pipefail`,
+`root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"`, messages in English).
 
-Stappen, in deze volgorde:
+Steps, in this order:
 
-1. Weiger als dit geen git-clone is (iemand heeft een zip gedownload) met een
-   uitleg die zegt wát er dan moet gebeuren.
-2. Weiger als de werkmap vuil is (`git status --porcelain` niet leeg). Nooit
-   stilletijd over andermans werk heen bouwen.
-3. `git pull --ff-only`. Geen rebase, geen merge: als het niet vooruit kan, moet
-   de gebruiker dat zelf zien.
-4. Sla de versie van vóór en na de pull op (`git describe --tags --always`) en
-   meld aan het eind welke stap gezet is. Is er niets veranderd, zeg dat dan en
-   stop — niet nodeloos herbouwen.
+1. Refuse if this is not a git clone (someone downloaded a zip), with an
+   explanation of what to do instead.
+2. Refuse if the working tree is dirty (`git status --porcelain` not empty).
+   Never silently build over someone else's work.
+3. `git pull --ff-only`. No rebase, no merge: if it can't move forward, the user
+   has to see that themselves.
+4. Remember the version before and after the pull
+   (`git describe --tags --always`) and report at the end which step was taken. If
+   nothing changed, say so and stop — don't rebuild needlessly.
 5. `"$root/scripts/build-app.sh" release`.
-6. Stop een draaiende app: `osascript -e 'tell application "Tickoala" to quit'`,
-   daarna maximaal een paar seconden wachten tot het proces weg is, met
-   `pkill -x Tickoala` als laatste redmiddel.
-7. `rm -rf "$doel/Tickoala.app"` en `cp -R build/Tickoala.app "$doel"/`. Let op:
-   `cp -R` moet de symlink in de top van de bundel als symlink overnemen (dat
-   doet het op macOS); zie deel 2 van `build-app.sh` voor waarom die er staat.
-8. `open "$doel/Tickoala.app"`.
+6. Stop a running app: `osascript -e 'tell application "Tickoala" to quit'`, then
+   wait a few seconds for the process to go, with `pkill -x Tickoala` as a last
+   resort.
+7. `rm -rf "$target/Tickoala.app"` and `cp -R build/Tickoala.app "$target"/`. Note:
+   `cp -R` must preserve the symlink at the top of the bundle as a symlink (it
+   does on macOS); see part 2 of `build-app.sh` for why it is there.
+8. `open "$target/Tickoala.app"`.
 
-Doelmap instelbaar via `TICKOALA_APP_DIR`, met `/Applications` als standaard.
+Destination configurable via `TICKOALA_APP_DIR`, with `/Applications` as the default.
 
-## Deel 2 — echte versienummers
+## Part 2 — real version numbers
 
-Nu weet de app niet wat hij is, dus kan hij ook niets vergelijken.
+Right now the app doesn't know what it is, so it can't compare anything either.
 
-- Versietags met de vorm `v1.1.0`. Zet meteen `v1.1.0` op de huidige `main`, dat
-  is de eerste versie mét de nieuwe iconen.
-- `scripts/build-app.sh` leidt de versie af uit git:
-  `CFBundleShortVersionString` uit `git describe --tags --abbrev=0` zonder de
-  `v`, en `CFBundleVersion` uit `git rev-list --count HEAD`.
-- Zonder tags (verse clone, losse zip) mag de build **niet** breken: val terug
-  op `0.0.0` en laat de controle uit deel 3 zich dan stilhouden.
-- De Info.plist wordt geschreven met een heredoc met aanhalingstekens
-  (`<<'PLIST'`), zodat er nu niets wordt uitgevouwen. Houd dat zo en vervang na
-  afloop twee plaatsaanduidingen (bijvoorbeeld `__VERSIE__` en `__BUILD__`) met
-  `sed`. Een heredoc zónder aanhalingstekens werkt vandaag ook, maar breekt
-  zodra iemand ooit een `$` in die plist zet.
+- Version tags in the form `v1.1.0`. Put `v1.1.0` on the current `main` right away;
+  that is the first version with the new icons.
+- `scripts/build-app.sh` derives the version from git:
+  `CFBundleShortVersionString` from `git describe --tags --abbrev=0` without the
+  `v`, and `CFBundleVersion` from `git rev-list --count HEAD`.
+- Without tags (fresh clone, loose zip) the build must **not** break: fall back to
+  `0.0.0` and let the check from part 3 keep quiet.
+- The Info.plist is written with a quoted heredoc (`<<'PLIST'`), so nothing is
+  expanded now. Keep it that way and replace two placeholders (for example
+  `__VERSION__` and `__BUILD__`) with `sed` afterwards. A heredoc *without* quotes
+  works today too, but breaks as soon as someone ever puts a `$` in that plist.
 
-## Deel 3 — melding in de app
+## Part 3 — notice in the app
 
-### Vergelijken (in `TickoalaCore`, want dat is te controleren)
+### Comparing (in `TickoalaCore`, because that is testable)
 
-Nieuw bestand `Sources/TickoalaCore/VersionCheck.swift`:
+New file `Sources/TickoalaCore/VersionCheck.swift`:
 
-- Een `Version`-waarde die `"1.2.3"` en `"v1.2.3"` inleest en die te vergelijken
-  is. Ontbrekende delen tellen als nul, zodat `1.2` en `1.2.0` gelijk zijn.
-- Onleesbare invoer levert `nil`, geen crash en geen gok.
-- Een functie die uit een lijst beschikbare versies teruggeeft óf er een nieuwere
-  is dan de huidige — en `nil` bij een gelijke of oudere versie, en altijd `nil`
-  als de huidige versie `0.0.0` is (ontwikkelbuild of geen tags).
+- A `Version` value that reads `"1.2.3"` and `"v1.2.3"` and can be compared.
+  Missing parts count as zero, so `1.2` and `1.2.0` are equal.
+- Unreadable input yields `nil`, no crash and no guess.
+- A function that, from a list of available versions, returns whether there is a
+  newer one than the current — and `nil` for an equal or older version, and always
+  `nil` when the current version is `0.0.0` (development build or no tags).
 
-Geen netwerk in dit bestand. Dat is precies waarom het hier staat.
+No networking in this file. That is exactly why it lives here.
 
-### Ophalen (in `TickoalaApp`)
+### Fetching (in `TickoalaApp`)
 
-Nieuw bestand `Sources/TickoalaApp/UpdateChecker.swift`, een `ObservableObject`
-met `@Published private(set) var beschikbareVersie: String?`.
+New file `Sources/TickoalaApp/UpdateChecker.swift`, an `ObservableObject` with
+`@Published private(set) var availableVersion: String?`.
 
-- `https://api.github.com/repos/joost-heijden/Tickoala/releases/latest`, veld
-  `tag_name`. Een 404 betekent "nog geen release" en is geen fout.
-- GitHub eist een `User-Agent`-header; zonder krijg je een 403. Gebruik
-  `Tickoala/<versie>`.
-- Hoogstens één controle per 24 uur. Het moment van de laatste controle in
-  `UserDefaults`. Bij de start van de app kijken, daarna hoeft er niets extra's:
-  `AppModel` heeft al een timer die elke seconde tikt.
-- Time-out van tien seconden, geen herhaalpogingen. Mislukt het, dan gebeurt er
-  zichtbaar niets — een menubalkapp hoort niet te zeuren over een haperend
-  netwerk.
-- Uit te zetten met een sleutel in `UserDefaults`. Geen instelling in de
-  `settings`-tabel: die is `Int`-gebaseerd, wordt gedeeld met het
-  adaptercommando, en dit gaat alleen over de app.
+- `https://api.github.com/repos/joost-heijden/Tickoala/tags`, field `name`. A 404
+  means "no tags yet" and is not an error.
+- GitHub requires a `User-Agent` header; without one you get a 403. Use
+  `Tickoala/<version>`.
+- At most one check per 24 hours. The moment of the last check in `UserDefaults`.
+  Check at app start; after that nothing extra is needed: `AppModel` already has a
+  timer that ticks every second.
+- Ten-second timeout, no retries. If it fails, visibly nothing happens — a menu bar
+  app should not nag about a flaky network.
+- Can be turned off with a key in `UserDefaults`. No setting in the `settings`
+  table: that is `Int`-based, is shared with the adapter command, and this is only
+  about the app.
 
-### Tonen (in `MenuContent.swift`)
+### Showing (in `MenuContent.swift`)
 
-Boven het laatste blok met "Stop Tickoala":
+Above the last block with "Quit Tickoala":
 
-- `Text("Versie X beschikbaar")` als er iets is.
-- Een knop die de release-pagina opent met `NSWorkspace.shared.open`.
-- Een knop om de controle uit te zetten.
-- Toon niets zolang er geen nieuwere versie is. Geen "je bent bij"-regel, geen
-  voortgang, geen foutmelding.
+- `Text("Version X available")` if there is something.
+- A button that opens the tag page with `NSWorkspace.shared.open`.
+- A button to turn the check off.
+- Show nothing as long as there is no newer version. No "you're up to date" line,
+  no progress, no error message.
 
-## Deel 4 — controles
+## Part 4 — checks
 
-De suite is een eigen programma, geen XCTest: `Sources/TickoalaChecks`, met
-`Harness.suite` en `Harness.test`. Voeg `VersionChecks.swift` toe met een
-`versionChecks()` en roep die aan in `Sources/TickoalaChecks/main.swift`.
+The suite is its own program, not XCTest: `Sources/TickoalaChecks`, with
+`Harness.suite` and `Harness.test`. Add `VersionChecks.swift` with a
+`versionChecks()` and call it from `Sources/TickoalaChecks/main.swift`.
 
-Dek in elk geval: `1.2.0` is nieuwer dan `1.1.9`; gelijke versies geven niets;
-de `v` ervoor maakt niet uit; `1.2` en `1.2.0` zijn gelijk; rommel levert `nil`;
-en `0.0.0` als huidige versie meldt nooit een update. Geen netwerk in de checks.
+At least cover: `1.2.0` is newer than `1.1.9`; equal versions give nothing; the
+leading `v` doesn't matter; `1.2` and `1.2.0` are equal; junk yields `nil`; and
+`0.0.0` as the current version never reports an update. No networking in the checks.
 
-## Deel 5 — README
+## Part 5 — README
 
-De README is Engels (de rest van de repo is Nederlands, houd dat zo). Voeg na
-"Install" een "Updating" toe met `./scripts/update.sh`, en schrijf eerlijk op
-wat de controle doet: één verzoek per dag naar `api.github.com`, waarbij GitHub
-het IP-adres en de versie in de `User-Agent` ziet, er niets anders wordt
-verstuurd, en hoe je het uitzet. De README belooft nu nadrukkelijk dat er niets
-van de Mac af gaat; die belofte moet kloppen blijven.
+The README is English (the rest of the repo is English too; keep it that way). After
+"Install", add an "Updating" section with `./scripts/update.sh`, and write down
+honestly what the check does: one request per day to `api.github.com`, where GitHub
+sees the IP address and the version in the `User-Agent`, nothing else is sent, and
+how to turn it off. The README currently promises emphatically that nothing leaves
+the Mac; that promise must stay true.
 
-## Conventies in deze repo
+## Conventions in this repo
 
-- Commentaar in het Nederlands, en het legt uit *waarom* iets er staat, niet wat
-  de regel doet. Kijk hoe `WifiWatcher.swift` en `build-app.sh` dat doen.
-- Commitberichten in het Nederlands, in hele zinnen, met de reden erbij.
-- Geen dependencies. Alleen Foundation, AppKit en SwiftUI.
-- Swift-taalmodus v5, minimaal macOS 13.
-- `swift build -c release` en `swift run TickoalaChecks` moeten schoon blijven.
+- Comments in English, and they explain *why* something is there, not what the line
+  does. Look at how `WifiWatcher.swift` and `build-app.sh` do that.
+- Commit messages in English, in full sentences, with the reason included.
+- No dependencies. Only Foundation, AppKit and SwiftUI.
+- Swift language mode v5, minimum macOS 13.
+- `swift build -c release` and `swift run TickoalaChecks` must stay clean.
 
-## Klaar als
+## Done when
 
-1. `./scripts/update.sh` werkt vanaf elke map, weigert netjes bij een vuile
-   werkmap, en levert een draaiende app op de nieuwe versie.
-2. `/Applications/Tickoala.app/Contents/Info.plist` bevat het echte versienummer.
-3. Met een versietag die hóger is dan de geïnstalleerde versie verschijnt de
-   melding in het menu; met een gelijke tag verschijnt er niets.
-4. `swift run TickoalaChecks` is groen, inclusief de nieuwe controles.
-5. Zonder netwerk start en werkt de app zonder vertraging of melding.
+1. `./scripts/update.sh` works from any directory, refuses cleanly on a dirty
+   working tree, and produces a running app on the new version.
+2. `/Applications/Tickoala.app/Contents/Info.plist` contains the real version number.
+3. With a version tag higher than the installed version the notice appears in the
+   menu; with an equal tag nothing appears.
+4. `swift run TickoalaChecks` is green, including the new checks.
+5. Without a network the app starts and works without delay or notice.
 
-## Let op bij het begin
+## Note at the start
 
-In de werkmap staan nu wijzigingen van een andere thread in
+The working tree currently contains changes from another thread in
 `Sources/TickoalaApp/AppModel.swift`, `Sources/TickoalaApp/OverviewWindow.swift`,
-`Sources/TickoalaCore/Store.swift` en
-`Sources/TickoalaChecks/PersistenceChecks.swift`. Commit die niet mee, en stem
-af voordat je `MenuContent.swift` of `AppModel.swift` aanraakt.
+`Sources/TickoalaCore/Store.swift` and
+`Sources/TickoalaChecks/PersistenceChecks.swift`. Don't commit those along with
+yours, and coordinate before touching `MenuContent.swift` or `AppModel.swift`.

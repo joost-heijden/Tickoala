@@ -1,7 +1,7 @@
 import Foundation
 import TickoalaCore
 
-/// Elke check krijgt een eigen databasebestand, zodat ze los van elkaar draaien.
+/// Every check gets its own database file, so they run independently of each other.
 final class Fixture {
     let path: String
     let store: Store
@@ -13,8 +13,8 @@ final class Fixture {
         path = NSTemporaryDirectory() + "tickoala-check-\(UUID().uuidString).sqlite3"
         store = try Store(path: path)
         tracker = Tracker(store: store)
-        profileA = try store.createProfile(name: "Organisatie A", contexts: ["Kantoor A"])
-        profileB = try store.createProfile(name: "Organisatie B", contexts: ["Kantoor B"])
+        profileA = try store.createProfile(name: "Organization A", contexts: ["Office A"])
+        profileB = try store.createProfile(name: "Organization B", contexts: ["Office B"])
     }
 
     deinit {
@@ -27,9 +27,9 @@ final class Fixture {
         }
     }
 
-    /// Maakt een project en zet het meteen als actief project.
+    /// Creates a project and immediately sets it as the active project.
     @discardableResult
-    func project(_ profile: Profile, number: String = "2401", name: String = "Migratie") throws -> Project {
+    func project(_ profile: Profile, number: String = "2401", name: String = "Migration") throws -> Project {
         let project = try store.createProject(profileId: profile.id, number: number, name: name)
         _ = try tracker.selectProject(profileId: profile.id, projectId: project.id)
         return project
@@ -50,7 +50,7 @@ final class Fixture {
 
 func at(_ text: String) -> Date {
     guard let date = Formatting.parseDate(text) else {
-        fatalError("ongeldige testdatum: \(text)")
+        fatalError("invalid test date: \(text)")
     }
     return date
 }

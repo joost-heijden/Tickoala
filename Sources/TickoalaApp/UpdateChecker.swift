@@ -2,32 +2,40 @@ import Combine
 import Foundation
 import TickoalaCore
 
-/// Kijkt af en toe of er op GitHub een nieuwere release staat en onthoudt die tag.
+/// Occasionally checks whether a newer version tag exists on GitHub and remembers it.
 ///
-/// Dit is de enige plek in de app die het netwerk opgaat. Bewust spaarzaam: hoogstens
-/// één verzoek per 24 uur, korte time-out, geen herhaalpogingen. Lukt het niet, dan
-/// blijft het stil — een menubalkapp hoort niet te zeuren over een haperend netwerk.
+/// This is the only place in the app that goes onto the network. Deliberately
+/// frugal: at most one request per 24 hours, short timeout, no retries. If it
+/// fails, it stays quiet — a menu bar app should not nag about a flaky network.
 @MainActor
 final class UpdateChecker: ObservableObject {
-    @Published private(set) var beschikbareVersie: String?
+    @Published private(set) var availableVersion: String?
+    /// Is the daily check enabled? The menu uses this to show the right button.
+    @Published private(set) var isEnabled: Bool
 
-    /// Sleutel in UserDefaults waarmee de gebruiker de controle uitzet. Bewust niet
-    /// in de settings-tabel: die is Int-gebaseerd, wordt gedeeld met het
-    /// adaptercommando en gaat over de registratie, niet over de app zelf.
-    static let disabledKey = "update-controle-uit"
-    /// Waar de gebruiker de nieuwe versie ophaalt.
-    static let releasePageURL = URL(string: "https://github.com/joost-heijden/Tickoala/releases/latest")!
-    /// De projectpagina op GitHub.
+    /// Key in UserDefaults with which the user turns the check off. Deliberately
+    /// not in the settings table: that is Int-based, is shared with the adapter
+    /// command and concerns tracking, not the app itself.
+    static let disabledKey = "update-check-disabled"
+    /// The project page on GitHub.
     static let repositoryURL = URL(string: "https://github.com/joost-heijden/Tickoala")!
+    /// The tag page on GitHub, so you can immediately see what is new.
+    static func tagURL(for tag: String) -> URL? {
+        URL(string: "https://github.com/joost-heijden/Tickoala/tree/\(tag)")
+    }
 
-    private static let latestReleaseURL = URL(string: "https://api.github.com/repos/joost-heijden/Tickoala/releases/latest")!
-    private static let lastCheckKey = "update-laatst-gecontroleerd"
+    // Versions live in tags, not in releases: one tag is enough to report an
+    // update. The order from the API says nothing about the version; VersionCheck
+    // picks the highest itself.
+    private static let tagsURL = URL(string: "https://api.github.com/repos/joost-heijden/Tickoala/tags?per_page=100")!
+    private static let lastCheckKey = "update-last-checked"
     private static let interval: TimeInterval = 24 * 60 * 60
 
     private let defaults: UserDefaults
     private let session: URLSession
-    private let currentVersion: String
-    private var bezig = false
+    /// The running version; also visible in the menu so you know what you have.
+    let currentVersion: String
+    private var isFetching = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -37,61 +45,79 @@ final class UpdateChecker: ObservableObject {
         self.defaults = defaults
         self.session = session
         self.currentVersion = currentVersion
+        self.isEnabled = !defaults.bool(forKey: Self.disabledKey)
     }
 
-    /// Veilig om vaak aan te roepen; de timer van AppModel doet dat elke seconde.
-    /// Het netwerkverzoek zelf gebeurt pas als het etmaal sinds de vorige keer voorbij is.
+    /// Safe to call often; the AppModel timer does so every second. The network
+    /// request itself only happens once the day since the previous one has passed.
     func checkIfNeeded(now: Date = Date()) {
-        guard !defaults.bool(forKey: Self.disabledKey) else { return }
-        guard !bezig else { return }
-        if let laatste = defaults.object(forKey: Self.lastCheckKey) as? Date,
-           now.timeIntervalSince(laatste) < Self.interval {
+        guard isEnabled, !isFetching else { return }
+        if let last = defaults.object(forKey: Self.lastCheckKey) as? Date,
+           now.timeIntervalSince(last) < Self.interval {
             return
         }
-        // Meteen vastleggen, ook als het verzoek straks mislukt: zo blijft het bij
-        // één poging per etmaal in plaats van herhaald hameren.
+        // Record it immediately, even if the request fails later: that keeps it to
+        // one attempt per day instead of hammering repeatedly.
         defaults.set(now, forKey: Self.lastCheckKey)
-        bezig = true
+        startFetch()
+    }
+
+    /// Manual check from the menu; ignores the day, because the user explicitly asks now.
+    func checkNow() {
+        guard isEnabled, !isFetching else { return }
+        defaults.set(Date(), forKey: Self.lastCheckKey)
+        availableVersion = nil
+        startFetch()
+    }
+
+    /// Turns the check off. From the menu, because there is no settings screen.
+    func disable() {
+        defaults.set(true, forKey: Self.disabledKey)
+        isEnabled = false
+        availableVersion = nil
+    }
+
+    /// Turns the check back on and immediately looks for something new.
+    func enable() {
+        defaults.set(false, forKey: Self.disabledKey)
+        isEnabled = true
+        checkNow()
+    }
+
+    private func startFetch() {
+        isFetching = true
         Task { await fetch() }
     }
 
-    /// Zet de controle uit. Vanuit het menu, want er is geen instellingenscherm.
-    func disable() {
-        defaults.set(true, forKey: Self.disabledKey)
-        beschikbareVersie = nil
-    }
-
     private func fetch() async {
-        defer { bezig = false }
+        defer { isFetching = false }
 
-        var request = URLRequest(url: Self.latestReleaseURL)
+        var request = URLRequest(url: Self.tagsURL)
         request.timeoutInterval = 10
-        // GitHub weigert verzoeken zonder User-Agent met een 403. Verder sturen we
-        // niets mee: alleen welke versie het vraagt, geen id en geen gegevens.
+        // GitHub rejects requests without a User-Agent with a 403. Beyond that we
+        // send nothing: only which version is asking, no id and no data.
         request.setValue("Tickoala/\(currentVersion)", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
 
         do {
             let (data, response) = try await session.data(for: request)
-            // Een 404 betekent "nog geen release" en is geen fout; net als elke
-            // andere status doen we dan gewoon niets.
+            // No tags or a different status: then there is nothing new to report.
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
-            guard let tag = Self.tagName(in: data) else { return }
-            beschikbareVersie = VersionCheck.newerVersion(current: currentVersion, available: [tag])
+            availableVersion = VersionCheck.newerVersion(current: currentVersion, available: Self.tagNames(in: data))
         } catch {
-            // Geen netwerk of een time-out: zichtbaar niets doen is precies de bedoeling.
+            // No network or a timeout: visibly doing nothing is exactly the point.
         }
     }
 
-    private static func tagName(in data: Data) -> String? {
+    private static func tagNames(in data: Data) -> [String] {
         guard let raw = try? JSONSerialization.jsonObject(with: data),
-              let object = raw as? [String: Any] else { return nil }
-        return object["tag_name"] as? String
+              let array = raw as? [[String: Any]] else { return [] }
+        return array.compactMap { $0["name"] as? String }
     }
 
-    /// De versie uit de Info.plist. Buiten een echte bundel (een `swift run` tijdens
-    /// het ontwikkelen) bestaat die niet; dan doen we ons voor als 0.0.0, zodat de
-    /// vergelijking zich stilhoudt.
+    /// The version from Info.plist. Outside a real bundle (a `swift run` during
+    /// development) it doesn't exist; then we pretend to be 0.0.0, so the
+    /// comparison keeps quiet.
     nonisolated static func bundleVersion(bundle: Bundle = .main) -> String {
         (bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.0.0"
     }

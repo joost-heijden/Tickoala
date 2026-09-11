@@ -51,6 +51,7 @@ Correcting blocks:
 Overview and export:
   tickoala report [day|week|month] [--date <day>] [--profile <name>]
   tickoala export [--period month] [--date <day>] [--from <time> --to <time>] [--profile <name>] [--out <file>]
+  tickoala invoice [--profile <name>] [--month YYYY-MM] [--po <number>] [--out <file.pdf>]
 
 Settings:
   tickoala config list
@@ -162,6 +163,9 @@ func run() throws {
 
     case "export":
         try runExport(arguments)
+
+    case "invoice":
+        try runInvoice(arguments)
 
     case "config":
         try runConfig(arguments)
@@ -654,6 +658,38 @@ func runExport(_ arguments: Arguments) throws {
     } else {
         print(csv, terminator: "")
     }
+}
+
+// MARK: - Invoice
+
+func runInvoice(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    let profile = try resolveProfile(arguments, tracker.store)
+
+    let period: DateRange
+    if let month = arguments.string("month") {
+        guard let anchor = Formatting.parseDate("\(month)-01") else {
+            throw CLIError.usage("cannot read month: '\(month)' (use YYYY-MM)")
+        }
+        period = Reporting.range(.month, containing: anchor)
+    } else {
+        // Same default as the monthly reminder: the month that just ended.
+        period = Invoicing.previousMonthRange(containing: Date())
+    }
+
+    let invoice = try Invoicing.invoice(
+        store: tracker.store,
+        profileId: profile.id,
+        period: period,
+        poNumber: arguments.string("po")
+    )
+    let pdf = InvoicePDF.data(for: invoice)
+    let out = arguments.string("out") ?? "invoice-\(invoice.number).pdf"
+    let url = URL(fileURLWithPath: (out as NSString).expandingTildeInPath)
+    try pdf.write(to: url)
+    print("invoice \(invoice.number) for \(profile.name) written to \(url.path)")
+    print("period \(Formatting.day(invoice.periodStart)) to \(Formatting.day(invoice.periodEnd.addingTimeInterval(-86400)))")
+    print("net \(Formatting.decimalHours(invoice.netSeconds)) hours, total \(Formatting.money(cents: invoice.totalCents, currency: invoice.currency))")
 }
 
 // MARK: - Settings

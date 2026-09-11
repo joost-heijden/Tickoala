@@ -144,6 +144,19 @@ struct MenuContent: View {
         Button("Export CSV") { exportCSV() }
             .keyboardShortcut("e")
 
+        Divider()
+
+        Button("Invoices…") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "invoices")
+        }
+        .keyboardShortcut("i")
+
+        Button("Invoice settings") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "invoice-settings")
+        }
+
         if let error = model.errorMessage {
             Divider()
             Text("Error: \(error)")

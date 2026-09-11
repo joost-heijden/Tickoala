@@ -10,5 +10,7 @@ persistenceChecks()
 reportChecks()
 adapterChecks()
 versionChecks()
+invoiceChecks()
+smtpChecks()
 
 exit(Harness.summary())

@@ -92,6 +92,11 @@ private struct CustomerForm: View {
     @State private var loaded = false
     @State private var newProjectNumber = ""
     @State private var newProjectName = ""
+    @State private var billingAddress = ""
+    @State private var vatNumber = ""
+    @State private var vatRate = 21
+    @State private var poNumber = ""
+    @State private var billingEmail = ""
 
     var body: some View {
         Form {
@@ -123,6 +128,26 @@ private struct CustomerForm: View {
                 }
                 Toggle("Active", isOn: $active)
                     .onChange(of: active) { _ in save() }
+            }
+
+            Section("Invoicing") {
+                TextField("Billing address", text: $billingAddress, axis: .vertical)
+                    .lineLimit(2...4)
+                    .onChange(of: billingAddress) { _ in saveInvoicing() }
+                TextField("VAT number of the customer", text: $vatNumber)
+                    .onChange(of: vatNumber) { _ in saveInvoicing() }
+                HStack {
+                    Text("VAT rate")
+                    Spacer()
+                    Stepper(value: $vatRate, in: 0...100) {
+                        Text("\(vatRate) %").monospacedDigit()
+                    }
+                    .onChange(of: vatRate) { _ in saveInvoicing() }
+                }
+                TextField("Invoice email", text: $billingEmail, prompt: Text("client@example.com"))
+                    .onChange(of: billingEmail) { _ in saveInvoicing() }
+                TextField("Default PO number", text: $poNumber)
+                    .onChange(of: poNumber) { _ in saveInvoicing() }
             }
 
             Section("Wi-Fi networks") {
@@ -231,7 +256,24 @@ private struct CustomerForm: View {
             : ""
         currency = profile.currency
         active = profile.active
+        billingAddress = profile.billingAddress ?? ""
+        vatNumber = profile.vatNumber ?? ""
+        vatRate = profile.vatRatePercent
+        poNumber = profile.poNumber ?? ""
+        billingEmail = profile.billingEmail ?? ""
         loaded = true
+    }
+
+    private func saveInvoicing() {
+        guard loaded else { return }
+        model.updateCustomerInvoicing(
+            id: profile.id,
+            billingAddress: billingAddress,
+            vatNumber: vatNumber,
+            vatRatePercent: vatRate,
+            poNumber: poNumber,
+            billingEmail: billingEmail
+        )
     }
 
     private func addContext() {

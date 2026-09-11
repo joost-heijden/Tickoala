@@ -71,6 +71,16 @@ public struct Profile: Equatable, Identifiable, Sendable {
     public var breakRule: BreakRule
     public var hourlyRateCents: Int
     public var currency: Currency
+    /// Free-form billing address, shown on the invoice. Multi-line is allowed.
+    public var billingAddress: String?
+    /// VAT identification number of the client, if they need it on the invoice.
+    public var vatNumber: String?
+    /// VAT percentage charged on this client's invoice. 21 for most Dutch work.
+    public var vatRatePercent: Int
+    /// Default purchase-order reference, pre-fills the invoice dialog.
+    public var poNumber: String?
+    /// Where the invoice is emailed when you send it from the app.
+    public var billingEmail: String?
 
     public init(
         id: Int64,
@@ -79,7 +89,12 @@ public struct Profile: Equatable, Identifiable, Sendable {
         active: Bool = true,
         breakRule: BreakRule = .default,
         hourlyRateCents: Int = 0,
-        currency: Currency = .eur
+        currency: Currency = .eur,
+        billingAddress: String? = nil,
+        vatNumber: String? = nil,
+        vatRatePercent: Int = 21,
+        poNumber: String? = nil,
+        billingEmail: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -88,6 +103,11 @@ public struct Profile: Equatable, Identifiable, Sendable {
         self.breakRule = breakRule
         self.hourlyRateCents = hourlyRateCents
         self.currency = currency
+        self.billingAddress = billingAddress
+        self.vatNumber = vatNumber
+        self.vatRatePercent = vatRatePercent
+        self.poNumber = poNumber
+        self.billingEmail = billingEmail
     }
 
     /// Is there a rate set that can be used for calculations?

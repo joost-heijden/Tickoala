@@ -93,6 +93,37 @@ enum Schema {
         """
         ALTER TABLE profiles ADD COLUMN currency TEXT NOT NULL DEFAULT 'EUR';
         """,
+
+        // Billing data per client, only used for the invoice. All optional; a
+        // client without them still produces an invoice, just a barer one.
+        """
+        ALTER TABLE profiles ADD COLUMN billing_address TEXT;
+        ALTER TABLE profiles ADD COLUMN vat_number TEXT;
+        ALTER TABLE profiles ADD COLUMN vat_rate_percent INTEGER NOT NULL DEFAULT 21;
+        ALTER TABLE profiles ADD COLUMN po_number TEXT;
+        """,
+
+        // Who receives the invoice when you send it straight from the app.
+        """
+        ALTER TABLE profiles ADD COLUMN billing_email TEXT;
+        """,
+
+        // Issued invoices, so a number is allocated once per client per month and
+        // re-generating the same month never produces a duplicate.
+        """
+        CREATE TABLE invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            period_start INTEGER NOT NULL,
+            period_end INTEGER NOT NULL,
+            number TEXT NOT NULL UNIQUE,
+            po_number TEXT,
+            issued_at INTEGER NOT NULL,
+            total_cents INTEGER NOT NULL,
+            currency TEXT NOT NULL,
+            UNIQUE (profile_id, period_start)
+        );
+        """,
     ]
 
     static func migrate(_ database: Database) throws {

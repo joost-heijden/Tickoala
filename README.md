@@ -26,9 +26,10 @@ Most time trackers want an account, a subscription and your data. The ones that
 don't still need you to remember to press start. Your Mac already knows where you
 are — it's connected to the client's Wi-Fi. Tickoala just uses that.
 
-- **Nothing leaves your Mac.** No account, no sync, no telemetry. The core
-  features make no network access at all; the only request the app ever makes is
-  the daily version check described under [Updating](#updating).
+- **Nothing leaves your Mac on its own.** No account, no sync, no telemetry. The
+  core features make no network access at all; the only request the app makes by
+  itself is the daily version check described under [Updating](#updating). An
+  invoice is only ever emailed when you press send.
 - **It never invents time.** If your Mac was asleep, the block is flagged for you
   to correct rather than silently guessed.
 - **Your raw data stays raw.** Break deduction and totals are calculated on top of
@@ -50,6 +51,9 @@ are — it's connected to the client's Wi-Fi. Tickoala just uses that.
 - **Manual control** — pause, resume, stop, and correct or add blocks by hand
 - **Day / week / month totals**, per project and per day
 - **CSV export** for invoicing
+- **Monthly invoice reminder** on the first weekday of the month
+- **PDF invoices** with VAT, PO number, your logo and a running invoice number
+- **Email invoices** straight from the app over SMTP, with the PDF attached
 - **First-run welcome screen** with a one-click toggle to launch at login
 - **Full command-line interface** for everything the app does
 
@@ -221,6 +225,42 @@ export gains three columns, `hourly_rate`, `amount` and `currency`, next to ever
 block; the break row carries a negative amount so the `amount` column adds up to
 the net total. Clients without a rate simply produce no amounts.
 
+## Invoices
+
+On the **first weekday of every month** (if the 1st falls on a Saturday or
+Sunday, the Monday after) Tickoala opens the invoices window for the month that
+just ended. It lists every customer with hours, with a PO field and their email
+address, and for each one you can:
+
+- **Create PDF…** — a one-page A4 invoice: your details, the customer, the
+  project lines with hours and rate, the automatic break deduction, subtotal,
+  VAT and the total.
+- **Export CSV…** — the same month's hours as a CSV, for your own bookkeeping.
+- **Approve & send** — emails the invoice PDF to the customer, after a
+  confirmation.
+
+Put your own details under **Invoice settings** (in the menu, or from the
+invoices window): name, address, KvK, VAT number, IBAN, email, payment term,
+invoice number prefix, and an optional logo. Per customer you set the billing
+address, their VAT number, the VAT rate (21% by default, change it per customer
+for 9%, 0% or reverse charge), a default PO number and the invoice email
+address.
+
+Invoice numbers are handed out once per customer per month and never repeat:
+reopening the same month keeps its number, and the counter skips any number that
+already exists after a manual edit.
+
+### Sending by email
+
+Fill in your SMTP server under **Invoice settings → Email (SMTP)**: server,
+port, username, from-address and password. The password goes into the macOS
+**Keychain**, never into the database. Use **Test** to send yourself a message.
+
+Tickoala uses **implicit TLS (SMTPS, normally port 465)**. STARTTLS on port 587
+is not supported, because macOS's networking framework cannot upgrade a
+connection halfway; providers that offer port 465 (Gmail with an app password,
+Fastmail and most others) work.
+
 ## Command line
 
 ```bash
@@ -232,6 +272,7 @@ tickoala entry list --period week
 tickoala entry add --number 2401 --start "2026-09-10 09:00" --end "2026-09-10 17:00"
 tickoala entry edit --id 12 --end "2026-09-10 16:30"
 tickoala export --period month --out ~/Desktop/hours-september.csv
+tickoala invoice --profile "Acme" --month 2026-08 --po "PO-2026-114" --out ~/Desktop/invoice.pdf
 tickoala events                 # what was received and what happened with it
 tickoala config list            # grace periods and thresholds
 tickoala db                     # path to the database
@@ -244,9 +285,11 @@ tickoala db                     # path to the database
 Everything lives in
 `~/Library/Application Support/Tickoala/tickoala.sqlite3` (override with the
 `TICKOALA_DB` environment variable). It holds time entries, client names, network
-names, projects, notes and a log of received events. No location data, and nothing
-is ever uploaded — the only network request is the daily version check described
-under [Updating](#updating).
+names, projects, notes, billing details, issued invoices and a log of received
+events. A chosen invoice logo is copied into that same folder. No location data,
+and nothing is ever uploaded — the only network requests are the daily version
+check described under [Updating](#updating) and the invoice email you send
+yourself. The SMTP password is kept in the macOS Keychain, never in this file.
 
 Backing up is copying that one file.
 
@@ -268,8 +311,8 @@ project deliberately builds with just the CLT.
 
 | Target | Purpose |
 | --- | --- |
-| `TickoalaCore` | data model, timer rules, totals, CSV export |
-| `TickoalaApp` | menu bar app: Wi-Fi detection, overview, projects, corrections |
+| `TickoalaCore` | data model, timer rules, totals, CSV export, invoices, PDF and email |
+| `TickoalaApp` | menu bar app: Wi-Fi detection, overview, projects, corrections, invoices |
 | `tickoala` | command-line interface and adapter |
 | `TickoalaChecks` | the test suite |
 
@@ -284,6 +327,8 @@ project deliberately builds with just the CLT.
   stays with the right project.
 - If you cross the break threshold while the timer is running, today's total drops
   by the break amount at that moment. Correct, but visible.
+- Sending invoices by email only supports implicit TLS on port 465, not STARTTLS
+  on port 587 (a limitation of macOS's `Network.framework`).
 
 ## The name
 

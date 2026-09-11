@@ -151,6 +151,36 @@ public final class Store {
         )
     }
 
+    /// Billing data for the invoice, stored separately from the rate so an empty
+    /// field really clears the value. An empty string is stored as `NULL`.
+    public func updateProfileInvoicing(
+        id: Int64,
+        billingAddress: String,
+        vatNumber: String,
+        vatRatePercent: Int,
+        poNumber: String,
+        billingEmail: String = ""
+    ) throws {
+        func cleaned(_ value: String) -> SQLValue {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? .null : .text(trimmed)
+        }
+        try database.run(
+            """
+            UPDATE profiles SET billing_address = ?, vat_number = ?, vat_rate_percent = ?, po_number = ?, billing_email = ?
+            WHERE id = ?;
+            """,
+            [
+                cleaned(billingAddress),
+                cleaned(vatNumber),
+                .int(Int64(min(max(0, vatRatePercent), 100))),
+                cleaned(poNumber),
+                cleaned(billingEmail),
+                .int(id),
+            ]
+        )
+    }
+
     // MARK: - Wi-Fi contexts
 
     public func contexts(profileId: Int64) throws -> [String] {
@@ -519,7 +549,12 @@ public final class Store {
                 thresholdMinutes: Int(row.int("break_threshold_minutes") ?? Int64(BreakRule.default.thresholdMinutes))
             ),
             hourlyRateCents: Int(row.int("hourly_rate_cents") ?? 0),
-            currency: Currency(rawValue: row.string("currency") ?? "") ?? .eur
+            currency: Currency(rawValue: row.string("currency") ?? "") ?? .eur,
+            billingAddress: row.string("billing_address"),
+            vatNumber: row.string("vat_number"),
+            vatRatePercent: Int(row.int("vat_rate_percent") ?? 21),
+            poNumber: row.string("po_number"),
+            billingEmail: row.string("billing_email")
         )
     }
 

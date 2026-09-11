@@ -21,6 +21,11 @@ public enum Formatting {
         formatter("HH:mm").string(from: date)
     }
 
+    /// English month and year, for the invoice period line.
+    public static func monthName(_ date: Date) -> String {
+        formatter("MMMM yyyy").string(from: date)
+    }
+
     /// `1:05` for the menu bar, `0:00` when nothing has been recorded yet.
     public static func duration(_ interval: TimeInterval) -> String {
         let total = Int(max(0, interval.rounded()))

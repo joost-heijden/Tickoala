@@ -42,6 +42,10 @@ final class AppModel: ObservableObject {
     /// An arrival where the organization has multiple active projects.
     @Published private(set) var pendingWifiProjectSelection: WifiProjectSelection?
 
+    /// Set on the first weekday of the month when there are hours to invoice; the
+    /// menu bar label watches it and opens the invoices window once.
+    @Published private(set) var shouldOpenInvoices = false
+
     private var tracker: Tracker?
     private var timer: Timer?
     private var wifiObserver: AnyCancellable?
@@ -158,6 +162,7 @@ final class AppModel: ObservableObject {
         }
         ensureSelectedCustomer()
         reloadOverview()
+        checkInvoiceReminder()
     }
 
     /// Keeps the chosen customer valid: if it disappears (or nothing is chosen
@@ -557,6 +562,195 @@ final class AppModel: ObservableObject {
         case .week: return "hours-week-\(Formatting.day(range.start)).csv"
         case .month: return "hours-\(String(Formatting.day(range.start).prefix(7))).csv"
         }
+    }
+
+    // MARK: - Invoicing
+
+    /// The month that just ended: what the reminder and the invoices window act on.
+    var invoicePeriod: DateRange { Invoicing.previousMonthRange(containing: Date()) }
+
+    struct InvoiceCandidate: Identifiable {
+        var profile: Profile
+        var grossSeconds: TimeInterval
+        var netSeconds: TimeInterval
+        var amountCents: Int
+        var number: String?
+        var id: Int64 { profile.id }
+    }
+
+    /// Every customer with hours in the invoiced month, or with an already issued
+    /// invoice for it. The window lists these.
+    func invoiceCandidates() -> [InvoiceCandidate] {
+        guard let tracker else { return [] }
+        let period = invoicePeriod
+        var result: [InvoiceCandidate] = []
+        for profile in (try? tracker.store.profiles()) ?? [] {
+            let report = try? Reporting.report(
+                store: tracker.store, period: .month, containing: period.start, profileId: profile.id
+            )
+            let number = try? tracker.store.issuedInvoiceNumber(profileId: profile.id, periodStart: period.start)
+            let gross = report?.total ?? 0
+            if gross <= 0 && number == nil { continue }
+            let net = report?.netTotal ?? 0
+            result.append(InvoiceCandidate(
+                profile: profile,
+                grossSeconds: gross,
+                netSeconds: net,
+                amountCents: profile.amountCents(for: net),
+                number: number
+            ))
+        }
+        return result.sorted { $0.profile.name.localizedCaseInsensitiveCompare($1.profile.name) == .orderedAscending }
+    }
+
+    /// Builds the invoice for one customer and the invoiced month. Allocates the
+    /// number the first time and reuses it afterwards.
+    func makeInvoice(profileId: Int64, poNumber: String?) -> Invoice? {
+        guard let tracker else { return nil }
+        do {
+            return try Invoicing.invoice(
+                store: tracker.store, profileId: profileId, period: invoicePeriod, poNumber: poNumber
+            )
+        } catch {
+            errorMessage = "\(error)"
+            return nil
+        }
+    }
+
+    func write(_ invoice: Invoice, to url: URL) -> Bool {
+        do {
+            try InvoicePDF.data(for: invoice).write(to: url)
+            return true
+        } catch {
+            errorMessage = "Could not write the invoice: \(error)"
+            return false
+        }
+    }
+
+    /// Sends the invoice as a PDF attachment. Blocking SMTP runs off the main
+    /// thread; the Keychain supplies the password.
+    func sendInvoice(_ invoice: Invoice, to recipient: String) async throws {
+        let settings = invoiceSettings()
+        guard settings.canSendEmail else {
+            throw SMTPError.configuration("Set the SMTP server and sender address under Invoice settings first.")
+        }
+        let password = Keychain.smtpPassword()
+        guard !password.isEmpty else {
+            throw SMTPError.configuration("No SMTP password stored. Add it under Invoice settings.")
+        }
+        let configuration = SMTPConfiguration(
+            host: settings.smtpHost,
+            port: settings.smtpPort,
+            username: settings.smtpUsername,
+            password: password,
+            from: settings.smtpFromEmail,
+            useTLS: settings.smtpUseTLS
+        )
+        let message = InvoiceEmail.message(for: invoice, to: recipient, pdf: InvoicePDF.data(for: invoice))
+        try await Task.detached(priority: .userInitiated) {
+            try SMTPClient.send(message, configuration: configuration)
+        }.value
+    }
+
+    /// Sends a short message to yourself, to check the settings.
+    func sendTestEmail(to recipient: String) async throws {
+        let settings = invoiceSettings()
+        guard settings.canSendEmail else {
+            throw SMTPError.configuration("Set the SMTP server and sender address under Invoice settings first.")
+        }
+        let password = Keychain.smtpPassword()
+        guard !password.isEmpty else {
+            throw SMTPError.configuration("No SMTP password stored. Add it under Invoice settings.")
+        }
+        let configuration = SMTPConfiguration(
+            host: settings.smtpHost,
+            port: settings.smtpPort,
+            username: settings.smtpUsername,
+            password: password,
+            from: settings.smtpFromEmail,
+            useTLS: settings.smtpUseTLS
+        )
+        let message = EmailMessage(
+            from: settings.smtpFromEmail,
+            to: [recipient],
+            subject: "Tickoala test message",
+            body: "Your Tickoala email settings work.\r\n"
+        )
+        try await Task.detached(priority: .userInitiated) {
+            try SMTPClient.send(message, configuration: configuration)
+        }.value
+    }
+
+    func exportMonthlyCSV(profileId: Int64, to url: URL) -> Bool {
+        guard let tracker else { return false }
+        do {
+            let period = invoicePeriod
+            let csv = try CSVExport.export(
+                store: tracker.store, from: period.start, to: period.end, profileId: profileId
+            )
+            try csv.write(to: url, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            errorMessage = "Could not export: \(error)"
+            return false
+        }
+    }
+
+    func invoiceSettings() -> InvoiceSettings {
+        (try? tracker?.store.invoiceSettings()) ?? .default
+    }
+
+    func saveInvoiceSettings(_ settings: InvoiceSettings) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.updateInvoiceSettings(settings)
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func updateCustomerInvoicing(
+        id: Int64,
+        billingAddress: String,
+        vatNumber: String,
+        vatRatePercent: Int,
+        poNumber: String,
+        billingEmail: String
+    ) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.updateProfileInvoicing(
+                id: id, billingAddress: billingAddress, vatNumber: vatNumber,
+                vatRatePercent: vatRatePercent, poNumber: poNumber, billingEmail: billingEmail
+            )
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// Once per month: on the first weekday, ask to invoice the month before.
+    private func checkInvoiceReminder() {
+        guard !shouldOpenInvoices, let tracker else { return }
+        guard Invoicing.isReminderDue() else { return }
+        let period = invoicePeriod
+        let key = "invoice-reminder-shown"
+        if UserDefaults.standard.string(forKey: key) == Formatting.day(period.start) { return }
+        UserDefaults.standard.set(Formatting.day(period.start), forKey: key)
+
+        let profiles = (try? tracker.store.profiles()) ?? []
+        let hasHours = profiles.contains { profile in
+            guard let report = try? Reporting.report(
+                store: tracker.store, period: .month, containing: period.start, profileId: profile.id
+            ) else { return false }
+            return report.total > 0
+        }
+        if hasHours { shouldOpenInvoices = true }
+    }
+
+    /// The label opened the window; no need to ask again.
+    func acknowledgeInvoiceReminder() {
+        shouldOpenInvoices = false
     }
 
     private func perform(_ action: (Tracker) throws -> Void) {

@@ -38,6 +38,16 @@ struct TickoalaApp: App {
             BreakWindow(model: appDelegate.model)
         }
         .defaultSize(width: 560, height: 420)
+
+        Window("Invoices", id: "invoices") {
+            InvoicesWindow(model: appDelegate.model)
+        }
+        .defaultSize(width: 760, height: 560)
+
+        Window("Invoice settings", id: "invoice-settings") {
+            InvoiceSettingsWindow(model: appDelegate.model)
+        }
+        .defaultSize(width: 560, height: 620)
     }
 }
 
@@ -56,6 +66,14 @@ private struct MenuBarLabel: View {
                 // Give the scenes a beat to come up before opening a window.
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 openWindow(id: "welcome")
+            }
+            // On the first weekday of the month the model asks for the invoices
+            // window; open it once, then acknowledge.
+            .onChange(of: model.shouldOpenInvoices) { shouldOpen in
+                guard shouldOpen else { return }
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "invoices")
+                model.acknowledgeInvoiceReminder()
             }
     }
 }

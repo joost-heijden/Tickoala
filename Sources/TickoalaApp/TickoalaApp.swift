@@ -40,9 +40,6 @@ private struct TickoalaMenuBarIcon: View {
         if let image = menuBarImage {
             Image(nsImage: image)
                 .renderingMode(.original)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 18, height: 18)
                 .accessibilityLabel(accessibilityLabel)
         } else {
             Image(systemName: fallbackSymbol)
@@ -57,8 +54,18 @@ private struct TickoalaMenuBarIcon: View {
         ) else {
             return nil
         }
-        return NSImage(contentsOf: url)
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        // De menubalk gaat over de maat van de afbeelding zelf; een frame in
+        // SwiftUI doet daar niets. Zonder deze regel komt het icoon binnen op
+        // de maat uit de SVG (zo'n 150 punten breed) en loopt het ver buiten
+        // de balk. Alleen de hoogte ligt vast, de breedte volgt de verhouding.
+        let ratio = image.size.height > 0 ? image.size.width / image.size.height : 1
+        image.size = NSSize(width: Self.menuBarHeight * ratio, height: Self.menuBarHeight)
+        return image
     }
+
+    /// Hoogte in punten; de menubalk zelf is 22 punten hoog.
+    private static let menuBarHeight: CGFloat = 17
 
     private var resourceName: String {
         "tickoala-menu-\(modeName)-\(themeName)"

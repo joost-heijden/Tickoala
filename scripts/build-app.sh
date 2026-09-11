@@ -19,6 +19,15 @@ cp "$binaries/TickoalaApp" "$app/Contents/MacOS/Tickoala"
 # naast 'Tickoala' in Contents/MacOS staan.
 cp "$binaries/tickoala" "$app/Contents/Helpers/tickoala"
 
+# De menubalk-iconen zitten in de resource-bundle die SwiftPM maakt. Zonder deze
+# kopie valt `Bundle.module` terug op het pad in .build, en buiten deze Mac
+# bestaat dat pad niet: dan stopt de app meteen bij het eerste icoon.
+# De bundel hoort in Contents/Resources, zodat de ondertekening klopt, maar
+# `Bundle.module` zoekt hem naast de app zelf; vandaar de verwijzing erheen.
+bundle="Tickoala_TickoalaApp.bundle"
+cp -R "$binaries/$bundle" "$app/Contents/Resources/$bundle"
+ln -s "Contents/Resources/$bundle" "$app/$bundle"
+
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

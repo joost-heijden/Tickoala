@@ -175,7 +175,10 @@ struct MenuContent: View {
             }
         }
 
-        Button("Open Tickoala") { model.showWelcome() }
+        Button("Open Tickoala") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "welcome")
+        }
 
         Button("Open on GitHub") {
             NSWorkspace.shared.open(UpdateChecker.repositoryURL)

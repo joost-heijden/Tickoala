@@ -7,8 +7,8 @@ import TickoalaCore
 /// that via "Open Tickoala" in the menu.
 struct WelcomeView: View {
     @ObservedObject var model: AppModel
-    var onClose: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -140,7 +140,7 @@ struct WelcomeView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Get started") { onClose() }
+            Button("Get started") { dismiss() }
                 .keyboardShortcut(.defaultAction)
         }
         .padding(12)
@@ -165,44 +165,5 @@ private struct SectionBox<Content: View>: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.gray.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
-    }
-}
-
-/// Manages the welcome screen as a regular `NSWindow`. A SwiftUI `Window` scene
-/// would only exist once you open it, and on first launch there is no view that
-/// can do that; this way the app itself can show the window.
-@MainActor
-final class WelcomeWindowController {
-    private let model: AppModel
-    private var window: NSWindow?
-
-    init(model: AppModel) {
-        self.model = model
-    }
-
-    func show() {
-        let window = self.window ?? makeWindow()
-        self.window = window
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-    }
-
-    private func makeWindow() -> NSWindow {
-        let hosting = NSHostingController(
-            rootView: WelcomeView(model: model) { [weak self] in
-                self?.window?.close()
-            }
-        )
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Welcome to Tickoala"
-        window.styleMask = [.titled, .closable]
-        // Without this macOS releases the window on close, and then "Open
-        // Tickoala" cannot show it again.
-        window.isReleasedWhenClosed = false
-        window.center()
-        // New name so an old, larger window frame from before the compact layout
-        // does not come back and reintroduce scrolling.
-        window.setFrameAutosaveName("welcome-window-2")
-        return window
     }
 }

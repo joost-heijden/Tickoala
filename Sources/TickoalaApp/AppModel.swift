@@ -37,8 +37,6 @@ final class AppModel: ObservableObject {
     let updateChecker = UpdateChecker()
     /// Controls the login item, shown in the welcome screen.
     let launchAtLogin = LaunchAtLogin()
-    /// Set by the app delegate so the menu can reopen the welcome screen.
-    var onShowWelcome: (() -> Void)?
     /// What the last network signal produced, for explanation in the menu.
     @Published private(set) var lastWifiOutcome: String?
     /// An arrival where the organization has multiple active projects.
@@ -102,11 +100,6 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.objectWillChange.send() }
         }
         wifi.start()
-    }
-
-    /// Reopens the welcome screen from the menu.
-    func showWelcome() {
-        onShowWelcome?()
     }
 
     /// Processes a network signal and remembers the outcome for the menu.

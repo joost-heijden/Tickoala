@@ -10,9 +10,14 @@ struct TickoalaApp: App {
         MenuBarExtra {
             MenuContent(model: appDelegate.model)
         } label: {
-            TickoalaMenuBarIcon(mode: appDelegate.model.status?.mode ?? .stopped)
+            MenuBarLabel(model: appDelegate.model)
         }
         .menuBarExtraStyle(.menu)
+
+        Window("Welcome to Tickoala", id: "welcome") {
+            WelcomeView(model: appDelegate.model)
+        }
+        .defaultSize(width: 460, height: 560)
 
         Window("Overview", id: "overview") {
             OverviewWindow(model: appDelegate.model)
@@ -33,6 +38,25 @@ struct TickoalaApp: App {
             BreakWindow(model: appDelegate.model)
         }
         .defaultSize(width: 560, height: 420)
+    }
+}
+
+/// The menu bar icon. On first launch it also opens the welcome screen, so that
+/// no hand-made `NSWindow` is needed (that crashed when reopened).
+private struct MenuBarLabel: View {
+    @ObservedObject var model: AppModel
+
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        TickoalaMenuBarIcon(mode: model.status?.mode ?? .stopped)
+            .task {
+                guard !UserDefaults.standard.bool(forKey: AppDelegate.welcomeSeenKey) else { return }
+                UserDefaults.standard.set(true, forKey: AppDelegate.welcomeSeenKey)
+                // Give the scenes a beat to come up before opening a window.
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                openWindow(id: "welcome")
+            }
     }
 }
 

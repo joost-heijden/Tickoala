@@ -149,8 +149,16 @@ struct MenuContent: View {
             Text("Error: \(error)")
         }
 
+        Divider()
+
+        Button("Open Tickoala") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "welcome")
+        }
+
+        Divider()
+
         if let version = model.updateChecker.availableVersion {
-            Divider()
             Text("Version \(version) available")
             if let url = UpdateChecker.tagURL(for: version) {
                 Button("View the new version") {
@@ -158,8 +166,6 @@ struct MenuContent: View {
                 }
             }
         }
-
-        Divider()
 
         // Always visible, even without a new version: here you see which version
         // you are running and turn the check off (or back on).
@@ -175,14 +181,11 @@ struct MenuContent: View {
             }
         }
 
-        Button("Open Tickoala") {
-            NSApp.activate(ignoringOtherApps: true)
-            openWindow(id: "welcome")
-        }
-
         Button("Open on GitHub") {
             NSWorkspace.shared.open(UpdateChecker.repositoryURL)
         }
+
+        Divider()
 
         Button("Quit Tickoala") { NSApp.terminate(nil) }
             .keyboardShortcut("q")

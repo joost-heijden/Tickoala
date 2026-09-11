@@ -117,9 +117,18 @@ struct OverviewWindow: View {
                 .frame(width: 1, height: 22)
 
             Button {
-                duplicateSelectedEntry()
+                addNewBlock()
             } label: {
                 Image(systemName: "plus")
+                    .accessibilityLabel("Add block")
+            }
+            .help("Add a new block")
+            .disabled(addProfileId == nil)
+
+            Button {
+                duplicateSelectedEntry()
+            } label: {
+                Image(systemName: "plus.on.rectangle")
                     .accessibilityLabel("Duplicate")
             }
             .help("Duplicate the selected block (⌘D)")
@@ -231,6 +240,19 @@ struct OverviewWindow: View {
     }
 
     private var canDelete: Bool { selectedRow != nil }
+
+    /// The customer the add button should use: the selected block's customer,
+    /// otherwise the active filter, otherwise the first customer.
+    private var addProfileId: Int64? {
+        if let selectedRow { return selectedRow.entry.profileId }
+        if let filter = model.profileFilter { return filter }
+        return model.profiles.first?.profile.id
+    }
+
+    private func addNewBlock() {
+        guard let profileId = addProfileId else { return }
+        addingFor = profileId
+    }
 
     /// Duplicate from the keyboard or the buttons: only when the table is the
     /// active side, so ⌘D doesn't fire while the form has focus.
@@ -391,6 +413,22 @@ struct AddEntrySheet: View {
     @State private var end = Formatting.calendar.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var note = ""
     @State private var projectId: Int64?
+    @State private var hasBreak = false
+    @State private var pauseStart: Date
+    @State private var pauseEnd: Date
+
+    init(model: AppModel, profileId: Int64, onClose: @escaping () -> Void) {
+        self.model = model
+        self.profileId = profileId
+        self.onClose = onClose
+        // A half hour of break around the middle, so a sensible default is there
+        // immediately without the user having to calculate.
+        let begin = Formatting.calendar.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
+        let finish = Formatting.calendar.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
+        let middle = begin.addingTimeInterval(finish.timeIntervalSince(begin) / 2)
+        _pauseStart = State(initialValue: middle)
+        _pauseEnd = State(initialValue: middle.addingTimeInterval(30 * 60))
+    }
 
     var body: some View {
         Form {
@@ -406,13 +444,18 @@ struct AddEntrySheet: View {
                 TextField("Note", text: $note)
                 LabeledContent("Duration", value: Formatting.duration(end.timeIntervalSince(start)))
             }
-            HStack {
-                Button("Add") {
-                    model.addEntry(profileId: profileId, projectId: projectId, start: start, end: end, note: note)
-                    onClose()
+            Section("Break") {
+                Toggle("Add break", isOn: $hasBreak)
+                if hasBreak {
+                    DatePicker("Break starts", selection: $pauseStart)
+                    DatePicker("Break ends", selection: $pauseEnd)
+                    LabeledContent("Break duration", value: Formatting.duration(max(0, pauseEnd.timeIntervalSince(pauseStart))))
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(end <= start)
+            }
+            HStack {
+                Button("Add") { add() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canAdd)
                 Button("Cancel", role: .cancel) { onClose() }
                 Spacer()
             }
@@ -422,5 +465,30 @@ struct AddEntrySheet: View {
         .onAppear {
             projectId = model.profiles.first(where: { $0.profile.id == profileId })?.project?.id
         }
+        // With a changed start/end the break should still fall in the block.
+        .onChange(of: hasBreak) { on in
+            guard on, end > start else { return }
+            let middle = start.addingTimeInterval(end.timeIntervalSince(start) / 2)
+            let length = min(30 * 60, max(0, end.timeIntervalSince(middle)))
+            pauseStart = middle
+            pauseEnd = middle.addingTimeInterval(length)
+        }
+    }
+
+    /// The block must be positive, and a break must fall within it.
+    private var canAdd: Bool {
+        guard end > start else { return false }
+        guard hasBreak else { return true }
+        return pauseStart >= start && pauseEnd <= end && pauseStart < pauseEnd
+    }
+
+    private func add() {
+        guard let id = model.addEntry(profileId: profileId, projectId: projectId, start: start, end: end, note: note) else {
+            return
+        }
+        if hasBreak {
+            model.splitEntry(id: id, pauseStart: pauseStart, pauseEnd: pauseEnd)
+        }
+        onClose()
     }
 }

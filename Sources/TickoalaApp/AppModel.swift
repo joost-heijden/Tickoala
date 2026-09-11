@@ -485,20 +485,23 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func addEntry(profileId: Int64, projectId: Int64?, start: Date, end: Date, note: String) {
-        guard let tracker else { return }
+    @discardableResult
+    func addEntry(profileId: Int64, projectId: Int64?, start: Date, end: Date, note: String) -> Int64? {
+        guard let tracker else { return nil }
         guard end > start else {
             errorMessage = "The end must be after the start."
-            return
+            return nil
         }
         do {
-            _ = try tracker.store.createEntry(
+            let entry = try tracker.store.createEntry(
                 profileId: profileId, projectId: projectId, startedAt: start, endedAt: end,
                 status: .completed, source: .manual, note: note.isEmpty ? nil : note
             )
             refresh()
+            return entry.id
         } catch {
             errorMessage = "\(error)"
+            return nil
         }
     }
 

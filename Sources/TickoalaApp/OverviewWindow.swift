@@ -60,7 +60,7 @@ struct OverviewWindow: View {
             }
             Button("Cancel", role: .cancel) { deleteTarget = nil }
         } message: {
-            Text("This action cannot be undone.")
+            Text("You can undo this with ⌘Z.")
         }
         .sheet(item: Binding(get: { addingFor.map(ProfileBox.init) }, set: { addingFor = $0?.id })) { box in
             AddEntrySheet(model: model, profileId: box.id) { addingFor = nil }

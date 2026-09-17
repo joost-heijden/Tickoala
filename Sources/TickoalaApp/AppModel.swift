@@ -12,6 +12,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var allProjectsPerProfile: [Int64: [Project]] = [:]
     @Published var errorMessage: String?
 
+    /// Is there a project or block change that Cmd+Z can take back?
+    @Published private(set) var canUndo = false
+    /// Is there a change that Shift+Cmd+Z can put back?
+    @Published private(set) var canRedo = false
+
     /// Which customer the Customers window shows and where the Projects open.
     @Published var selectedCustomerId: Int64?
 
@@ -317,7 +322,20 @@ final class AppModel: ObservableObject {
             return false
         }
         do {
-            try tracker.createProject(profileId: profileId, number: number, name: name)
+            let previousActive = (try? tracker.store.state(profileId: profileId))?.activeProjectId
+            let project = try tracker.createProject(profileId: profileId, number: number, name: name)
+            record("Add project",
+                perform: { [weak self] in
+                    guard let self, let tracker = self.tracker else { return }
+                    try? tracker.store.deleteProject(id: project.id)
+                    if var state = try? tracker.store.state(profileId: profileId) {
+                        state.activeProjectId = previousActive
+                        try? tracker.store.save(state)
+                    }
+                },
+                revert: { [weak self] in
+                    _ = try? self?.tracker?.createProject(profileId: profileId, number: number, name: name)
+                })
             refresh()
             return true
         } catch {
@@ -338,7 +356,17 @@ final class AppModel: ObservableObject {
             return false
         }
         do {
+            let previous = try? tracker.store.project(id: id)
             try tracker.store.updateProject(id: id, number: number, name: name)
+            if let previous {
+                record("Edit project",
+                    perform: { [weak self] in
+                        try? self?.tracker?.store.updateProject(id: id, number: previous.number, name: previous.name)
+                    },
+                    revert: { [weak self] in
+                        try? self?.tracker?.store.updateProject(id: id, number: number, name: name)
+                    })
+            }
             refresh()
             return true
         } catch {
@@ -364,7 +392,59 @@ final class AppModel: ObservableObject {
     func setProjectActive(id: Int64, active: Bool) {
         guard let tracker else { return }
         do {
+            let previous = (try? tracker.store.project(id: id))?.active
             try tracker.store.updateProject(id: id, active: active)
+            if let previous {
+                record(active ? "Activate project" : "Deactivate project",
+                    perform: { [weak self] in
+                        try? self?.tracker?.store.updateProject(id: id, active: previous)
+                    },
+                    revert: { [weak self] in
+                        try? self?.tracker?.store.updateProject(id: id, active: active)
+                    })
+            }
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// Deletes a project. Its blocks stay but lose the project link; undoing puts
+    /// the project back and relinks the blocks that pointed at it.
+    func deleteProject(id: Int64) {
+        guard let tracker else { return }
+        do {
+            guard let project = try tracker.store.project(id: id) else {
+                throw TrackerError.unknownProject(String(id))
+            }
+            let linkedEntries = try tracker.store.entryIds(projectId: id)
+            let previousActive = try tracker.store.state(profileId: project.profileId).activeProjectId
+            try tracker.store.deleteProject(id: id)
+
+            var restoredId: Int64?
+            record("Delete project",
+                perform: { [weak self] in
+                    guard let self, let tracker = self.tracker,
+                          let restored = try? tracker.store.createProject(
+                              profileId: project.profileId, number: project.number, name: project.name
+                          ) else { return }
+                    restoredId = restored.id
+                    if !project.active {
+                        try? tracker.store.updateProject(id: restored.id, active: false)
+                    }
+                    for entryId in linkedEntries {
+                        try? tracker.store.updateEntry(id: entryId, projectId: .some(restored.id))
+                    }
+                    if previousActive == id {
+                        var state = (try? tracker.store.state(profileId: project.profileId))
+                            ?? ProfileState(profileId: project.profileId)
+                        state.activeProjectId = restored.id
+                        try? tracker.store.save(state)
+                    }
+                },
+                revert: { [weak self] in
+                    if let restoredId { try? self?.tracker?.store.deleteProject(id: restoredId) }
+                })
             refresh()
         } catch {
             errorMessage = "\(error)"
@@ -471,6 +551,7 @@ final class AppModel: ObservableObject {
             return
         }
         do {
+            let previous = try? tracker.store.entry(id: id)
             try tracker.store.updateEntry(
                 id: id,
                 projectId: .some(projectId),
@@ -479,6 +560,29 @@ final class AppModel: ObservableObject {
                 status: status,
                 note: .some(note.isEmpty ? nil : note)
             )
+            if let previous {
+                record("Edit block",
+                    perform: { [weak self] in
+                        try? self?.tracker?.store.updateEntry(
+                            id: id,
+                            projectId: .some(previous.projectId),
+                            startedAt: previous.startedAt,
+                            endedAt: .some(previous.endedAt),
+                            status: previous.status,
+                            note: .some(previous.note)
+                        )
+                    },
+                    revert: { [weak self] in
+                        try? self?.tracker?.store.updateEntry(
+                            id: id,
+                            projectId: .some(projectId),
+                            startedAt: start,
+                            endedAt: .some(end),
+                            status: status,
+                            note: .some(note.isEmpty ? nil : note)
+                        )
+                    })
+            }
             refresh()
         } catch {
             errorMessage = "\(error)"
@@ -499,6 +603,21 @@ final class AppModel: ObservableObject {
                 profileId: profileId, projectId: projectId, startedAt: start, endedAt: end,
                 status: .completed, source: .manual, note: note.isEmpty ? nil : note
             )
+            record("Add block",
+                perform: { [weak self] in
+                    try? self?.tracker?.store.deleteEntry(id: entry.id)
+                },
+                revert: { [weak self] in
+                    _ = try? self?.tracker?.store.createEntry(
+                        profileId: entry.profileId,
+                        projectId: entry.projectId,
+                        startedAt: entry.startedAt,
+                        endedAt: entry.endedAt,
+                        status: entry.status,
+                        source: entry.source,
+                        note: entry.note
+                    )
+                })
             refresh()
             return entry.id
         } catch {
@@ -512,6 +631,13 @@ final class AppModel: ObservableObject {
         guard let tracker else { return nil }
         do {
             let duplicate = try tracker.store.duplicateEntry(id: id)
+            record("Duplicate block",
+                perform: { [weak self] in
+                    try? self?.tracker?.store.deleteEntry(id: duplicate.id)
+                },
+                revert: { [weak self] in
+                    _ = try? self?.tracker?.store.duplicateEntry(id: id)
+                })
             refresh()
             return duplicate.id
         } catch {
@@ -525,11 +651,29 @@ final class AppModel: ObservableObject {
     func splitEntry(id: Int64, pauseStart: Date, pauseEnd: Date) -> Int64? {
         guard let tracker else { return nil }
         do {
+            let original = try? tracker.store.entry(id: id)
             let second = try tracker.store.splitEntry(
                 id: id,
                 pauseStart: Formatting.minute(pauseStart),
                 pauseEnd: Formatting.minute(pauseEnd)
             )
+            if let original {
+                record("Insert break",
+                    perform: { [weak self] in
+                        guard let tracker = self?.tracker else { return }
+                        try? tracker.store.deleteEntry(id: second.id)
+                        try? tracker.store.updateEntry(
+                            id: id, endedAt: .some(original.endedAt), status: original.status
+                        )
+                    },
+                    revert: { [weak self] in
+                        _ = try? self?.tracker?.store.splitEntry(
+                            id: id,
+                            pauseStart: Formatting.minute(pauseStart),
+                            pauseEnd: Formatting.minute(pauseEnd)
+                        )
+                    })
+            }
             refresh()
             return second.id
         } catch {
@@ -542,7 +686,26 @@ final class AppModel: ObservableObject {
     func deleteEntry(id: Int64) -> Bool {
         guard let tracker else { return false }
         do {
+            let previous = try? tracker.store.entry(id: id)
             try tracker.store.deleteEntry(id: id)
+            if let previous {
+                var restoredId: Int64?
+                record("Delete block",
+                    perform: { [weak self] in
+                        restoredId = try? self?.tracker?.store.createEntry(
+                            profileId: previous.profileId,
+                            projectId: previous.projectId,
+                            startedAt: previous.startedAt,
+                            endedAt: previous.endedAt,
+                            status: previous.status,
+                            source: previous.source,
+                            note: previous.note
+                        ).id
+                    },
+                    revert: { [weak self] in
+                        if let restoredId { try? self?.tracker?.store.deleteEntry(id: restoredId) }
+                    })
+            }
             refresh()
             return true
         } catch {
@@ -759,6 +922,57 @@ final class AppModel: ObservableObject {
     /// The label opened the window; no need to ask again.
     func acknowledgeInvoiceReminder() {
         shouldOpenInvoices = false
+    }
+
+    // MARK: - Undo
+
+    /// A project or block change made from a window, with how to take it back and
+    /// how to put it back. Only these are recorded; timer control and customer
+    /// edits are not.
+    private struct UndoStep {
+        let title: String
+        let perform: () -> Void
+        let revert: () -> Void
+    }
+
+    private var undoStack: [UndoStep] = []
+    private var redoStack: [UndoStep] = []
+
+    /// Short name of what Cmd+Z would take back, for the menu.
+    var undoTitle: String { undoStack.last?.title ?? "Undo" }
+    /// Short name of what Shift+Cmd+Z would put back, for the menu.
+    var redoTitle: String { redoStack.last?.title ?? "Redo" }
+
+    private func record(_ title: String, perform: @escaping () -> Void, revert: @escaping () -> Void) {
+        undoStack.append(UndoStep(title: title, perform: perform, revert: revert))
+        // A new change makes the earlier redo history unreachable.
+        redoStack.removeAll()
+        // Keep the recent changes only; an unbounded stack is just memory.
+        if undoStack.count > 50 { undoStack.removeFirst() }
+        updateUndoAvailability()
+    }
+
+    /// Takes back the last project or block change.
+    func undo() {
+        guard let step = undoStack.popLast() else { return }
+        step.perform()
+        redoStack.append(step)
+        updateUndoAvailability()
+        refresh()
+    }
+
+    /// Puts back the last change that was taken back.
+    func redo() {
+        guard let step = redoStack.popLast() else { return }
+        step.revert()
+        undoStack.append(step)
+        updateUndoAvailability()
+        refresh()
+    }
+
+    private func updateUndoAvailability() {
+        canUndo = !undoStack.isEmpty
+        canRedo = !redoStack.isEmpty
     }
 
     private func perform(_ action: (Tracker) throws -> Void) {

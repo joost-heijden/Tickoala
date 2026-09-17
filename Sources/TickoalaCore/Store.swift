@@ -268,6 +268,21 @@ public final class Store {
         try database.run("UPDATE projects SET \(assignments.joined(separator: ", ")) WHERE id = ?;", parameters)
     }
 
+    /// Removes a project. Existing time entries stay but lose their project link
+    /// (the foreign key sets it to NULL), and the chosen active project is cleared
+    /// if it pointed here. Used to undo a just-added project.
+    public func deleteProject(id: Int64) throws {
+        guard try project(id: id) != nil else { throw TrackerError.unknownProject(String(id)) }
+        try database.run("DELETE FROM projects WHERE id = ?;", [.int(id)])
+    }
+
+    /// Ids of the blocks that reference a project, so a deleted project can be
+    /// restored together with its links.
+    public func entryIds(projectId: Int64) throws -> [Int64] {
+        try database.query("SELECT id FROM time_entries WHERE project_id = ?;", [.int(projectId)])
+            .compactMap { $0.int("id") }
+    }
+
     // MARK: - Profile state
 
     public func state(profileId: Int64) throws -> ProfileState {

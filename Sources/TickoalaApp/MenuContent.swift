@@ -8,6 +8,18 @@ struct MenuContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        if model.canUndo || model.canRedo {
+            if model.canUndo {
+                Button("Undo \(model.undoTitle)") { model.undo() }
+                    .keyboardShortcut("z", modifiers: .command)
+            }
+            if model.canRedo {
+                Button("Redo \(model.redoTitle)") { model.redo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+            }
+            Divider()
+        }
+
         if model.profiles.isEmpty {
             Text("No profile configured yet")
             Text("Use: tickoala profile add --name … --context …")

@@ -61,6 +61,46 @@ func projectChecks() {
             expectEqual(try fixture.event("Office A", .start, "2026-09-10 13:00"), .needsProject(profileId: fixture.profileA.id))
         }
 
+        test("deleting a project keeps its blocks but clears the link and the active choice") {
+            let fixture = try Fixture()
+            let project = try fixture.project(fixture.profileA)
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: project.id,
+                startedAt: at("2026-09-10 09:00"), endedAt: at("2026-09-10 10:00"),
+                status: .completed, source: .manual, note: nil
+            )
+
+            try fixture.store.deleteProject(id: project.id)
+
+            expect(try fixture.store.project(id: project.id) == nil, "the project is gone")
+            expect(try fixture.store.entry(id: 1)?.projectId == nil, "the block stays but loses its project link")
+            expect(try fixture.store.state(profileId: fixture.profileA.id).activeProjectId == nil, "the active choice is cleared")
+        }
+
+        test("a deleted project can be restored together with its block links") {
+            let fixture = try Fixture()
+            let project = try fixture.project(fixture.profileA)
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: project.id,
+                startedAt: at("2026-09-10 09:00"), endedAt: at("2026-09-10 10:00"),
+                status: .completed, source: .manual, note: nil
+            )
+
+            let linked = try fixture.store.entryIds(projectId: project.id)
+            expectEqual(linked, [1], "the block is remembered before deleting")
+            try fixture.store.deleteProject(id: project.id)
+
+            // The app's undo puts the project back and relinks what pointed here.
+            let restored = try fixture.store.createProject(
+                profileId: fixture.profileA.id, number: project.number, name: project.name
+            )
+            for entryId in linked {
+                try fixture.store.updateEntry(id: entryId, projectId: .some(restored.id))
+            }
+
+            expectEqual(try fixture.store.entry(id: 1)?.projectId, restored.id, "the block points at the restored project")
+        }
+
         test("a project of another profile cannot be chosen") {
             let fixture = try Fixture()
             let projectB = try fixture.store.createProject(profileId: fixture.profileB.id, number: "B-1", name: "Other work")

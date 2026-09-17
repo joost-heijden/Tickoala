@@ -143,6 +143,7 @@ private struct ProjectRow: View {
     @State private var number: String = ""
     @State private var name: String = ""
     @State private var editing = false
+    @State private var confirmDelete = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -188,9 +189,22 @@ private struct ProjectRow: View {
                     Image(systemName: "pencil")
                 }
                 .help("Change project number and name")
+
+                Button(role: .destructive) {
+                    confirmDelete = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .help("Delete project (⌘Z to undo)")
             }
         }
         .padding(.vertical, 2)
+        .confirmationDialog("Delete project \(project.number) — \(project.name)?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) { model.deleteProject(id: project.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The blocks keep their hours but lose the project link. Press ⌘Z to undo.")
+        }
     }
 
     private func commit() {

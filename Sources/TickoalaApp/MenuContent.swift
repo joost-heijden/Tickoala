@@ -13,7 +13,7 @@ struct MenuContent: View {
             Text("Use: tickoala profile add --name … --context …")
         }
 
-        Section("Wi-Fi") {
+        Section("Network") {
             if let explanation = model.wifi.access.explanation {
                 Text("⚠︎ \(explanation)")
                 Button("Grant Location Services access") {
@@ -32,7 +32,7 @@ struct MenuContent: View {
                     }
                 }
             } else {
-                Text("No Wi-Fi connection")
+                Text("No network connection")
             }
 
             if let outcome = model.lastWifiOutcome {

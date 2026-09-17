@@ -2,16 +2,21 @@ import AppKit
 import Foundation
 import CoreLocation
 import CoreWLAN
+import SystemConfiguration
 import TickoalaCore
 
-/// Watches which Wi-Fi network the Mac is on and turns every change into a start
-/// or stop signal. This replaces ControlPlane as the source of the events; the
+/// Watches which network the Mac is on and turns every change into a start or
+/// stop signal. This replaces ControlPlane as the source of the events; the
 /// tracker receives exactly the same `ContextEvent`s as before.
 ///
-/// Since Sonoma, macOS only reveals the network name to programs with Location
-/// Services permission. Without that permission the system returns `nil`, which
-/// cannot be distinguished from "no Wi-Fi". That is why events are only sent as
-/// long as the permission is there.
+/// The identity is the Wi-Fi SSID when Wi-Fi is associated. When it is not — for
+/// example when the Mac shares a wired connection over Wi-Fi (Internet Sharing)
+/// — the wired connection is identified by its DHCP domain name, or by the
+/// router address when the network has no domain.
+///
+/// Since Sonoma, macOS only reveals the SSID to programs with Location Services
+/// permission. Without that permission Wi-Fi is treated as unavailable; a wired
+/// connection is still recognised.
 @MainActor
 final class WifiWatcher: NSObject, ObservableObject {
     enum Access: Equatable {
@@ -98,31 +103,60 @@ final class WifiWatcher: NSObject, ObservableObject {
     private func poll() {
         updateAccess()
 
-        // Without permission, `nil` is meaningless: it would give a false stop signal.
-        guard access == .granted else {
+        // Without permission the SSID is invisible; a wired connection doesn't
+        // depend on it, so only treat Wi-Fi as missing when there is nothing else.
+        let ssid = access == .granted ? wifiClient.interface()?.ssid() : nil
+        let wired = ssid == nil ? wiredNetworkName() : nil
+
+        // Without permission and without a wired signal, `nil` is meaningless: it
+        // would give a false stop signal.
+        guard access == .granted || wired != nil else {
             currentSSID = nil
             lastSeen = nil
             return
         }
 
-        let ssid = wifiClient.interface()?.ssid()
-        currentSSID = ssid
+        let network = ssid ?? wired
+        currentSSID = network
 
         guard let previous = lastSeen else {
             // First measurement after startup: start right away if we are already on a known network.
-            lastSeen = .some(ssid)
-            if let ssid { emit(ssid, .start) }
+            lastSeen = .some(network)
+            if let network { emit(network, .start) }
             return
         }
-        guard previous != ssid else { return }
+        guard previous != network else { return }
 
-        lastSeen = .some(ssid)
+        lastSeen = .some(network)
         if let previous { emit(previous, .stop) }
-        if let ssid { emit(ssid, .start) }
+        if let network { emit(network, .start) }
     }
 
-    private func emit(_ ssid: String, _ kind: EventKind) {
-        onEvent?(ContextEvent(context: ssid, kind: kind, at: Date(), source: .wifi))
+    /// Name of the wired connection the Mac is on, taken from the primary
+    /// service's DHCP lease: the domain name if it has one, otherwise the router
+    /// address. `nil` when the primary connection still is Wi-Fi or has no lease.
+    private func wiredNetworkName() -> String? {
+        guard let store = SCDynamicStoreCreate(nil, "Tickoala" as CFString, nil, nil),
+              let global = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any],
+              let service = global["PrimaryService"] as? String,
+              let interface = global["PrimaryInterface"] as? String,
+              interface != wifiClient.interface()?.interfaceName,
+              let dhcp = SCDynamicStoreCopyValue(store, "State:/Network/Service/\(service)/DHCP" as CFString) as? [String: Any]
+        else { return nil }
+
+        if let data = dhcp["Option_15"] as? Data,
+           let domain = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !domain.isEmpty {
+            return domain
+        }
+        if let data = dhcp["Option_3"] as? Data, data.count == 4 {
+            return data.map(String.init).joined(separator: ".")
+        }
+        return nil
+    }
+
+    private func emit(_ network: String, _ kind: EventKind) {
+        onEvent?(ContextEvent(context: network, kind: kind, at: Date(), source: .wifi))
     }
 }
 

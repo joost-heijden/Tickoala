@@ -99,162 +99,172 @@ private struct CustomerForm: View {
     @State private var billingEmail = ""
 
     var body: some View {
-        Form {
-            Section("Customer") {
-                FormField(label: "Name") {
-                    TextField("", text: $name)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { save() }
-                        .onChange(of: name) { _ in save() }
-                }
-                FormField(label: "Hourly rate") {
-                    HStack(spacing: 8) {
-                        TextField("", text: $rateText, prompt: Text("0.00"))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                FormSection(title: "Customer") {
+                    FormField(label: "Name") {
+                        TextField("", text: $name)
                             .textFieldStyle(.roundedBorder)
-                            .frame(width: 90)
                             .multilineTextAlignment(.leading)
                             .onSubmit { save() }
-                            .onChange(of: rateText) { _ in save() }
-                        Picker("", selection: $currency) {
-                            ForEach(Currency.allCases, id: \.self) { money in
-                                Text(money.label).tag(money)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 130)
-                        .onChange(of: currency) { _ in save() }
-                        Text("per hour")
-                            .foregroundStyle(.secondary)
+                            .onChange(of: name) { _ in save() }
                     }
-                }
-                Toggle("Active", isOn: $active)
-                    .onChange(of: active) { _ in save() }
-            }
-
-            Section("Invoicing") {
-                FormFieldStacked(label: "Billing address") {
-                    TextField("", text: $billingAddress, axis: .vertical)
-                        .lineLimit(2...4)
-                        .textFieldStyle(.roundedBorder)
-                        .onChange(of: billingAddress) { _ in saveInvoicing() }
-                }
-                FormField(label: "VAT number") {
-                    TextField("", text: $vatNumber)
-                        .textFieldStyle(.roundedBorder)
-                        .onChange(of: vatNumber) { _ in saveInvoicing() }
-                }
-                Stepper(value: $vatRate, in: 0...100) {
-                    Text("VAT rate: \(vatRate) %")
-                        .monospacedDigit()
-                }
-                .onChange(of: vatRate) { _ in saveInvoicing() }
-                FormField(label: "Invoice email") {
-                    TextField("", text: $billingEmail, prompt: Text("client@example.com"))
-                        .textFieldStyle(.roundedBorder)
-                        .onChange(of: billingEmail) { _ in saveInvoicing() }
-                }
-                FormField(label: "PO number") {
-                    TextField("", text: $poNumber)
-                        .textFieldStyle(.roundedBorder)
-                        .onChange(of: poNumber) { _ in saveInvoicing() }
-                }
-            }
-
-            Section("Wi-Fi networks") {
-                if profile.contexts.isEmpty {
-                    Text("No Wi-Fi networks linked — the tracker will not start automatically.")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
-                }
-                ForEach(profile.contexts, id: \.self) { context in
-                    HStack {
-                        Image(systemName: "wifi")
-                            .foregroundStyle(.secondary)
-                        Text(context)
-                        Spacer()
-                        Button {
-                            model.removeCustomerContext(profileId: profile.id, context: context)
-                        } label: {
-                            Image(systemName: "minus.circle")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Unlink Wi-Fi network")
-                    }
-                }
-
-                FormField(label: "Network") {
-                    HStack(spacing: 8) {
-                        TextField("", text: $newContext, prompt: Text("Wi-Fi network name"))
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit { addContext() }
-                        Button("Link") { addContext() }
-                            .disabled(newContext.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                }
-            }
-
-            Section("Projects") {
-                let projects = model.allProjects(for: profile.id)
-                let activeId = model.activeProjectId(for: profile.id)
-                if projects.isEmpty {
-                    Text("No projects yet. Add the first one below.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(projects) { project in
+                    FormField(label: "Hourly rate") {
                         HStack(spacing: 8) {
+                            TextField("", text: $rateText, prompt: Text("0.00"))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 90)
+                                .multilineTextAlignment(.leading)
+                                .onSubmit { save() }
+                                .onChange(of: rateText) { _ in save() }
+                            Picker("", selection: $currency) {
+                                ForEach(Currency.allCases, id: \.self) { money in
+                                    Text(money.label).tag(money)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 130)
+                            .onChange(of: currency) { _ in save() }
+                            Text("per hour")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Toggle("Active", isOn: $active)
+                        .onChange(of: active) { _ in save() }
+                }
+
+                FormSection(title: "Invoicing") {
+                    FormFieldStacked(label: "Billing address") {
+                        TextField("", text: $billingAddress, axis: .vertical)
+                            .lineLimit(2...4)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
+                            .onChange(of: billingAddress) { _ in saveInvoicing() }
+                    }
+                    FormField(label: "VAT number") {
+                        TextField("", text: $vatNumber)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
+                            .onChange(of: vatNumber) { _ in saveInvoicing() }
+                    }
+                    Stepper(value: $vatRate, in: 0...100) {
+                        Text("VAT rate: \(vatRate) %")
+                            .monospacedDigit()
+                    }
+                    .onChange(of: vatRate) { _ in saveInvoicing() }
+                    FormField(label: "Invoice email") {
+                        TextField("", text: $billingEmail, prompt: Text("client@example.com"))
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
+                            .onChange(of: billingEmail) { _ in saveInvoicing() }
+                    }
+                    FormField(label: "PO number") {
+                        TextField("", text: $poNumber)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
+                            .onChange(of: poNumber) { _ in saveInvoicing() }
+                    }
+                }
+
+                FormSection(title: "Networks") {
+                    if profile.contexts.isEmpty {
+                        Text("No networks linked — the tracker will not start automatically.")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                    }
+                    ForEach(profile.contexts, id: \.self) { context in
+                        HStack {
+                            Image(systemName: "network")
+                                .foregroundStyle(.secondary)
+                            Text(context)
+                            Spacer()
                             Button {
-                                model.selectProject(profileId: profile.id, projectId: project.id)
+                                model.removeCustomerContext(profileId: profile.id, context: context)
                             } label: {
-                                Image(systemName: project.id == activeId ? "largecircle.fill.circle" : "circle")
-                                    .foregroundStyle(project.id == activeId ? Color.accentColor : Color.secondary)
+                                Image(systemName: "minus.circle")
                             }
                             .buttonStyle(.borderless)
-                            .disabled(!project.active)
-                            .help("Make this the active project")
+                            .help("Unlink network")
+                        }
+                    }
 
-                            Text(project.number)
-                                .font(.system(.body, design: .monospaced))
-                                .frame(width: 70, alignment: .leading)
-                            Text(project.name)
-                                .foregroundStyle(project.active ? .primary : .secondary)
-                            Spacer()
-                            if !project.active {
-                                Text("inactive")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                    FormField(label: "Network") {
+                        HStack(spacing: 8) {
+                            TextField("", text: $newContext, prompt: Text("Wi-Fi SSID or wired DHCP domain"))
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.leading)
+                                .onSubmit { addContext() }
+                            Button("Link") { addContext() }
+                                .disabled(newContext.trimmingCharacters(in: .whitespaces).isEmpty)
                         }
                     }
                 }
 
-                FormField(label: "New project") {
-                    HStack(spacing: 8) {
-                        TextField("", text: $newProjectNumber, prompt: Text("Number"))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 90)
-                        TextField("", text: $newProjectName, prompt: Text("Project name"))
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit { addProject() }
-                        Button("Add") { addProject() }
-                            .disabled(newProjectNumber.trimmingCharacters(in: .whitespaces).isEmpty
-                                      || newProjectName.trimmingCharacters(in: .whitespaces).isEmpty)
+                FormSection(title: "Projects") {
+                    let projects = model.allProjects(for: profile.id)
+                    let activeId = model.activeProjectId(for: profile.id)
+                    if projects.isEmpty {
+                        Text("No projects yet. Add the first one below.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(projects) { project in
+                            HStack(spacing: 8) {
+                                Button {
+                                    model.selectProject(profileId: profile.id, projectId: project.id)
+                                } label: {
+                                    Image(systemName: project.id == activeId ? "largecircle.fill.circle" : "circle")
+                                        .foregroundStyle(project.id == activeId ? Color.accentColor : Color.secondary)
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(!project.active)
+                                .help("Make this the active project")
+
+                                Text(project.number)
+                                    .font(.system(.body, design: .monospaced))
+                                    .frame(width: 70, alignment: .leading)
+                                Text(project.name)
+                                    .foregroundStyle(project.active ? .primary : .secondary)
+                                Spacer()
+                                if !project.active {
+                                    Text("inactive")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+
+                    FormField(label: "New project") {
+                        HStack(spacing: 8) {
+                            TextField("", text: $newProjectNumber, prompt: Text("Number"))
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.leading)
+                                .frame(width: 90)
+                            TextField("", text: $newProjectName, prompt: Text("Project name"))
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.leading)
+                                .onSubmit { addProject() }
+                            Button("Add") { addProject() }
+                                .disabled(newProjectNumber.trimmingCharacters(in: .whitespaces).isEmpty
+                                          || newProjectName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
                     }
                 }
-            }
 
-            Section {
-                LabeledContent("Rate", value: rateSummary)
-                Text("Changes are saved immediately.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+                FormSection {
+                    LabeledContent("Rate", value: rateSummary)
+                    Text("Changes are saved immediately.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
 
-            if let error = model.errorMessage {
-                Text(error).foregroundStyle(.red)
+                if let error = model.errorMessage {
+                    Text(error).foregroundStyle(.red)
+                }
             }
+            .padding(16)
         }
-        .formStyle(.grouped)
         .onAppear(perform: load)
     }
 
@@ -342,15 +352,17 @@ private struct AddCustomerSheet: View {
     @State private var currency: Currency = .eur
 
     var body: some View {
-        Form {
-            Section("Add customer") {
+        VStack(alignment: .leading, spacing: 18) {
+            FormSection(title: "Add customer") {
                 FormField(label: "Name") {
                     TextField("", text: $name)
                         .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
                 }
                 FormFieldStacked(label: "Wi-Fi networks") {
                     TextField("", text: $contexts, prompt: Text("e.g. Acme-Guest, Acme-Staff"))
                         .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
                 }
                 Text("Separate multiple networks with a comma.")
                     .font(.caption)
@@ -402,7 +414,7 @@ private struct AddCustomerSheet: View {
                 Spacer()
             }
         }
-        .formStyle(.grouped)
+        .padding(16)
         .frame(width: 480)
     }
 }

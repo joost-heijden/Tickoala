@@ -211,15 +211,17 @@ private struct AddProjectSheet: View {
     @State private var name = ""
 
     var body: some View {
-        Form {
-            Section("Add project") {
+        VStack(alignment: .leading, spacing: 16) {
+            FormSection(title: "Add project") {
                 FormField(label: "Number", labelWidth: 110) {
                     TextField("", text: $number)
                         .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
                 }
                 FormField(label: "Name", labelWidth: 110) {
                     TextField("", text: $name)
                         .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
                 }
                 Text("The project number is unique within this customer.")
                     .font(.caption)
@@ -244,7 +246,7 @@ private struct AddProjectSheet: View {
                 Spacer()
             }
         }
-        .formStyle(.grouped)
+        .padding(16)
         .frame(width: 420)
     }
 }

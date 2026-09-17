@@ -323,60 +323,63 @@ struct EntryEditor: View {
     }
 
     var body: some View {
-        Form {
-            Section("Block \(row.entry.id) — \(row.profileName)") {
-                DatePicker("Start", selection: $start)
-                Toggle("End recorded", isOn: $hasEnd)
-                DatePicker("End", selection: $end)
-                    .disabled(!hasEnd)
-                Picker("Project", selection: $projectId) {
-                    Text("(no project)").tag(Int64?.none)
-                    ForEach(model.projects(for: row.entry.profileId)) { project in
-                        Text(project.label).tag(Int64?.some(project.id))
-                    }
-                }
-                FormFieldStacked(label: "Note") {
-                    TextField("", text: $note, axis: .vertical)
-                        .lineLimit(2...4)
-                        .textFieldStyle(.roundedBorder)
-                }
-                LabeledContent("Duration", value: Formatting.duration(hasEnd ? end.timeIntervalSince(start) : row.entry.duration()))
-                LabeledContent("Source", value: row.entry.source.rawValue)
-            }
-
-            if row.entry.status == .open {
-                Text("This block is missing a credible end. Enter the end and save; the status will then be completed.")
-                    .foregroundStyle(.orange)
-            }
-
-            HStack {
-                Button("Save") { save() }
-                    .keyboardShortcut(.defaultAction)
-
-                Button("Delete", role: .destructive) { confirmDelete = true }
-                Spacer()
-            }
-
-            if hasEnd {
-                Section("Add break") {
-                    DatePicker("Break starts", selection: $pauseStart)
-                    DatePicker("Break ends", selection: $pauseEnd)
-                    LabeledContent("Break duration", value: Formatting.duration(max(0, pauseEnd.timeIntervalSince(pauseStart))))
-                    Button {
-                        // Save the corrections first, then split: the break is
-                        // validated against the just-saved start and end.
-                        save()
-                        if let second = model.splitEntry(id: row.entry.id, pauseStart: pauseStart, pauseEnd: pauseEnd) {
-                            onSplit(second)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                FormSection(title: "Block \(row.entry.id) — \(row.profileName)") {
+                    DatePicker("Start", selection: $start)
+                    Toggle("End recorded", isOn: $hasEnd)
+                    DatePicker("End", selection: $end)
+                        .disabled(!hasEnd)
+                    Picker("Project", selection: $projectId) {
+                        Text("(no project)").tag(Int64?.none)
+                        ForEach(model.projects(for: row.entry.profileId)) { project in
+                            Text(project.label).tag(Int64?.some(project.id))
                         }
-                    } label: {
-                        Label("Insert break", systemImage: "pause.circle")
                     }
-                    .disabled(!canSplit)
+                    FormFieldStacked(label: "Note") {
+                        TextField("", text: $note, axis: .vertical)
+                            .lineLimit(2...4)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
+                    }
+                    LabeledContent("Duration", value: Formatting.duration(hasEnd ? end.timeIntervalSince(start) : row.entry.duration()))
+                    LabeledContent("Source", value: row.entry.source.rawValue)
+                }
+
+                if row.entry.status == .open {
+                    Text("This block is missing a credible end. Enter the end and save; the status will then be completed.")
+                        .foregroundStyle(.orange)
+                }
+
+                HStack {
+                    Button("Save") { save() }
+                        .keyboardShortcut(.defaultAction)
+
+                    Button("Delete", role: .destructive) { confirmDelete = true }
+                    Spacer()
+                }
+
+                if hasEnd {
+                    FormSection(title: "Add break") {
+                        DatePicker("Break starts", selection: $pauseStart)
+                        DatePicker("Break ends", selection: $pauseEnd)
+                        LabeledContent("Break duration", value: Formatting.duration(max(0, pauseEnd.timeIntervalSince(pauseStart))))
+                        Button {
+                            // Save the corrections first, then split: the break is
+                            // validated against the just-saved start and end.
+                            save()
+                            if let second = model.splitEntry(id: row.entry.id, pauseStart: pauseStart, pauseEnd: pauseEnd) {
+                                onSplit(second)
+                            }
+                        } label: {
+                            Label("Insert break", systemImage: "pause.circle")
+                        }
+                        .disabled(!canSplit)
+                    }
                 }
             }
+            .padding(14)
         }
-        .formStyle(.grouped)
         .confirmationDialog("Delete block \(row.entry.id)?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) {
                 model.deleteEntry(id: row.entry.id)
@@ -434,8 +437,8 @@ struct AddEntrySheet: View {
     }
 
     var body: some View {
-        Form {
-            Section("Add block") {
+        VStack(alignment: .leading, spacing: 16) {
+            FormSection(title: "Add block") {
                 DatePicker("Start", selection: $start)
                 DatePicker("End", selection: $end)
                 Picker("Project", selection: $projectId) {
@@ -447,10 +450,11 @@ struct AddEntrySheet: View {
                 FormField(label: "Note", labelWidth: 90) {
                     TextField("", text: $note)
                         .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
                 }
                 LabeledContent("Duration", value: Formatting.duration(end.timeIntervalSince(start)))
             }
-            Section("Break") {
+            FormSection(title: "Break") {
                 Toggle("Add break", isOn: $hasBreak)
                 if hasBreak {
                     DatePicker("Break starts", selection: $pauseStart)
@@ -466,7 +470,7 @@ struct AddEntrySheet: View {
                 Spacer()
             }
         }
-        .formStyle(.grouped)
+        .padding(16)
         .frame(width: 380)
         .onAppear {
             projectId = model.profiles.first(where: { $0.profile.id == profileId })?.project?.id

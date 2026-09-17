@@ -46,8 +46,8 @@ are — it's connected to the client's Wi-Fi. Tickoala just uses that.
 - **Projects** with number and name, switchable from the menu bar mid-session
 - **Automatic break deduction** per client — e.g. subtract 30 minutes on any day
   you worked 6 hours or more, with the duration and the threshold set separately
-- **Short dropouts don't end your day** — a configurable grace period means a
-  flaky access point won't close your block
+- **Dropouts don't end your day** — losing Wi-Fi keeps the current block running;
+  it only closes once the day is over, so a flaky access point never splits your work
 - **Manual control** — pause, resume, stop, and correct or add blocks by hand
 - **Day / week / month totals**, per project and per day
 - **CSV export** for invoicing
@@ -169,16 +169,18 @@ predictable:
 | No project selected yet | no start; the menu bar asks you to pick one |
 | Second start while already running | no second block |
 | Repeated signal within the dedupe window | ignored (default 30s) |
-| Leaving | stop is scheduled, final only after a grace period (default 90s) |
-| Brief dropout within that period | the scheduled stop is cancelled, block continues |
-| Roaming between two networks of one client | treated as a brief dropout |
+| Leaving | the block keeps running for the rest of the day; it closes at the signal moment once the day is over |
+| Coming back the same day | the pending stop is cancelled, the same block continues |
+| Roaming between two networks of one client | the same block continues, no new block |
+| Leaving to another customer | the left block closes at its signal moment, the new one starts |
 | Leaving with no timer running | log line only; never an empty or negative block |
 | Two client networks active at once | nothing is stopped automatically; you choose |
 | Mac asleep or shut down | no events invented; a block running over 16h is marked `open` for correction |
 | No Location Services permission | no signals at all; the menu bar asks for access |
 
-A block always ends at the moment of the stop signal, not when the grace period
-expired.
+A block ends at the moment of the stop signal, even though it is only closed once
+the day is over. That way a dropout during the day never splits your work, while
+the night after you leave is not counted.
 
 Because the source is just an event feed, it's replaceable. A CLI adapter is
 included if you'd rather drive it from something else:
@@ -274,7 +276,7 @@ tickoala entry edit --id 12 --end "2026-09-10 16:30"
 tickoala export --period month --out ~/Desktop/hours-september.csv
 tickoala invoice --profile "Acme" --month 2026-08 --po "PO-2026-114" --out ~/Desktop/invoice.pdf
 tickoala events                 # what was received and what happened with it
-tickoala config list            # grace periods and thresholds
+tickoala config list            # dedupe window and thresholds
 tickoala db                     # path to the database
 ```
 

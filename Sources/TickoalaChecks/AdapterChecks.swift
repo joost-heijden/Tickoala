@@ -36,7 +36,7 @@ func adapterChecks() {
             _ = try runCLI(["project", "add", "--profile", "Organization A", "--number", "2401", "--name", "Migration"], database: database)
             _ = try runCLI(["project", "select", "--profile", "Organization A", "--number", "2401"], database: database)
 
-            // A day in the past, so the stop's grace period has already passed.
+            // A day in the past, so the stop's day is over and it is final at once.
             let day = Formatting.day(Date().addingTimeInterval(-7 * 24 * 3600))
             let started = try runCLI(["start", "--context", "Office A", "--at", "\(day) 09:00"], database: database)
             expectEqual(started.status, 0, "exit code of start")

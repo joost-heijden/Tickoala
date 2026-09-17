@@ -278,9 +278,9 @@ public enum EventOutcome: Equatable, Sendable {
         case .needsProject: return "no active project selected"
         case .needsProjectChoice: return "choose a project to start"
         case .conflict: return "conflict: another work context is already active"
-        case .stopScheduled(let at): return "stop scheduled for \(Formatting.timestamp(at))"
+        case .stopScheduled(let at): return "stop pending, block keeps running until the day is over (\(Formatting.timestamp(at)))"
         case .stopped(let id): return "stopped (block \(id))"
-        case .stopCancelled(let id): return "brief interruption, timer keeps running (block \(id))"
+        case .stopCancelled(let id): return "context returned, timer keeps running (block \(id))"
         case .noRunningTimer: return "no running timer"
         case .pausedManually: return "manual pause active, timer stays paused"
         }

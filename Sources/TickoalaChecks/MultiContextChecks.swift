@@ -63,13 +63,12 @@ func multiContextChecks() {
             let profile = try fixture.store.createProfile(name: "Acme", contexts: ["Acme-Guest", "Acme-Staff"])
             let project = try fixture.store.createProject(profileId: profile.id, number: "1", name: "Maintenance")
             _ = try fixture.tracker.selectProject(profileId: profile.id, projectId: project.id)
-            try fixture.store.setSetting(key: "stop-grace-seconds", value: 90)
 
             _ = try fixture.tracker.handle(
                 ContextEvent(context: "Acme-Guest", kind: .start, at: at("2026-09-10 09:00")), now: at("2026-09-10 09:00")
             )
             // Moves from the guest network to the staff network: stop on one,
-            // start on the other, well within the grace period.
+            // start on the other, still the same day.
             _ = try fixture.tracker.handle(
                 ContextEvent(context: "Acme-Guest", kind: .stop, at: at("2026-09-10 11:00")), now: at("2026-09-10 11:00")
             )

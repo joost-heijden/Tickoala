@@ -212,7 +212,7 @@ func printStatus(_ arguments: Arguments) throws {
             line += "  running since \(Formatting.clock(running.startedAt)) (\(Formatting.duration(item.elapsedCurrent)))"
         }
         if let pending = item.pendingStopAt {
-            line += "  stop scheduled from \(Formatting.clock(pending))"
+            line += "  no signal since \(Formatting.clock(pending)), block keeps running"
         }
         line += "  today \(Formatting.duration(item.todayTotal))  week \(Formatting.duration(item.weekTotal))"
         if item.todayBreak > 0 || item.weekBreak > 0 {
@@ -699,7 +699,6 @@ func runConfig(_ arguments: Arguments) throws {
     switch arguments.word(1) ?? "list" {
     case "list":
         let settings = try tracker.store.settings()
-        print("stop-grace-seconds    \(settings.stopGraceSeconds)   grace period before a stop becomes final")
         print("dedupe-window-seconds \(settings.dedupeWindowSeconds)   window in which repeated events are ignored")
         print("max-entry-seconds     \(settings.maxEntrySeconds)   after this a running block becomes 'open'")
     case "set":

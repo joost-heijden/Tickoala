@@ -78,7 +78,7 @@ public final class Tracker {
     public func handle(_ event: ContextEvent, now: Date = Date()) throws -> EventOutcome {
         let settings = try store.settings()
 
-        // A stop that has served its grace period counts first; only then this event.
+        // A stop whose day has passed is final first; only then this event.
         _ = try finalizePendingStops(now: now)
 
         let key = dedupeKey(for: event, window: settings.dedupeWindowSeconds)
@@ -89,12 +89,12 @@ public final class Tracker {
             return .ignoredDuplicate
         }
 
-        let outcome = try resolve(event, settings: settings, now: now)
+        let outcome = try resolve(event, now: now)
         try store.updateEventOutcome(dedupeKey: key, outcome: label(for: outcome), detail: outcome.summary)
         return outcome
     }
 
-    private func resolve(_ event: ContextEvent, settings: TrackerSettings, now: Date) throws -> EventOutcome {
+    private func resolve(_ event: ContextEvent, now: Date) throws -> EventOutcome {
         guard let profile = try store.profile(context: event.context) else {
             return .ignoredUnknownContext
         }
@@ -104,14 +104,15 @@ public final class Tracker {
         case .start:
             return try handleStart(profile: profile, event: event, now: now)
         case .stop:
-            return try handleStop(profile: profile, event: event, settings: settings, now: now)
+            return try handleStop(profile: profile, event: event, now: now)
         }
     }
 
     private func handleStart(profile: Profile, event: ContextEvent, now: Date) throws -> EventOutcome {
         var state = try store.state(profileId: profile.id)
 
-        // Brief Wi-Fi interruption: the scheduled stop disappears, the block keeps running.
+        // The context came back while the pending stop is still open: the block
+        // simply keeps running, no new block.
         if let pendingEntryId = state.pendingStopEntryId,
            let pending = try store.entry(id: pendingEntryId),
            pending.status == .running {
@@ -129,12 +130,19 @@ public final class Tracker {
             return .alreadyRunning(entryId: running.id)
         }
 
-        // Two work contexts at once: don't stop anything automatically, but warn.
+        // Leaving one customer and arriving at another: the block that was left
+        // already saw its stop, so that stop is now final and the new block can
+        // start cleanly. Two live contexts without a stop stay a conflict.
         if let other = try store.runningEntries().first(where: { $0.profileId != profile.id }) {
-            let otherProfile = try store.profile(id: other.profileId)
-            let message = "Two work contexts active: \(otherProfile?.name ?? "unknown") is still running. Decide which one counts."
-            try setAttention(message, on: [profile.id, other.profileId])
-            return .conflict(runningProfileId: other.profileId)
+            let otherState = try store.state(profileId: other.profileId)
+            if otherState.pendingStopEntryId == other.id {
+                _ = try finalizePendingStop(profileId: other.profileId, now: now, force: true)
+            } else {
+                let otherProfile = try store.profile(id: other.profileId)
+                let message = "Two work contexts active: \(otherProfile?.name ?? "unknown") is still running. Decide which one counts."
+                try setAttention(message, on: [profile.id, other.profileId])
+                return .conflict(runningProfileId: other.profileId)
+            }
         }
 
         if let projectId = state.activeProjectId,
@@ -163,7 +171,7 @@ public final class Tracker {
         return .needsProject(profileId: profile.id)
     }
 
-    private func handleStop(profile: Profile, event: ContextEvent, settings: TrackerSettings, now: Date) throws -> EventOutcome {
+    private func handleStop(profile: Profile, event: ContextEvent, now: Date) throws -> EventOutcome {
         var state = try store.state(profileId: profile.id)
         guard let running = try store.runningEntry(profileId: profile.id) else {
             return .noRunningTimer
@@ -173,39 +181,57 @@ public final class Tracker {
         state.pendingStopEntryId = running.id
         try store.save(state)
 
-        let effectiveAt = event.at.addingTimeInterval(TimeInterval(settings.stopGraceSeconds))
-        if now >= effectiveAt {
-            _ = try finalizePendingStops(now: now)
+        // Within the same day the block keeps running, so a return cancels this
+        // pending stop and the block continues. Only a signal from an earlier day
+        // is final right away.
+        if try finalizePendingStop(profileId: profile.id, now: now, force: false) != nil {
             return .stopped(entryId: running.id)
         }
-        return .stopScheduled(effectiveAt: effectiveAt)
+        return .stopScheduled(effectiveAt: Self.endOfDay(for: event.at))
     }
 
     // MARK: - Background work
 
-    /// Closes stops whose grace period has passed. The end is the moment of the
-    /// stop signal, not the moment of finalizing.
+    /// Closes stops whose day is over. The end is the moment of the stop signal,
+    /// not the moment of finalizing.
     @discardableResult
     public func finalizePendingStops(now: Date = Date()) throws -> [TimeEntry] {
-        let settings = try store.settings()
         var closed: [TimeEntry] = []
         for profile in try store.profiles() {
-            var state = try store.state(profileId: profile.id)
-            guard let pendingAt = state.pendingStopAt else { continue }
-            guard now >= pendingAt.addingTimeInterval(TimeInterval(settings.stopGraceSeconds)) else { continue }
-
-            if let entryId = state.pendingStopEntryId,
-               let entry = try store.entry(id: entryId),
-               entry.status == .running {
-                let end = max(pendingAt, entry.startedAt)
-                try store.updateEntry(id: entry.id, endedAt: .some(end), status: .completed)
-                if let updated = try store.entry(id: entry.id) { closed.append(updated) }
+            if let entry = try finalizePendingStop(profileId: profile.id, now: now, force: false) {
+                closed.append(entry)
             }
-            state.pendingStopAt = nil
-            state.pendingStopEntryId = nil
-            try store.save(state)
         }
         return closed
+    }
+
+    /// Closes the pending stop of one profile. While `force` is false the block
+    /// keeps running as long as `now` is still the day of the stop signal, so a
+    /// reconnect continues the same block. `force` is used when another project
+    /// starts, which makes the stop final at once.
+    private func finalizePendingStop(profileId: Int64, now: Date, force: Bool) throws -> TimeEntry? {
+        var state = try store.state(profileId: profileId)
+        guard let pendingAt = state.pendingStopAt else { return nil }
+        guard force || !Formatting.calendar.isDate(now, inSameDayAs: pendingAt) else { return nil }
+
+        var closed: TimeEntry?
+        if let entryId = state.pendingStopEntryId,
+           let entry = try store.entry(id: entryId),
+           entry.status == .running {
+            let end = max(pendingAt, entry.startedAt)
+            try store.updateEntry(id: entry.id, endedAt: .some(end), status: .completed)
+            closed = try store.entry(id: entry.id)
+        }
+        state.pendingStopAt = nil
+        state.pendingStopEntryId = nil
+        try store.save(state)
+        return closed
+    }
+
+    private static func endOfDay(for date: Date) -> Date {
+        let calendar = Formatting.calendar
+        let start = calendar.startOfDay(for: date)
+        return calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(24 * 3600)
     }
 
     /// Flags implausibly long blocks (sleep, restart) as `open`, so the user can
@@ -216,12 +242,11 @@ public final class Tracker {
         var flagged: [TimeEntry] = []
         for entry in try store.runningEntries() {
             guard now.timeIntervalSince(entry.startedAt) > TimeInterval(settings.maxEntrySeconds) else { continue }
-            try store.updateEntry(id: entry.id, status: .open)
             var state = try store.state(profileId: entry.profileId)
-            if state.pendingStopEntryId == entry.id {
-                state.pendingStopAt = nil
-                state.pendingStopEntryId = nil
-            }
+            // A pending stop already knows where the block ends; it waits for the
+            // day to close, so it is not an implausible block.
+            guard state.pendingStopEntryId != entry.id else { continue }
+            try store.updateEntry(id: entry.id, status: .open)
             state.attention = "Block \(entry.id) has been running since \(Formatting.timestamp(entry.startedAt)) and needs correction."
             try store.save(state)
             if let updated = try store.entry(id: entry.id) { flagged.append(updated) }

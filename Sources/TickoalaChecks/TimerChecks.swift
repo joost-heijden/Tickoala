@@ -80,21 +80,21 @@ func timerChecks() {
             expect(try fixture.store.runningEntries().isEmpty, "no timer may be running")
         }
 
-        test("stop waits out the grace period and uses the moment of the signal") {
+        test("a same-day stop keeps the block running and closes at the next day") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            try fixture.store.setSetting(key: "stop-grace-seconds", value: 90)
             _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
 
             let outcome = try fixture.event("Office A", .stop, "2026-09-10 17:00")
-            expectEqual(outcome, .stopScheduled(effectiveAt: at("2026-09-10 17:01:30")))
-            expect(try fixture.store.runningEntry(profileId: fixture.profileA.id) != nil, "the timer is still running during the grace period")
+            expectEqual(outcome, .stopScheduled(effectiveAt: at("2026-09-11 00:00")))
+            expect(try fixture.store.runningEntry(profileId: fixture.profileA.id) != nil, "the block keeps running during the day")
 
-            _ = try fixture.tracker.finalizePendingStops(now: at("2026-09-10 17:00:45"))
-            expect(try fixture.store.runningEntry(profileId: fixture.profileA.id) != nil, "halfway through the grace period nothing stops yet")
+            let before = try fixture.tracker.finalizePendingStops(now: at("2026-09-10 23:59"))
+            expect(before.isEmpty, "still the same day, nothing closes yet")
+            expect(try fixture.store.runningEntry(profileId: fixture.profileA.id) != nil, "the timer is still running")
 
-            let closed = try fixture.tracker.finalizePendingStops(now: at("2026-09-10 17:01:31"))
-            expectEqual(closed.count, 1, "number of closed blocks")
+            let closed = try fixture.tracker.finalizePendingStops(now: at("2026-09-11 00:01"))
+            expectEqual(closed.count, 1, "the day is over, the block closes")
             let entry = try expectNotNil(try fixture.store.entry(id: 1))
             expectEqual(entry.status, .completed)
             expectEqual(entry.endedAt, at("2026-09-10 17:00"), "the end is the moment of the stop signal")
@@ -104,7 +104,6 @@ func timerChecks() {
         test("a brief Wi-Fi dropout does not close the block") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            try fixture.store.setSetting(key: "stop-grace-seconds", value: 90)
             _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
 
             _ = try fixture.event("Office A", .stop, "2026-09-10 11:00")
@@ -118,14 +117,43 @@ func timerChecks() {
             expectEqual(try fixture.entries().count, 1, "no second block")
         }
 
-        test("a stop from the past becomes final immediately") {
+        test("a long dropout during the day still keeps one block") {
+            let fixture = try Fixture()
+            try fixture.project(fixture.profileA)
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
+            _ = try fixture.event("Office A", .stop, "2026-09-10 12:00")
+
+            // Well past any old grace period: the block still continues.
+            let back = try fixture.event("Office A", .start, "2026-09-10 14:00")
+
+            expectEqual(back, .stopCancelled(entryId: 1))
+            expectEqual(try fixture.entries().count, 1, "one block for the whole day")
+        }
+
+        test("starting another customer closes the block that was left") {
+            let fixture = try Fixture()
+            try fixture.project(fixture.profileA, number: "2401")
+            try fixture.project(fixture.profileB, number: "B-1")
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
+            _ = try fixture.event("Office A", .stop, "2026-09-10 12:00")
+
+            let outcome = try fixture.event("Office B", .start, "2026-09-10 12:30")
+
+            expect(outcome.isStarted, "the new customer starts instead of a conflict")
+            let left = try expectNotNil(try fixture.store.entry(id: 1))
+            expectEqual(left.status, .completed)
+            expectEqual(left.endedAt, at("2026-09-10 12:00"), "closed at the stop signal, not at the new start")
+            expectEqual(try fixture.entries().count, 2, "one block per customer")
+        }
+
+        test("a stop whose day has passed becomes final immediately") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
             _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
 
             let outcome = try fixture.tracker.handle(
                 ContextEvent(context: "Office A", kind: .stop, at: at("2026-09-10 17:00")),
-                now: at("2026-09-10 17:30")
+                now: at("2026-09-11 08:00")
             )
 
             expectEqual(outcome, .stopped(entryId: 1))

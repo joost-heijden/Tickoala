@@ -21,13 +21,12 @@ func persistenceChecks() {
         test("a delayed stop survives a restart and still closes cleanly") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            try fixture.store.setSetting(key: "stop-grace-seconds", value: 90)
             _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
             _ = try fixture.event("Office A", .stop, "2026-09-10 17:00")
             let path = fixture.path
 
             let restart = Tracker(store: try Store(path: path))
-            try restart.tick(now: at("2026-09-10 17:05"))
+            try restart.tick(now: at("2026-09-11 08:00"))
 
             let entry = try expectNotNil(try restart.store.entry(id: 1))
             expectEqual(entry.status, .completed)
@@ -46,9 +45,9 @@ func persistenceChecks() {
 
         test("settings are persisted") {
             let fixture = try Fixture()
-            try fixture.store.setSetting(key: "stop-grace-seconds", value: 120)
+            try fixture.store.setSetting(key: "dedupe-window-seconds", value: 120)
             let again = try Store(path: fixture.path)
-            expectEqual(try again.settings().stopGraceSeconds, 120)
+            expectEqual(try again.settings().dedupeWindowSeconds, 120)
             expectThrows({ try fixture.store.setSetting(key: "junk", value: 1) }, "unknown keys are refused")
         }
 

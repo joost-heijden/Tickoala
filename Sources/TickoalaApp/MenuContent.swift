@@ -205,7 +205,7 @@ struct MenuContent: View {
     private func headline(for item: ProfileStatus) -> String {
         switch item.mode {
         case .working:
-            let pending = item.pendingStopAt.map { " (stop from \(Formatting.clock($0)))" } ?? ""
+            let pending = item.pendingStopAt.map { " (no signal since \(Formatting.clock($0)))" } ?? ""
             return "\(item.mode.label) \(Formatting.duration(item.elapsedCurrent))\(pending)"
         case .paused, .stopped, .attention:
             return item.mode.label

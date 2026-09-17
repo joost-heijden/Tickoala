@@ -464,6 +464,8 @@ final class AppModel: ObservableObject {
 
     func updateEntry(id: Int64, projectId: Int64?, start: Date, end: Date?, note: String, status: EntryStatus) {
         guard let tracker else { return }
+        let start = Formatting.minute(start)
+        let end = end.map(Formatting.minute)
         guard end == nil || end! >= start else {
             errorMessage = "The end is before the start."
             return
@@ -486,6 +488,8 @@ final class AppModel: ObservableObject {
     @discardableResult
     func addEntry(profileId: Int64, projectId: Int64?, start: Date, end: Date, note: String) -> Int64? {
         guard let tracker else { return nil }
+        let start = Formatting.minute(start)
+        let end = Formatting.minute(end)
         guard end > start else {
             errorMessage = "The end must be after the start."
             return nil
@@ -521,7 +525,11 @@ final class AppModel: ObservableObject {
     func splitEntry(id: Int64, pauseStart: Date, pauseEnd: Date) -> Int64? {
         guard let tracker else { return nil }
         do {
-            let second = try tracker.store.splitEntry(id: id, pauseStart: pauseStart, pauseEnd: pauseEnd)
+            let second = try tracker.store.splitEntry(
+                id: id,
+                pauseStart: Formatting.minute(pauseStart),
+                pauseEnd: Formatting.minute(pauseEnd)
+            )
             refresh()
             return second.id
         } catch {

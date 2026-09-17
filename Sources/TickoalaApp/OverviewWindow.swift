@@ -306,8 +306,8 @@ struct EntryEditor: View {
         self.row = row
         self.onClose = onClose
         self.onSplit = onSplit
-        _start = State(initialValue: row.entry.startedAt)
-        _end = State(initialValue: row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600))
+        _start = State(initialValue: Formatting.minute(row.entry.startedAt))
+        _end = State(initialValue: Formatting.minute(row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600)))
         _hasEnd = State(initialValue: row.entry.endedAt != nil)
         _note = State(initialValue: row.entry.note ?? "")
         _projectId = State(initialValue: row.entry.projectId)
@@ -315,8 +315,8 @@ struct EntryEditor: View {
         // By default a half hour of break around the middle, so something sensible
         // is there immediately without the user having to calculate.
         let breakWindow = defaultBreak(
-            start: row.entry.startedAt,
-            end: row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600)
+            start: Formatting.minute(row.entry.startedAt),
+            end: Formatting.minute(row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600))
         )
         _pauseStart = State(initialValue: breakWindow.start)
         _pauseEnd = State(initialValue: breakWindow.end)
@@ -504,7 +504,7 @@ struct AddEntrySheet: View {
 
 /// A half hour of break around the middle of the block, clipped to the end.
 private func defaultBreak(start: Date, end: Date) -> (start: Date, end: Date) {
-    let middle = start.addingTimeInterval(end.timeIntervalSince(start) / 2)
+    let middle = Formatting.minute(start.addingTimeInterval(end.timeIntervalSince(start) / 2))
     let length = min(30 * 60, max(0, end.timeIntervalSince(middle)))
     return (middle, middle.addingTimeInterval(length))
 }

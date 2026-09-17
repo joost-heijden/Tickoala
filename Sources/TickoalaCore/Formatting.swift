@@ -21,6 +21,12 @@ public enum Formatting {
         formatter("HH:mm").string(from: date)
     }
 
+    /// The same moment with the seconds dropped. A time a user typed or picked on
+    /// a minute boundary (08:00) is then stored as 08:00, not as 08:00:46.
+    public static func minute(_ date: Date) -> Date {
+        Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 60).rounded(.down) * 60)
+    }
+
     /// English month and year, for the invoice period line.
     public static func monthName(_ date: Date) -> String {
         formatter("MMMM yyyy").string(from: date)

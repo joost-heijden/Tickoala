@@ -3,6 +3,8 @@ import SwiftUI
 import TickoalaCore
 
 /// The contents of the menu bar menu: status, project switching and quick control.
+/// Everything that is configured once lives in the Settings window; this stays
+/// about the daily work.
 struct MenuContent: View {
     @ObservedObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
@@ -25,74 +27,7 @@ struct MenuContent: View {
             Text("Use: tickoala profile add --name … --context …")
         }
 
-        Section("Network") {
-            Picker("Detect by", selection: $model.presenceSource) {
-                ForEach(PresenceSource.allCases, id: \.self) { source in
-                    Text(source.label).tag(source)
-                }
-            }
-
-            if let explanation = model.wifi.access.explanation {
-                Text("⚠︎ \(explanation)")
-                Button("Grant Location Services access") {
-                    NSApp.activate(ignoringOtherApps: true)
-                    model.wifi.requestAccess()
-                }
-            } else if model.presenceSource == .location {
-                if let name = model.currentLocationName {
-                    Text("Location: \(name)")
-                } else if model.wifi.latitude != nil {
-                    Text("Not at a stored location")
-                } else {
-                    Text("Waiting for a location fix…")
-                }
-            } else if let ssid = model.wifi.currentSSID {
-                Text("Network: \(ssid)\(model.isKnownNetwork(ssid) ? "" : " (not linked)")")
-                if !model.isKnownNetwork(ssid) {
-                    Menu("Link \(ssid) to") {
-                        ForEach(model.profiles, id: \.profile.id) { item in
-                            Button(item.profile.name) {
-                                model.linkCurrentNetwork(to: item.profile.id)
-                            }
-                        }
-                    }
-                }
-            } else {
-                Text("No network connection")
-            }
-
-            if let outcome = model.lastWifiOutcome {
-                Text(outcome)
-            }
-
-            if let selection = model.pendingWifiProjectSelection {
-                Divider()
-                Text("Multiple projects for \(selection.ssid)")
-                    .font(.headline)
-                Text("Choose the right project to start.")
-                ForEach(selection.projects) { project in
-                    Button(project.label) {
-                        model.chooseWifiProject(selection, projectId: project.id)
-                    }
-                }
-                Button("Cancel") { model.cancelWifiProjectSelection() }
-            }
-
-            if let pending = model.pendingNetworkSwitch {
-                Divider()
-                Text("Network changed to \(model.displayContext(pending.context))")
-                    .font(.headline)
-                Text("Now running: \(pending.runningLabel)")
-                Button("Keep \(pending.runningLabel) running") {
-                    model.keepRunningAfterNetworkSwitch()
-                }
-                Button("Start a new block at \(model.displayContext(pending.context))") {
-                    model.startNewBlockAfterNetworkSwitch()
-                }
-            }
-        }
-
-        Divider()
+        networkPrompts
 
         if !model.profiles.isEmpty {
             // Choose the customer right away: the menu opens the Customers window
@@ -114,7 +49,7 @@ struct MenuContent: View {
 
         ForEach(model.profiles, id: \.profile.id) { item in
             Section(item.profile.name) {
-                Text(headline(for: item))
+                Text(item.statusHeadline)
                 Text("Today \(Formatting.duration(item.todayTotal))  ·  Week \(Formatting.duration(item.weekTotal))")
                 if item.todayBreak > 0 {
                     Text("Net, break today -\(Formatting.duration(item.todayBreak))")
@@ -160,50 +95,39 @@ struct MenuContent: View {
 
         Divider()
 
+        Button("Open Tickoala") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "main")
+        }
+
         Button("Overview and corrections") {
             NSApp.activate(ignoringOtherApps: true)
             openWindow(id: "overview")
         }
         .keyboardShortcut("o")
 
-        Button("Manage projects") {
-            NSApp.activate(ignoringOtherApps: true)
-            openWindow(id: "projects")
-        }
-        .keyboardShortcut("p")
-
-        Button("Manage customers") { openCustomers() }
-            .keyboardShortcut("k")
-
-        Button("Break settings") {
-            NSApp.activate(ignoringOtherApps: true)
-            openWindow(id: "break-settings")
-        }
-
-        Button("Export CSV") { exportCSV() }
-            .keyboardShortcut("e")
-
-        Divider()
-
         Button("Invoices…") {
             NSApp.activate(ignoringOtherApps: true)
+            model.showCurrentInvoiceMonth()
             openWindow(id: "invoices")
         }
         .keyboardShortcut("i")
 
-        Button("Invoice settings") {
+        Divider()
+
+        Button("Settings…") {
             NSApp.activate(ignoringOtherApps: true)
-            openWindow(id: "invoice-settings")
+            openWindow(id: "settings")
         }
+        .keyboardShortcut(",", modifiers: .command)
 
         if let error = model.errorMessage {
             Divider()
             Text("Error: \(error)")
         }
 
-        Divider()
-
         if let version = model.updateChecker.availableVersion {
+            Divider()
             Text("Version \(version) available")
             if let url = UpdateChecker.tagURL(for: version) {
                 Button("View the new version") {
@@ -212,42 +136,44 @@ struct MenuContent: View {
             }
         }
 
-        // Always visible, even without a new version: here you see which version
-        // you are running and turn the check off (or back on).
-        Menu("Updates") {
-            Text("Current version \(model.updateChecker.currentVersion)")
-            Button("Check now") { model.updateChecker.checkNow() }
-                .disabled(!model.updateChecker.isEnabled)
-            Divider()
-            if model.updateChecker.isEnabled {
-                Button("Stop checking for updates") { model.updateChecker.disable() }
-            } else {
-                Button("Check for updates again") { model.updateChecker.enable() }
-            }
-        }
-
-        Button("GitHub") {
-            NSWorkspace.shared.open(UpdateChecker.repositoryURL)
-        }
-
         Divider()
-
-        Button("Welcome screen") {
-            NSApp.activate(ignoringOtherApps: true)
-            openWindow(id: "welcome")
-        }
 
         Button("Quit Tickoala") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 
-    private func headline(for item: ProfileStatus) -> String {
-        switch item.mode {
-        case .working:
-            let pending = item.pendingStopAt.map { " (no signal since \(Formatting.clock($0)))" } ?? ""
-            return "\(item.mode.label) \(Formatting.duration(item.elapsedCurrent))\(pending)"
-        case .paused, .stopped, .attention:
-            return item.mode.label
+    /// A question the user has to answer right now, so it stays in the menu even
+    /// though the rest of the network handling lives in Settings.
+    @ViewBuilder
+    private var networkPrompts: some View {
+        if let selection = model.pendingWifiProjectSelection {
+            Section("Network") {
+                Text("Multiple projects for \(selection.ssid)")
+                    .font(.headline)
+                Text("Choose the right project to start.")
+                ForEach(selection.projects) { project in
+                    Button(project.label) {
+                        model.chooseWifiProject(selection, projectId: project.id)
+                    }
+                }
+                Button("Cancel") { model.cancelWifiProjectSelection() }
+            }
+            Divider()
+        }
+
+        if let pending = model.pendingNetworkSwitch {
+            Section("Network") {
+                Text("Network changed to \(model.displayContext(pending.context))")
+                    .font(.headline)
+                Text("Now running: \(pending.runningLabel)")
+                Button("Keep \(pending.runningLabel) running") {
+                    model.keepRunningAfterNetworkSwitch()
+                }
+                Button("Start a new block at \(model.displayContext(pending.context))") {
+                    model.startNewBlockAfterNetworkSwitch()
+                }
+            }
+            Divider()
         }
     }
 
@@ -255,19 +181,18 @@ struct MenuContent: View {
         NSApp.activate(ignoringOtherApps: true)
         openWindow(id: "customers")
     }
+}
 
-    private func exportCSV() {
-        guard let csv = model.exportCSV() else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = model.suggestedExportName()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.message = "Export the shown period (\(model.period.label.lowercased()))"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try csv.write(to: url, atomically: true, encoding: .utf8)
-        } catch {
-            model.errorMessage = "Could not export: \(error)"
+extension ProfileStatus {
+    /// "Working 3:42 (no signal since 12:00)" or a short status word; shared by the
+    /// menu and the hub window.
+    var statusHeadline: String {
+        switch mode {
+        case .working:
+            let pending = pendingStopAt.map { " (no signal since \(Formatting.clock($0)))" } ?? ""
+            return "\(mode.label) \(Formatting.duration(elapsedCurrent))\(pending)"
+        case .paused, .stopped, .attention:
+            return mode.label
         }
     }
 }

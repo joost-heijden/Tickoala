@@ -43,7 +43,7 @@ just uses that.
 
 - **Automatic start/stop** when you join or leave a client's network, or when you
   arrive at or leave a stored location
-- **Detection by network or by location**, switchable in the menu; handy when you
+- **Detection by network or by location**, switchable in Settings; handy when you
   hop between networks at the same place
 - **Falls back to the wired link** when Wi-Fi has no SSID — for example when the
   Mac shares its connection over Wi-Fi (Internet Sharing)
@@ -122,8 +122,8 @@ day to
 `https://api.github.com/repos/joost-heijden/Tickoala/tags`. GitHub sees your IP
 address and the version string in the `User-Agent` header (`Tickoala/<version>`);
 nothing else is sent — no identifier, no usage data, no time entries, no location.
-Everything about it lives under **Updates** in the menu: the version you are
-running, **Check now**, and **Stop checking for updates**. Turn it off
+Everything about it lives under **Settings → Updates**: the version you are
+running, **Check now**, and **Check for a new version once a day**. Turn it off
 there, or with:
 
 ```bash
@@ -135,8 +135,8 @@ defaults write nl.tickoala.app update-check-disabled -bool true
 macOS only reveals the name of the Wi-Fi network to apps that have **Location
 Services** permission. Tickoala asks for this on first launch. Without it macOS
 returns `<redacted>`, which is indistinguishable from "no Wi-Fi", so the app
-deliberately sends no signals at all rather than guessing — the menu bar tells you
-and offers a button to fix it.
+deliberately sends no signals at all rather than guessing — the menu bar warns
+you and **Settings → Detection** offers a button to fix it.
 
 The same permission covers location detection. Only when you switch **Detect by**
 to *Location* does the app read its own coordinates, and only to compare them with
@@ -165,13 +165,17 @@ tickoala break set --profile "Acme" --minutes 30 --threshold 6:00
 tickoala location set --profile "Acme" --lat 52.37000 --lon 4.89000 --radius 200
 ```
 
-All of this can also be done from the menu bar: **Manage customers**, **Manage
-projects…**, **Break settings…** and **Overview and corrections…**.
+All of this can also be done from the windows: **Manage customers**, **Manage
+projects…**, **Overview and corrections…**, and under **Settings** the break
+rule, invoices, detection and updates. The menu bar itself keeps the daily work —
+the status per client, Start/Pause/Stop, **Overview**, **Invoices** and
+**Settings** — and **Open Tickoala** opens the hub with the same status per
+client plus the way into every window.
 
 Not sure what a network is called? Connect to it — the menu bar shows the current
 network and, if it isn't linked yet, offers to attach it to a client on the spot.
 
-Detection is set under **Network → Detect by** in the menu bar: *Wi-Fi network*
+Detection is set under **Settings → Detection → Detect by**: *Wi-Fi network*
 (the default) or *Location*. When Wi-Fi has no SSID — for example under Internet
 Sharing — the primary wired connection is used instead, named after its DHCP
 domain or, when the network has none, its router address. For location, open
@@ -316,11 +320,13 @@ address, and for each one you can:
   confirmation.
 
 The window is always available from the menu (**Invoices…**, ⌘I), at any moment
-of the month. The arrows next to the month move it, so you can invoice any
-month by hand, not just the one that just ended.
+of the month. Opened that way it starts on the current month, so the hours
+booked so far can be invoiced straight away; the reminder keeps starting on the
+month that just ended. The arrows next to the month move it either way, so any
+month can be invoiced by hand.
 
-Put your own details under **Invoice settings** (in the menu, or from the
-invoices window): name, address, KvK, VAT number, IBAN, email, payment term,
+Put your own details under **Settings → Invoices** (or from the invoices
+window): name, address, KvK, VAT number, IBAN, email, payment term,
 invoice number prefix, and an optional logo. Per customer you set the billing
 address, their VAT number, the VAT rate (21% by default, change it per customer
 for 9%, 0% or reverse charge), a default PO number and the invoice email
@@ -332,7 +338,7 @@ already exists after a manual edit.
 
 ### Sending by email
 
-Fill in your SMTP server under **Invoice settings → Email (SMTP)**: server,
+Fill in your SMTP server under **Settings → Invoices → Email (SMTP)**: server,
 port, username, from-address and password. The password goes into the macOS
 **Keychain**, never into the database. Use **Test** to send yourself a message.
 

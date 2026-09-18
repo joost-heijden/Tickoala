@@ -25,6 +25,16 @@ struct TickoalaApp: App {
         }
         .menuBarExtraStyle(.menu)
 
+        Window("Tickoala", id: "main") {
+            MainWindow(model: appDelegate.model)
+        }
+        .defaultSize(width: 620, height: 620)
+
+        Window("Settings", id: "settings") {
+            SettingsWindow(model: appDelegate.model)
+        }
+        .defaultSize(width: 660, height: 560)
+
         Window("Welcome to Tickoala", id: "welcome") {
             WelcomeView(model: appDelegate.model)
         }

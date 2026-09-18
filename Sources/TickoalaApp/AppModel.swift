@@ -278,6 +278,13 @@ final class AppModel: ObservableObject {
         process(pending.event)
     }
 
+    /// Stop the current block after a network change, without starting a new one.
+    func stopAfterNetworkSwitch() {
+        guard let pending = pendingNetworkSwitch else { return }
+        pendingNetworkSwitch = nil
+        perform { try $0.stop(profileId: pending.runningProfileId) }
+    }
+
     /// A location context (`geo:<id>`) shows the customer's name instead.
     func displayContext(_ context: String) -> String {
         guard context.hasPrefix("geo:"), let id = Int64(context.dropFirst(4)) else { return context }

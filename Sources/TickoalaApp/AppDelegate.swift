@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     static let switchCategory = "NETWORK_SWITCH"
     static let switchKeepAction = "SWITCH_KEEP"
     static let switchNewAction = "SWITCH_NEW"
+    static let switchStopAction = "SWITCH_STOP"
 
     /// The notification that a newer version can be downloaded.
     static let updateCategory = "UPDATE_AVAILABLE"
@@ -74,10 +75,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         center.delegate = self
         let keep = UNNotificationAction(identifier: Self.switchKeepAction, title: "Keep running")
         let start = UNNotificationAction(identifier: Self.switchNewAction, title: "Start new block")
+        let stop = UNNotificationAction(identifier: Self.switchStopAction, title: "Stop")
         let download = UNNotificationAction(identifier: Self.updateDownloadAction, title: "Download")
         center.setNotificationCategories([
             UNNotificationCategory(
-                identifier: Self.switchCategory, actions: [keep, start], intentIdentifiers: [], options: []
+                identifier: Self.switchCategory, actions: [keep, start, stop], intentIdentifiers: [], options: []
             ),
             UNNotificationCategory(
                 identifier: Self.updateCategory, actions: [download], intentIdentifiers: [], options: []
@@ -116,10 +118,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.informativeText = "Now running: \(pending.runningLabel)"
         alert.addButton(withTitle: "Keep running")
         alert.addButton(withTitle: "Start new block")
+        alert.addButton(withTitle: "Stop")
         NSApp.activateForUI()
-        if alert.runModal() == .alertFirstButtonReturn {
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
             model.keepRunningAfterNetworkSwitch()
-        } else {
+        case .alertThirdButtonReturn:
+            model.stopAfterNetworkSwitch()
+        default:
             model.startNewBlockAfterNetworkSwitch()
         }
     }
@@ -300,6 +306,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 model.keepRunningAfterNetworkSwitch()
             } else if action == Self.switchNewAction {
                 model.startNewBlockAfterNetworkSwitch()
+            } else if action == Self.switchStopAction {
+                model.stopAfterNetworkSwitch()
             }
             completionHandler()
         }

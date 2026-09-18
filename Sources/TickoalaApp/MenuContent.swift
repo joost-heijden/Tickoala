@@ -174,6 +174,9 @@ struct MenuContent: View {
                 Button("Start a new block at \(model.displayContext(pending.context))") {
                     model.startNewBlockAfterNetworkSwitch()
                 }
+                Button("Stop \(pending.runningLabel)") {
+                    model.stopAfterNetworkSwitch()
+                }
             }
             Divider()
         }

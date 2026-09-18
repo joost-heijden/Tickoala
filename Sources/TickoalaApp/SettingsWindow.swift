@@ -155,10 +155,8 @@ private struct UpdateSettings: View {
                 LabeledContent("Current version", value: model.updateChecker.currentVersion)
                 if let version = model.updateChecker.availableVersion {
                     Text("Version \(version) is available.")
-                    if let url = UpdateChecker.tagURL(for: version) {
-                        Button("View the new version") {
-                            NSWorkspace.shared.open(url)
-                        }
+                    Button("View the new version") {
+                        NSWorkspace.shared.open(UpdateChecker.releasesURL)
                     }
                 } else {
                     Text("You are on the latest version.")

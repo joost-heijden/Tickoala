@@ -133,10 +133,8 @@ struct MenuContent: View {
         if let version = model.updateChecker.availableVersion {
             Divider()
             Text("Version \(version) available")
-            if let url = UpdateChecker.tagURL(for: version) {
-                Button("View the new version") {
-                    NSWorkspace.shared.open(url)
-                }
+            Button("View the new version") {
+                NSWorkspace.shared.open(UpdateChecker.releasesURL)
             }
         }
 

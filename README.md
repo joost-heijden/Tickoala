@@ -90,6 +90,25 @@ just uses that.
 
 ## Install
 
+### Download the app
+
+Grab `Tickoala-x.y.z.zip` from
+[Releases](https://github.com/joost-heijden/Tickoala/releases), unzip it and drag
+`Tickoala.app` into **Applications**. It is not notarized by Apple, so macOS
+blocks the first launch; allow it once:
+
+1. Double-click Tickoala. macOS says it cannot be verified — click **Done**.
+2. Open **System Settings → Privacy & Security** and scroll to **Security**.
+3. Click **Open Anyway** next to Tickoala and confirm.
+4. Double-click Tickoala again — it starts, and stays allowed from now on.
+
+On macOS 14 and earlier you can instead Control-click the app in Finder and
+choose **Open**. Sequoia (15) and later removed that shortcut, hence the trip to
+System Settings. If you would rather skip the warning entirely, build from
+source below — a locally built app is never quarantined.
+
+### Build from source
+
 ```bash
 git clone https://github.com/joost-heijden/Tickoala.git
 cd Tickoala
@@ -97,6 +116,10 @@ cd Tickoala
 cp -R build/Tickoala.app /Applications/
 open /Applications/Tickoala.app
 ```
+
+Only the Xcode **Command Line Tools** are needed, not Xcode itself
+(`xcode-select --install`); the build script falls back to macOS's own tools for
+the icon. Update later with `./scripts/update.sh`.
 
 Optionally put the CLI on your `PATH`:
 
@@ -107,9 +130,25 @@ ln -sf /Applications/Tickoala.app/Contents/Helpers/tickoala /usr/local/bin/ticko
 Tickoala can start itself at login: toggle it on the first-run welcome screen, or
 add `Tickoala.app` under System Settings → General → Login Items.
 
+### Releasing
+
+Push a version tag and
+[`.github/workflows/release.yml`](.github/workflows/release.yml) builds the app
+on a macOS runner, ad-hoc signs it and attaches the zip to a GitHub release.
+The same workflow can be run manually from the Actions tab; it then leaves the
+zip as a downloadable artifact. For a warning-free download, the release step
+would need an Apple Developer ID and notarization.
+
 ## Updating
 
-If you installed by cloning the repository, update with a single command:
+**Downloaded the app?** Grab the newest `Tickoala-x.y.z.zip` from
+[Releases](https://github.com/joost-heijden/Tickoala/releases), unzip it and
+replace `Tickoala.app` in Applications with the new one. Your data stays put: it
+lives in `~/Library/Application Support/Tickoala`, not in the bundle, so nothing
+is lost. You will allow the new build once more, as described under
+[Install](#install).
+
+**Built from source?** Update with a single command:
 
 ```bash
 ./scripts/update.sh
@@ -122,10 +161,10 @@ locally on purpose: a downloaded bundle is ad-hoc signed and would be rejected b
 Gatekeeper.
 
 The app also checks once a day whether a newer version exists, so the menu bar can
-tell you when there is one. When a new version tag appears, the menu shows
-**Version X available** with a link to that tag on GitHub; you don't have to do
-anything. That check is the only network access Tickoala makes: one request per
-day to
+tell you when there is one. When a new version appears, the menu shows
+**Version X available** with a button to the releases page where you can download
+it; you don't have to do anything. That check is the only network access Tickoala
+makes: one request per day to
 `https://api.github.com/repos/joost-heijden/Tickoala/tags`. GitHub sees your IP
 address and the version string in the `User-Agent` header (`Tickoala/<version>`);
 nothing else is sent — no identifier, no usage data, no time entries, no location.

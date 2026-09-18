@@ -19,10 +19,10 @@ final class UpdateChecker: ObservableObject {
     static let disabledKey = "update-check-disabled"
     /// The project page on GitHub.
     static let repositoryURL = URL(string: "https://github.com/joost-heijden/Tickoala")!
-    /// The tag page on GitHub, so you can immediately see what is new.
-    static func tagURL(for tag: String) -> URL? {
-        URL(string: "https://github.com/joost-heijden/Tickoala/tree/\(tag)")
-    }
+    /// The releases page on GitHub, where the app can be downloaded. The whole
+    /// list rather than one tag: a tag always exists, but not every tag has a
+    /// release built for it, and a dead link helps nobody.
+    static let releasesURL = URL(string: "https://github.com/joost-heijden/Tickoala/releases")!
 
     // Versions live in tags, not in releases: one tag is enough to report an
     // update. The order from the API says nothing about the version; VersionCheck

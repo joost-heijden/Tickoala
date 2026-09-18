@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags and full history are needed for `git describe` and the build
+          # counter that scripts/build-app.sh writes into the Info.plist.
+          fetch-depth: 0
+
+      - name: Build Tickoala.app
+        run: ./scripts/build-app.sh release
+
+      - name: Zip the app bundle
+        run: |
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)"
+            version="${version#v}"
+          fi
+          zip="Tickoala-${version}.zip"
+          # ditto keeps the bundle structure and symlinks intact, unlike `zip`.
+          ditto -c -k --keepParent build/Tickoala.app "$zip"
+          echo "ZIP=$zip" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tickoala-app
+          path: ${{ env.ZIP }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$ZIP" \
+            --title "Tickoala ${GITHUB_REF_NAME#v}" --generate-notes

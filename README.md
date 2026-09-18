@@ -41,14 +41,18 @@ just uses that.
 
 ## Features
 
-- **Automatic start/stop** when you join or leave a client's Wi-Fi network, or
-  when you arrive at or leave a stored location
-- **Detection by Wi-Fi or by location**, switchable in the menu; handy when you
+- **Automatic start/stop** when you join or leave a client's network, or when you
+  arrive at or leave a stored location
+- **Detection by network or by location**, switchable in the menu; handy when you
   hop between networks at the same place
+- **Falls back to the wired link** when Wi-Fi has no SSID — for example when the
+  Mac shares its connection over Wi-Fi (Internet Sharing)
 - **Multiple networks per client** — guest network, staff network, several
   offices; roaming between them doesn't split your work block
-- **Switch prompt** — moving to another client while a block runs pops up the
-  question whether to keep the current project or start a new block
+- **Switch prompt** — moving to another client while a block runs asks, as a
+  notification with **Keep running** / **Start new block** buttons (or a pop-up
+  when notifications are off), whether to keep the current project or start a new
+  block
 - **Undo and redo** with ⌘Z / ⇧⌘Z for every customer, project and block change,
   including deleting a customer or project, adding one, editing one, switching
   the active project and inserting a break
@@ -61,7 +65,8 @@ just uses that.
   you worked 6 hours or more, with the duration and the threshold set separately
 - **Dropouts don't end your day** — losing Wi-Fi keeps the current block running;
   it only closes once the day is over, so a flaky access point never splits your work
-- **Manual control** — pause, resume, stop, and correct or add blocks by hand
+- **Manual control** — pause, resume, stop, and correct, add, duplicate or delete
+  blocks by hand from the overview
 - **Day / week / month totals**, per project and per day
 - **CSV export** for invoicing
 - **Monthly invoice reminder** on the first weekday of the month
@@ -167,14 +172,19 @@ Not sure what a network is called? Connect to it — the menu bar shows the curr
 network and, if it isn't linked yet, offers to attach it to a client on the spot.
 
 Detection is set under **Network → Detect by** in the menu bar: *Wi-Fi network*
-(the default) or *Location*. For location, open **Manage customers** and press
-**Use current location** on a client; you can set the radius and clear it again.
-Switching networks at the same place then no longer looks like moving.
+(the default) or *Location*. When Wi-Fi has no SSID — for example under Internet
+Sharing — the primary wired connection is used instead, named after its DHCP
+domain or, when the network has none, its router address. For location, open
+**Manage customers** and press **Use current location** on a client; you can set
+the radius and clear it again. Switching networks at the same place then no longer
+looks like moving.
 
 When you arrive at another client while a block is still running, Tickoala asks
-first: keep the current project running, or start a new block there. That question
-comes as a pop-up (and stays available in the menu bar) so you don't miss it. The
-same question appears when only the network changed but the client did not.
+first: keep the current project running, or start a new block there. It arrives as
+a system notification with **Keep running** and **Start new block** buttons — or a
+pop-up when notifications are turned off — and stays available in the menu bar so
+you don't miss it. The same question appears when only the network changed but the
+client did not.
 
 For location detection the radius has a little slack: once you are at a client,
 you stay there until you are clearly outside, so GPS jitter along the edge does
@@ -213,6 +223,7 @@ the tracker, which is what makes the behaviour predictable:
 | Leaving | the block keeps running for the rest of the day; it closes at the signal moment once the day is over |
 | Coming back the same day | the pending stop is cancelled, the same block continues |
 | Roaming between two networks of one client | the same block continues, no new block |
+| Wi-Fi has no SSID (Internet Sharing) | the wired connection is used instead, named after its DHCP domain or router |
 | Detecting by location | the nearest stored client within its radius counts as the current context |
 | Leaving to another customer | Tickoala asks: keep the current project running, or start a new block at the new place |
 | Leaving with no timer running | log line only; never an empty or negative block |
@@ -243,9 +254,15 @@ relinks those blocks. Deleting a customer takes their projects, blocks and
 invoices along; undo restores the whole customer exactly as it was.
 
 While the cursor is in a text field, ⌘Z takes back typing as usual. The menu bar
-shows what the next undo would be — **Undo Delete project**, for example. The
-Overview window is where you correct and add blocks by hand, with day, week and
-month totals.
+shows what the next undo would be — **Undo Delete project**, for example.
+
+The Overview window is where you correct and add blocks by hand, with day, week
+and month totals. Each row has a context menu with **Edit**, **Duplicate** and
+**Delete**, and the toolbar carries the same three: **⌘D** duplicates the selected
+block, **Delete** or **⌘Delete** removes it. Deleting asks for confirmation first
+and can be undone with ⌘Z. Manually edited, added and break times are floored to
+whole minutes, so a correction from 08:00 to 16:30 is stored as exactly 8:30 —
+automatic tracking keeps its real seconds.
 
 ## Break deduction
 
@@ -298,6 +315,10 @@ address, and for each one you can:
 - **Approve & send** — emails the invoice PDF to the customer, after a
   confirmation.
 
+The window is always available from the menu (**Invoices…**, ⌘I), at any moment
+of the month. The arrows next to the month move it, so you can invoice any
+month by hand, not just the one that just ended.
+
 Put your own details under **Invoice settings** (in the menu, or from the
 invoices window): name, address, KvK, VAT number, IBAN, email, payment term,
 invoice number prefix, and an optional logo. Per customer you set the billing
@@ -344,11 +365,11 @@ tickoala db                     # path to the database
 Everything lives in
 `~/Library/Application Support/Tickoala/tickoala.sqlite3` (override with the
 `TICKOALA_DB` environment variable). It holds time entries, client names, network
-names, projects, notes, billing details, issued invoices and a log of received
-events. A chosen invoice logo is copied into that same folder. No location data,
-and nothing is ever uploaded — the only network requests are the daily version
-check described under [Updating](#updating) and the invoice email you send
-yourself. The SMTP password is kept in the macOS Keychain, never in this file.
+names, the locations you saved for clients, projects, notes, billing details,
+issued invoices and a log of received events. A chosen invoice logo is copied into
+that same folder. Nothing is ever uploaded — the only network requests are the
+daily version check described under [Updating](#updating) and the invoice email you
+send yourself. The SMTP password is kept in the macOS Keychain, never in this file.
 
 Backing up is copying that one file.
 

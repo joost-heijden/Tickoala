@@ -7,9 +7,6 @@ struct OverviewWindow: View {
     @Environment(\.openWindow) private var openWindow
     @State private var selection: Int64?
     @State private var addingFor: Int64?
-    /// Shortcuts may only fire when the table is the active side; if the cursor is
-    /// in the correction form, that form wins.
-    @FocusState private var tableFocused: Bool
     @State private var confirmDelete = false
     @State private var deleteTarget: Int64?
 
@@ -133,7 +130,7 @@ struct OverviewWindow: View {
             }
             .help("Duplicate the selected block (⌘D)")
             .keyboardShortcut("d", modifiers: .command)
-            .disabled(!canDuplicate || !tableFocused)
+            .disabled(!canDuplicate)
 
             Button {
                 deleteSelectedEntry()
@@ -141,8 +138,9 @@ struct OverviewWindow: View {
                 Image(systemName: "trash")
                     .accessibilityLabel("Delete")
             }
-            .help("Delete the selected block (Delete)")
-            .disabled(!canDelete || !tableFocused)
+            .help("Delete the selected block (Delete or ⌘Delete)")
+            .keyboardShortcut(.delete, modifiers: .command)
+            .disabled(!canDelete)
         }
         .padding(10)
     }
@@ -177,10 +175,9 @@ struct OverviewWindow: View {
                     }
             }
         }
-        // Delete and ⌘D only work with the table as the first responder; otherwise
-        // Backspace in the note would wipe a whole row.
+        // Plain Delete only reaches here with the table as the first responder, so
+        // Backspace in the note cannot wipe a whole row.
         .focusable()
-        .focused($tableFocused)
         .onDeleteCommand { deleteSelectedEntry() }
     }
 
@@ -261,10 +258,15 @@ struct OverviewWindow: View {
         addingFor = profileId
     }
 
-    /// Duplicate from the keyboard or the buttons: only when the table is the
-    /// active side, so ⌘D doesn't fire while the form has focus.
+    /// A correction-form text field wins over the shortcuts, so ⌘D and ⌘Delete
+    /// don't fire while the note is being edited.
+    private var editingText: Bool {
+        NSApp.keyWindow?.firstResponder is NSTextView
+    }
+
+    /// Duplicate from the keyboard or the buttons.
     private func duplicateSelectedEntry() {
-        guard tableFocused, let id = selectedRow?.id else { return }
+        guard !editingText, let id = selectedRow?.id else { return }
         duplicateSelectedEntry(id)
     }
 
@@ -274,7 +276,7 @@ struct OverviewWindow: View {
     }
 
     private func deleteSelectedEntry() {
-        guard tableFocused, let id = selectedRow?.id else { return }
+        guard !editingText, let id = selectedRow?.id else { return }
         requestDelete(id)
     }
 

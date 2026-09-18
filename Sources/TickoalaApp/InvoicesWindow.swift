@@ -37,7 +37,10 @@ struct InvoicesWindow: View {
             footer
         }
         .frame(minWidth: 680, minHeight: 480)
-        .onAppear(perform: loadFields)
+        .onAppear {
+            model.resetInvoicePeriod()
+            loadFields()
+        }
         .confirmationDialog(
             "Send invoice to \(sendTarget?.profile.name ?? "")?",
             isPresented: Binding(get: { sendTarget != nil }, set: { if !$0 { sendTarget = nil } }),
@@ -59,8 +62,21 @@ struct InvoicesWindow: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
-                Text("Invoices \(periodLabel)").font(.headline)
-                Text("The previous month, ready to send.")
+                HStack(spacing: 6) {
+                    Text("Invoices").font(.headline)
+                    Button { model.shiftInvoicePeriod(-1) } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Previous month")
+                    Text(periodLabel).font(.headline).monospacedDigit()
+                    Button { model.shiftInvoicePeriod(1) } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Next month")
+                }
+                Text(periodCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -140,6 +156,12 @@ struct InvoicesWindow: View {
 
     private var periodLabel: String {
         String(Formatting.day(model.invoicePeriod.start).prefix(7))
+    }
+
+    private var periodCaption: String {
+        model.invoicePeriod.start == Invoicing.previousMonthRange(containing: Date()).start
+            ? "The previous month, ready to send."
+            : "Manually chosen month, ready to send."
     }
 
     private func summary(_ candidate: AppModel.InvoiceCandidate) -> String {

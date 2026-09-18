@@ -971,8 +971,21 @@ final class AppModel: ObservableObject {
 
     // MARK: - Invoicing
 
-    /// The month that just ended: what the reminder and the invoices window act on.
-    var invoicePeriod: DateRange { Invoicing.previousMonthRange(containing: Date()) }
+    /// The month the invoices window acts on. Starts on the month that just
+    /// ended, but can be moved to any month to invoice by hand.
+    @Published var invoicePeriod: DateRange = Invoicing.previousMonthRange(containing: Date())
+
+    /// Moves the invoices window to another month, any month.
+    func shiftInvoicePeriod(_ months: Int) {
+        let moved = Formatting.calendar.date(byAdding: .month, value: months, to: invoicePeriod.start)
+            ?? invoicePeriod.start
+        invoicePeriod = Reporting.range(.month, containing: moved)
+    }
+
+    /// Back to the month that just ended, the default when the window opens.
+    func resetInvoicePeriod() {
+        invoicePeriod = Invoicing.previousMonthRange(containing: Date())
+    }
 
     struct InvoiceCandidate: Identifiable {
         var profile: Profile
@@ -1138,7 +1151,7 @@ final class AppModel: ObservableObject {
     private func checkInvoiceReminder() {
         guard !shouldOpenInvoices, let tracker else { return }
         guard Invoicing.isReminderDue() else { return }
-        let period = invoicePeriod
+        let period = Invoicing.previousMonthRange(containing: Date())
         let key = "invoice-reminder-shown"
         if UserDefaults.standard.string(forKey: key) == Formatting.day(period.start) { return }
         UserDefaults.standard.set(Formatting.day(period.start), forKey: key)

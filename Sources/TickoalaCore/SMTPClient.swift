@@ -40,22 +40,34 @@ public struct SMTPConfiguration: Sendable {
     }
 }
 
+public struct EmailAttachment: Sendable {
+    public var name: String
+    public var mimeType: String
+    public var data: Data
+
+    public init(name: String, mimeType: String, data: Data) {
+        self.name = name
+        self.mimeType = mimeType
+        self.data = data
+    }
+}
+
 public struct EmailMessage: Sendable {
     public var from: String
     public var to: [String]
     public var subject: String
     public var body: String
-    public var attachment: (name: String, data: Data)?
+    public var attachments: [EmailAttachment]
 
-    public init(from: String, to: [String], subject: String, body: String, attachment: (name: String, data: Data)? = nil) {
+    public init(from: String, to: [String], subject: String, body: String, attachments: [EmailAttachment] = []) {
         self.from = from
         self.to = to
         self.subject = subject
         self.body = body
-        self.attachment = attachment
+        self.attachments = attachments
     }
 
-    /// RFC 5322 message with a optional PDF attachment, ready for DATA.
+    /// RFC 5322 message with optional attachments, ready for DATA.
     func mimeString() -> String {
         var headers = [
             "From: \(from)",
@@ -74,10 +86,10 @@ public struct EmailMessage: Sendable {
         message += "Content-Transfer-Encoding: 8bit\r\n\r\n"
         message += body + "\r\n"
 
-        if let attachment {
+        for attachment in attachments {
             let base64 = attachment.data.base64EncodedString(options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed])
             message += "--\(boundary)\r\n"
-            message += "Content-Type: application/pdf; name=\"\(attachment.name)\"\r\n"
+            message += "Content-Type: \(attachment.mimeType); name=\"\(attachment.name)\"\r\n"
             message += "Content-Transfer-Encoding: base64\r\n"
             message += "Content-Disposition: attachment; filename=\"\(attachment.name)\"\r\n\r\n"
             message += base64 + "\r\n"

@@ -15,7 +15,7 @@ func smtpChecks() {
                 to: ["client@example.com"],
                 subject: "Invoice 0001",
                 body: "Hello\r\n",
-                attachment: ("invoice-0001.pdf", pdf)
+                attachments: [EmailAttachment(name: "invoice-0001.pdf", mimeType: "application/pdf", data: pdf)]
             )
             let configuration = SMTPConfiguration(
                 host: "127.0.0.1",
@@ -36,6 +36,36 @@ func smtpChecks() {
             expect(server.dataPayload.contains("Subject: Invoice 0001"), "the subject is in the message")
             expect(server.dataPayload.contains("Content-Type: application/pdf"), "the attachment is declared")
             expect(server.dataPayload.contains(pdf.base64EncodedString()), "the PDF is base64 in the message")
+        }
+
+        test("the PDF and the hours CSV travel in one message") {
+            let server = try MockSMTPServer()
+            server.start()
+            defer { server.stop() }
+
+            let pdf = Data("PDFDATA".utf8)
+            let csv = Data("hours\r\n8.00\r\n".utf8)
+            let message = EmailMessage(
+                from: "me@example.com",
+                to: ["client@example.com"],
+                subject: "Invoice 0001",
+                body: "Hello\r\n",
+                attachments: [
+                    EmailAttachment(name: "invoice-0001.pdf", mimeType: "application/pdf", data: pdf),
+                    EmailAttachment(name: "hours-Acme-2026-08.csv", mimeType: "text/csv; charset=utf-8", data: csv),
+                ]
+            )
+            let configuration = SMTPConfiguration(
+                host: "127.0.0.1", port: Int(server.port),
+                username: "", password: "", from: "me@example.com", useTLS: false
+            )
+            try SMTPClient.send(message, configuration: configuration)
+
+            expect(server.waitForData(timeout: 5), "the server received a message")
+            expect(server.dataPayload.contains("application/pdf"), "the PDF is declared")
+            expect(server.dataPayload.contains("text/csv"), "the CSV is declared")
+            expect(server.dataPayload.contains(pdf.base64EncodedString()), "the PDF is base64 in the message")
+            expect(server.dataPayload.contains(csv.base64EncodedString()), "the CSV is base64 in the message")
         }
 
         test("a rejected login surfaces as an error") {

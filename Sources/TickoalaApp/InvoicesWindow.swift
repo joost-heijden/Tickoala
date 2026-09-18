@@ -10,6 +10,7 @@ struct InvoicesWindow: View {
 
     @State private var poNumbers: [Int64: String] = [:]
     @State private var emails: [Int64: String] = [:]
+    @State private var attachCSV: [Int64: Bool] = [:]
     @State private var status: String?
     @State private var sendingId: Int64?
     @State private var sendTarget: AppModel.InvoiceCandidate?
@@ -52,7 +53,9 @@ struct InvoicesWindow: View {
             }
             Button("Cancel", role: .cancel) { sendTarget = nil }
         } message: {
-            Text("The invoice PDF is attached. This cannot be undone.")
+            Text(includeCSV(sendTarget)
+                ? "The invoice PDF and the hours CSV are attached. This cannot be undone."
+                : "The invoice PDF is attached. This cannot be undone.")
         }
     }
 
@@ -139,6 +142,8 @@ struct InvoicesWindow: View {
                     Button("Create PDF…") { createPDF(candidate) }
                     Button("Export CSV…") { exportCSV(candidate) }
                     Spacer()
+                    Toggle("Include hours CSV", isOn: csvBinding(candidate))
+                        .toggleStyle(.checkbox)
                     if sendingId == candidate.id {
                         ProgressView().controlSize(.small)
                     }
@@ -187,6 +192,18 @@ struct InvoicesWindow: View {
             get: { emails[candidate.id] ?? candidate.profile.billingEmail ?? "" },
             set: { emails[candidate.id] = $0 }
         )
+    }
+
+    private func csvBinding(_ candidate: AppModel.InvoiceCandidate) -> Binding<Bool> {
+        Binding(
+            get: { includeCSV(candidate) },
+            set: { attachCSV[candidate.id] = $0 }
+        )
+    }
+
+    private func includeCSV(_ candidate: AppModel.InvoiceCandidate?) -> Bool {
+        guard let candidate else { return false }
+        return attachCSV[candidate.id] ?? model.invoiceSettings().attachHoursCSV
     }
 
     private func email(_ candidate: AppModel.InvoiceCandidate) -> String {
@@ -238,9 +255,10 @@ struct InvoicesWindow: View {
         guard let invoice = model.makeInvoice(profileId: candidate.profile.id, poNumber: po(candidate)) else { return }
         sendingId = candidate.id
         status = "Sending invoice \(invoice.number)…"
+        let csv = includeCSV(candidate)
         Task {
             do {
-                try await model.sendInvoice(invoice, to: recipient)
+                try await model.sendInvoice(invoice, to: recipient, attachCSV: csv)
                 status = "Invoice \(invoice.number) sent to \(recipient)."
             } catch {
                 status = "Sending failed: \(error)"

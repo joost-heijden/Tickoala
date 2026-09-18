@@ -25,6 +25,8 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
     public var smtpFromEmail: String
     /// Implicit TLS (SMTPS). True for port 465; STARTTLS on 587 is not supported.
     public var smtpUseTLS: Bool
+    /// Attach the hour sheet (CSV) to the invoice email by default.
+    public var attachHoursCSV: Bool
 
     public static let `default` = InvoiceSettings()
 
@@ -43,7 +45,8 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         smtpPort: Int = 465,
         smtpUsername: String = "",
         smtpFromEmail: String = "",
-        smtpUseTLS: Bool = true
+        smtpUseTLS: Bool = true,
+        attachHoursCSV: Bool = false
     ) {
         self.senderName = senderName
         self.senderAddress = senderAddress
@@ -60,6 +63,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         self.smtpUsername = smtpUsername
         self.smtpFromEmail = smtpFromEmail
         self.smtpUseTLS = smtpUseTLS
+        self.attachHoursCSV = attachHoursCSV
     }
 
     /// Can an invoice be emailed? Host and a from-address are the minimum; the
@@ -94,6 +98,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         smtpUsername = try container.decodeIfPresent(String.self, forKey: .smtpUsername) ?? fallback.smtpUsername
         smtpFromEmail = try container.decodeIfPresent(String.self, forKey: .smtpFromEmail) ?? fallback.smtpFromEmail
         smtpUseTLS = try container.decodeIfPresent(Bool.self, forKey: .smtpUseTLS) ?? fallback.smtpUseTLS
+        attachHoursCSV = try container.decodeIfPresent(Bool.self, forKey: .attachHoursCSV) ?? fallback.attachHoursCSV
     }
 }
 
@@ -279,14 +284,27 @@ public enum InvoiceEmail {
         return lines.joined(separator: "\r\n")
     }
 
-    /// The message as the app sends it, with the rendered PDF attached.
-    public static func message(for invoice: Invoice, to recipient: String, pdf: Data) -> EmailMessage {
-        EmailMessage(
+    /// The message as the app sends it, with the rendered PDF and optionally the
+    /// hour sheet attached.
+    public static func message(for invoice: Invoice, to recipient: String, pdf: Data, csv: Data? = nil) -> EmailMessage {
+        var attachments = [
+            EmailAttachment(name: "invoice-\(invoice.number).pdf", mimeType: "application/pdf", data: pdf)
+        ]
+        if let csv {
+            let client = invoice.profile.name
+                .replacingOccurrences(of: "/", with: "-")
+                .replacingOccurrences(of: ":", with: "-")
+            let month = String(Formatting.day(invoice.periodStart).prefix(7))
+            attachments.append(EmailAttachment(
+                name: "hours-\(client)-\(month).csv", mimeType: "text/csv; charset=utf-8", data: csv
+            ))
+        }
+        return EmailMessage(
             from: invoice.sender.smtpFromEmail.isEmpty ? invoice.sender.senderEmail : invoice.sender.smtpFromEmail,
             to: [recipient],
             subject: subject(for: invoice),
             body: body(for: invoice),
-            attachment: (name: "invoice-\(invoice.number).pdf", data: pdf)
+            attachments: attachments
         )
     }
 }

@@ -64,6 +64,7 @@ struct InvoiceSettingsWindow: View {
                         FormTextField(text: binding(\.smtpFromEmail), prompt: "you@example.com")
                     }
                     Toggle("Use TLS (port 465)", isOn: binding(\.smtpUseTLS))
+                    Toggle("Attach the hours CSV to the invoice email", isOn: binding(\.attachHoursCSV))
                     FormField(label: "Password") {
                         SecureField("", text: $password)
                             .textFieldStyle(.roundedBorder)

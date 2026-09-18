@@ -1088,9 +1088,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Sends the invoice as a PDF attachment. Blocking SMTP runs off the main
-    /// thread; the Keychain supplies the password.
-    func sendInvoice(_ invoice: Invoice, to recipient: String) async throws {
+    /// Sends the invoice as a PDF attachment, optionally with the hour sheet CSV.
+    /// Blocking SMTP runs off the main thread; the Keychain supplies the password.
+    func sendInvoice(_ invoice: Invoice, to recipient: String, attachCSV: Bool) async throws {
         let settings = invoiceSettings()
         guard settings.canSendEmail else {
             throw SMTPError.configuration("Set the SMTP server and sender address under Invoice settings first.")
@@ -1107,7 +1107,16 @@ final class AppModel: ObservableObject {
             from: settings.smtpFromEmail,
             useTLS: settings.smtpUseTLS
         )
-        let message = InvoiceEmail.message(for: invoice, to: recipient, pdf: InvoicePDF.data(for: invoice))
+        var csv: Data?
+        if attachCSV, let tracker {
+            let text = try CSVExport.export(
+                store: tracker.store, from: invoice.periodStart, to: invoice.periodEnd, profileId: invoice.profile.id
+            )
+            csv = Data(text.utf8)
+        }
+        let message = InvoiceEmail.message(
+            for: invoice, to: recipient, pdf: InvoicePDF.data(for: invoice), csv: csv
+        )
         try await Task.detached(priority: .userInitiated) {
             try SMTPClient.send(message, configuration: configuration)
         }.value

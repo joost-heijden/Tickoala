@@ -150,6 +150,12 @@ public struct Row {
         return nil
     }
 
+    public func double(_ column: String) -> Double? {
+        if case .double(let value)? = values[column] { return value }
+        if case .int(let value)? = values[column] { return Double(value) }
+        return nil
+    }
+
     public func bool(_ column: String) -> Bool {
         (int(column) ?? 0) != 0
     }

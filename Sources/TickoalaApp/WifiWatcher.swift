@@ -44,6 +44,14 @@ final class WifiWatcher: NSObject, ObservableObject {
 
     @Published private(set) var currentSSID: String?
     @Published private(set) var access: Access = .unknown
+    /// Last known coordinate, for capturing a client's location from the UI.
+    @Published private(set) var latitude: Double?
+    @Published private(set) var longitude: Double?
+
+    /// What decides presence: the network name or the Mac's location.
+    var source: PresenceSource = .wifi
+    /// Turns a coordinate into the context of the client there, if any.
+    var resolveLocationContext: ((Double, Double) -> String?)?
 
     /// Called on every network change.
     var onEvent: ((ContextEvent) -> Void)?
@@ -103,6 +111,15 @@ final class WifiWatcher: NSObject, ObservableObject {
     private func poll() {
         updateAccess()
 
+        // On location detection the network is irrelevant: the delegate turns
+        // coordinate updates into context changes instead.
+        if source == .location {
+            locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+            locationManager.startUpdatingLocation()
+            return
+        }
+        locationManager.stopUpdatingLocation()
+
         // Without permission the SSID is invisible; a wired connection doesn't
         // depend on it, so only treat Wi-Fi as missing when there is nothing else.
         let ssid = access == .granted ? wifiClient.interface()?.ssid() : nil
@@ -116,20 +133,26 @@ final class WifiWatcher: NSObject, ObservableObject {
             return
         }
 
-        let network = ssid ?? wired
-        currentSSID = network
+        apply(ssid ?? wired)
+    }
+
+    /// Shared transition logic: stop the context left behind and start the new
+    /// one. Both Wi-Fi and location changes run through this.
+    private func apply(_ context: String?) {
+        currentSSID = context
 
         guard let previous = lastSeen else {
-            // First measurement after startup: start right away if we are already on a known network.
-            lastSeen = .some(network)
-            if let network { emit(network, .start) }
+            // First measurement after startup: start right away if we are already
+            // on a known network or at a known location.
+            lastSeen = .some(context)
+            if let context { emit(context, .start) }
             return
         }
-        guard previous != network else { return }
+        guard previous != context else { return }
 
-        lastSeen = .some(network)
+        lastSeen = .some(context)
         if let previous { emit(previous, .stop) }
-        if let network { emit(network, .start) }
+        if let context { emit(context, .start) }
     }
 
     /// Name of the wired connection the Mac is on, taken from the primary
@@ -155,8 +178,8 @@ final class WifiWatcher: NSObject, ObservableObject {
         return nil
     }
 
-    private func emit(_ network: String, _ kind: EventKind) {
-        onEvent?(ContextEvent(context: network, kind: kind, at: Date(), source: .wifi))
+    private func emit(_ context: String, _ kind: EventKind) {
+        onEvent?(ContextEvent(context: context, kind: kind, at: Date(), source: source == .location ? .location : .wifi))
     }
 }
 
@@ -165,6 +188,20 @@ extension WifiWatcher: CLLocationManagerDelegate {
         Task { @MainActor in
             self.updateAccess()
             self.poll()
+        }
+    }
+
+    /// Every location update is mapped to the client there, if any, and then
+    /// treated exactly like a network change.
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let coordinate = locations.last?.coordinate else { return }
+        let latitude = coordinate.latitude
+        let longitude = coordinate.longitude
+        Task { @MainActor in
+            guard self.source == .location else { return }
+            self.latitude = latitude
+            self.longitude = longitude
+            self.apply(self.resolveLocationContext?(latitude, longitude))
         }
     }
 }

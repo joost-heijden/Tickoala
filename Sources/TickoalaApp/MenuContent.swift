@@ -26,11 +26,25 @@ struct MenuContent: View {
         }
 
         Section("Network") {
+            Picker("Detect by", selection: $model.presenceSource) {
+                ForEach(PresenceSource.allCases, id: \.self) { source in
+                    Text(source.label).tag(source)
+                }
+            }
+
             if let explanation = model.wifi.access.explanation {
                 Text("⚠︎ \(explanation)")
                 Button("Grant Location Services access") {
                     NSApp.activate(ignoringOtherApps: true)
                     model.wifi.requestAccess()
+                }
+            } else if model.presenceSource == .location {
+                if let name = model.currentLocationName {
+                    Text("Location: \(name)")
+                } else if model.wifi.latitude != nil {
+                    Text("Not at a stored location")
+                } else {
+                    Text("Waiting for a location fix…")
                 }
             } else if let ssid = model.wifi.currentSSID {
                 Text("Network: \(ssid)\(model.isKnownNetwork(ssid) ? "" : " (not linked)")")
@@ -62,6 +76,19 @@ struct MenuContent: View {
                     }
                 }
                 Button("Cancel") { model.cancelWifiProjectSelection() }
+            }
+
+            if let pending = model.pendingNetworkSwitch {
+                Divider()
+                Text("Network changed to \(model.displayContext(pending.context))")
+                    .font(.headline)
+                Text("Now running: \(pending.runningLabel)")
+                Button("Keep \(pending.runningLabel) running") {
+                    model.keepRunningAfterNetworkSwitch()
+                }
+                Button("Start a new block at \(model.displayContext(pending.context))") {
+                    model.startNewBlockAfterNetworkSwitch()
+                }
             }
         }
 

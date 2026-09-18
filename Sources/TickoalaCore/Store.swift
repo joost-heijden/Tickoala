@@ -181,6 +181,34 @@ public final class Store {
         )
     }
 
+    /// Stores the coordinates and radius that mark a client's location. A hidden
+    /// `geo:<id>` context is linked so a location signal resolves to this profile
+    /// exactly like a network name. `nil` coordinates clear it again.
+    public func updateProfileLocation(id: Int64, latitude: Double?, longitude: Double?, radiusMeters: Int) throws {
+        guard try profile(id: id) != nil else { throw TrackerError.unknownProfile(String(id)) }
+        let radius = max(20, radiusMeters)
+        let marker = "geo:\(id)"
+        if let latitude, let longitude {
+            try database.run(
+                "UPDATE profiles SET latitude = ?, longitude = ?, presence_radius_m = ? WHERE id = ?;",
+                [.double(latitude), .double(longitude), .int(Int64(radius)), .int(id)]
+            )
+            try database.run(
+                "INSERT OR IGNORE INTO profile_contexts (profile_id, context_name, created_at) VALUES (?, ?, ?);",
+                [.int(id), .text(marker), .int(Int64(Date().timeIntervalSince1970))]
+            )
+        } else {
+            try database.run(
+                "UPDATE profiles SET latitude = NULL, longitude = NULL, presence_radius_m = ? WHERE id = ?;",
+                [.int(Int64(radius)), .int(id)]
+            )
+            try database.run(
+                "DELETE FROM profile_contexts WHERE profile_id = ? AND context_name = ?;",
+                [.int(id), .text(marker)]
+            )
+        }
+    }
+
     // MARK: - Wi-Fi contexts
 
     public func contexts(profileId: Int64) throws -> [String] {
@@ -569,7 +597,10 @@ public final class Store {
             vatNumber: row.string("vat_number"),
             vatRatePercent: Int(row.int("vat_rate_percent") ?? 21),
             poNumber: row.string("po_number"),
-            billingEmail: row.string("billing_email")
+            billingEmail: row.string("billing_email"),
+            latitude: row.double("latitude"),
+            longitude: row.double("longitude"),
+            presenceRadiusMeters: Int(row.int("presence_radius_m") ?? 150)
         )
     }
 

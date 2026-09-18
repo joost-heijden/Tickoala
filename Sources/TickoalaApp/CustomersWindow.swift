@@ -97,6 +97,7 @@ private struct CustomerForm: View {
     @State private var vatRate = 21
     @State private var poNumber = ""
     @State private var billingEmail = ""
+    @State private var radius = 150
 
     var body: some View {
         ScrollView {
@@ -167,12 +168,12 @@ private struct CustomerForm: View {
                 }
 
                 FormSection(title: "Networks") {
-                    if profile.contexts.isEmpty {
+                    if profile.wifiContexts.isEmpty {
                         Text("No networks linked — the tracker will not start automatically.")
                             .font(.callout)
                             .foregroundStyle(.orange)
                     }
-                    ForEach(profile.contexts, id: \.self) { context in
+                    ForEach(profile.wifiContexts, id: \.self) { context in
                         HStack {
                             Image(systemName: "network")
                                 .foregroundStyle(.secondary)
@@ -198,6 +199,31 @@ private struct CustomerForm: View {
                                 .disabled(newContext.trimmingCharacters(in: .whitespaces).isEmpty)
                         }
                     }
+                }
+
+                FormSection(title: "Location") {
+                    if profile.hasLocation, let latitude = profile.latitude, let longitude = profile.longitude {
+                        Text(String(format: "%.5f, %.5f", latitude, longitude))
+                            .font(.system(.body, design: .monospaced))
+                        Stepper(value: $radius, in: 50...2000, step: 50) {
+                            Text("Radius: \(radius) m")
+                                .monospacedDigit()
+                        }
+                        .onChange(of: radius) { _ in
+                            model.applyCustomerLocation(
+                                id: profile.id, latitude: latitude, longitude: longitude, radiusMeters: radius
+                            )
+                        }
+                        Button("Clear location") { model.clearCustomerLocation(id: profile.id) }
+                    } else {
+                        Text("No location stored. Use this when the client has no linkable Wi-Fi network.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Button("Use current location") { model.setCustomerLocation(id: profile.id, radiusMeters: radius) }
+                    }
+                    Text("Only used when detection is set to Location.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 FormSection(title: "Projects") {
@@ -288,6 +314,7 @@ private struct CustomerForm: View {
         vatRate = profile.vatRatePercent
         poNumber = profile.poNumber ?? ""
         billingEmail = profile.billingEmail ?? ""
+        radius = profile.presenceRadiusMeters
         loaded = true
     }
 

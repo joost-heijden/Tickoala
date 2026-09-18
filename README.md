@@ -1,15 +1,16 @@
 # Tickoala
 
-**Automatic work-hours tracking for macOS, based on the Wi-Fi network you're on.**
+**Automatic work-hours tracking for macOS, based on the Wi-Fi network you're on or the place you're at.**
 
 ![platform](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey)
 ![swift](https://img.shields.io/badge/swift-6.0-orange)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
 
-Walk into a client's office, your Mac joins their Wi-Fi, and the timer starts.
-Leave, and it stops. No buttons, no browser tab, no account, no server — just a
-menu bar icon and a SQLite file on your own Mac.
+Walk into a client's office and the timer starts — because your Mac joins their
+Wi-Fi, or because you are within the location you stored for them. Leave, and it
+stops. No buttons, no browser tab, no account, no server — just a menu bar icon
+and a SQLite file on your own Mac.
 
 Built for consultants and contractors who work at more than one client and keep
 forgetting to start a timer.
@@ -24,7 +25,8 @@ Working  3:42
 
 Most time trackers want an account, a subscription and your data. The ones that
 don't still need you to remember to press start. Your Mac already knows where you
-are — it's connected to the client's Wi-Fi. Tickoala just uses that.
+are — it's connected to the client's Wi-Fi, or you saved the spot once. Tickoala
+just uses that.
 
 - **Nothing leaves your Mac on its own.** No account, no sync, no telemetry. The
   core features make no network access at all; the only request the app makes by
@@ -37,9 +39,16 @@ are — it's connected to the client's Wi-Fi. Tickoala just uses that.
 
 ## Features
 
-- **Automatic start/stop** when you join or leave a client's Wi-Fi network
+- **Automatic start/stop** when you join or leave a client's Wi-Fi network, or
+  when you arrive at or leave a stored location
+- **Detection by Wi-Fi or by location**, switchable in the menu; handy when you
+  hop between networks at the same place
 - **Multiple networks per client** — guest network, staff network, several
   offices; roaming between them doesn't split your work block
+- **Switch prompt** — moving to another client's network while a block runs asks
+  whether to keep the current project running or start a new block
+- **Undo and redo** with ⌘Z / ⇧⌘Z for every project and block change, including
+  deleting a project or block, adding one, editing one and inserting a break
 - **Multiple clients**, each with their own projects and settings
 - **Hourly rate per client**, in euro or dollar, with the resulting amounts shown
   in the overview and the CSV export
@@ -120,8 +129,11 @@ returns `<redacted>`, which is indistinguishable from "no Wi-Fi", so the app
 deliberately sends no signals at all rather than guessing — the menu bar tells you
 and offers a button to fix it.
 
-Your location is never requested, stored or transmitted. Only the network name is
-read, and only to match it against the clients you configured.
+The same permission covers location detection. Only when you switch **Detect by**
+to *Location* does the app read its own coordinates, and only to compare them with
+the locations you stored for your clients. That comparison happens entirely on your
+Mac: coordinates are never sent anywhere, and nothing is stored until you press
+**Use current location** for a client.
 
 > The app is ad-hoc signed locally, so macOS may ask again after you rebuild it.
 
@@ -147,10 +159,19 @@ projects…**, **Break settings…** and **Overview and corrections…**.
 Not sure what a network is called? Connect to it — the menu bar shows the current
 network and, if it isn't linked yet, offers to attach it to a client on the spot.
 
+Detection is set under **Network → Detect by** in the menu bar: *Wi-Fi network*
+(the default) or *Location*. For location, open **Manage customers** and press
+**Use current location** on a client; you can set the radius and clear it again.
+Switching networks at the same place then no longer looks like moving.
+
+When you arrive at another client while a block is still running, Tickoala asks
+first: keep the current project running, or start a new block there. The same
+question appears when only the network changed but the client did not.
+
 ## How it works
 
 ```
-Wi-Fi network changes
+Network or location changes
         ↓
 watcher turns it into a start/stop signal
         ↓
@@ -159,9 +180,11 @@ tracker validates it, applies the active project, writes to SQLite
 menu bar shows status and elapsed time
 ```
 
-The signal source is deliberately dumb: it only reports "joined X" or "left X".
-All the judgement lives in the tracker, which is what makes the behaviour
-predictable:
+The signal source is deliberately dumb: it only reports "joined X" or "left X" —
+where X is a network name, or a client's stored location when detection is set to
+*Location*. Distance is measured from your coordinates to each client that has a
+location, and the nearest one within its radius wins. All the judgement lives in
+the tracker, which is what makes the behaviour predictable:
 
 | Situation | Behaviour |
 | --- | --- |
@@ -172,7 +195,8 @@ predictable:
 | Leaving | the block keeps running for the rest of the day; it closes at the signal moment once the day is over |
 | Coming back the same day | the pending stop is cancelled, the same block continues |
 | Roaming between two networks of one client | the same block continues, no new block |
-| Leaving to another customer | the left block closes at its signal moment, the new one starts |
+| Detecting by location | the nearest stored client within its radius counts as the current context |
+| Leaving to another customer | Tickoala asks: keep the current project running, or start a new block at the new place |
 | Leaving with no timer running | log line only; never an empty or negative block |
 | Two client networks active at once | nothing is stopped automatically; you choose |
 | Mac asleep or shut down | no events invented; a block running over 16h is marked `open` for correction |
@@ -189,6 +213,19 @@ included if you'd rather drive it from something else:
 tickoala start --context "Acme-Guest"
 tickoala stop  --context "Acme-Guest"
 ```
+
+## Undo and corrections
+
+Everything you do to projects and blocks can be taken back with **⌘Z**, and put
+back with **⇧⌘Z**: adding or deleting a block, editing one, inserting a break, and
+adding, editing, activating or deleting a project. Deleting a project leaves its
+blocks in place but drops the project link; undoing the delete puts the project
+back and relinks those blocks.
+
+While the cursor is in a text field, ⌘Z takes back typing as usual. The menu bar
+shows what the next undo would be — **Undo Delete project**, for example. The
+Overview window is where you correct and add blocks by hand, with day, week and
+month totals.
 
 ## Break deduction
 

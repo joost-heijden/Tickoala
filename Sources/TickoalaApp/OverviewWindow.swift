@@ -188,6 +188,13 @@ struct OverviewWindow: View {
         HStack(spacing: 16) {
             Text("Total \(Formatting.duration(model.overviewTotal))  (\(Formatting.decimalHours(model.overviewTotal)) hours)")
                 .font(.headline)
+                .help("Net hours, after the automatic break deduction")
+
+            if model.overviewBreak > 0 {
+                Text("break −\(Formatting.duration(model.overviewBreak))")
+                    .foregroundStyle(.secondary)
+                    .help("Automatic break deduction, calculated per customer per day")
+            }
 
             if model.overviewAmountCents > 0 {
                 Text("Amount \(Formatting.money(cents: model.overviewAmountCents, currency: model.overviewCurrency))")
@@ -312,11 +319,14 @@ struct EntryEditor: View {
         _note = State(initialValue: row.entry.note ?? "")
         _projectId = State(initialValue: row.entry.projectId)
 
-        // By default a half hour of break around the middle, so something sensible
-        // is there immediately without the user having to calculate.
+        // By default the customer's configured break around the middle (half an
+        // hour when nothing is configured), so something sensible is there
+        // immediately without the user having to calculate.
+        let rule = model.breakRule(for: row.entry.profileId)
         let breakWindow = defaultBreak(
             start: Formatting.minute(row.entry.startedAt),
-            end: Formatting.minute(row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600))
+            end: Formatting.minute(row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600)),
+            minutes: rule.enabled ? rule.minutes : 30
         )
         _pauseStart = State(initialValue: breakWindow.start)
         _pauseEnd = State(initialValue: breakWindow.end)
@@ -427,11 +437,13 @@ struct AddEntrySheet: View {
         self.model = model
         self.profileId = profileId
         self.onClose = onClose
-        // A half hour of break around the middle, so a sensible default is there
-        // immediately without the user having to calculate.
+        // The customer's configured break around the middle (half an hour when
+        // nothing is configured), so a sensible default is there immediately
+        // without the user having to calculate.
         let begin = Formatting.calendar.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
         let finish = Formatting.calendar.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
-        let breakWindow = defaultBreak(start: begin, end: finish)
+        let rule = model.breakRule(for: profileId)
+        let breakWindow = defaultBreak(start: begin, end: finish, minutes: rule.enabled ? rule.minutes : 30)
         _pauseStart = State(initialValue: breakWindow.start)
         _pauseEnd = State(initialValue: breakWindow.end)
     }
@@ -478,7 +490,8 @@ struct AddEntrySheet: View {
         // With a changed start/end the break should still fall in the block.
         .onChange(of: hasBreak) { on in
             guard on, end > start else { return }
-            let window = defaultBreak(start: start, end: end)
+            let rule = model.breakRule(for: profileId)
+            let window = defaultBreak(start: start, end: end, minutes: rule.enabled ? rule.minutes : 30)
             pauseStart = window.start
             pauseEnd = window.end
         }
@@ -502,9 +515,9 @@ struct AddEntrySheet: View {
     }
 }
 
-/// A half hour of break around the middle of the block, clipped to the end.
-private func defaultBreak(start: Date, end: Date) -> (start: Date, end: Date) {
+/// The configured break around the middle of the block, clipped to the end.
+private func defaultBreak(start: Date, end: Date, minutes: Int) -> (start: Date, end: Date) {
     let middle = Formatting.minute(start.addingTimeInterval(end.timeIntervalSince(start) / 2))
-    let length = min(30 * 60, max(0, end.timeIntervalSince(middle)))
+    let length = min(TimeInterval(max(1, minutes) * 60), max(0, end.timeIntervalSince(middle)))
     return (middle, middle.addingTimeInterval(length))
 }

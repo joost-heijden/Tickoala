@@ -20,6 +20,17 @@ final class AppModel: ObservableObject {
     /// Which customer the Customers window shows and where the Projects open.
     @Published var selectedCustomerId: Int64?
 
+    /// Detect presence from the network name or from the Mac's location.
+    @Published var presenceSource: PresenceSource = .wifi {
+        didSet {
+            guard presenceSource != oldValue else { return }
+            UserDefaults.standard.set(presenceSource.rawValue, forKey: Self.presenceSourceKey)
+            wifi.source = presenceSource
+            refresh()
+        }
+    }
+    private static let presenceSourceKey = "presence-source"
+
     // Overview window
     @Published var period: ReportPeriod = .day {
         didSet { reloadOverview() }
@@ -31,7 +42,11 @@ final class AppModel: ObservableObject {
         didSet { reloadOverview() }
     }
     @Published private(set) var overviewEntries: [EntryRow] = []
+    /// Net hours of the shown period, after the automatic break deduction.
     @Published private(set) var overviewTotal: TimeInterval = 0
+    /// The automatic break deduction over the shown period, so the overview can
+    /// show why the total is lower than the sum of the blocks.
+    @Published private(set) var overviewBreak: TimeInterval = 0
     @Published private(set) var overviewByProject: [ProjectTotal] = []
     @Published private(set) var overviewByProfile: [ProfileTotal] = []
     @Published private(set) var overviewAmountCents: Int = 0
@@ -46,6 +61,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var lastWifiOutcome: String?
     /// An arrival where the organization has multiple active projects.
     @Published private(set) var pendingWifiProjectSelection: WifiProjectSelection?
+    /// A network change while a block runs elsewhere: continue or start new?
+    @Published private(set) var pendingNetworkSwitch: NetworkSwitch?
 
     /// Set on the first weekday of the month when there are hours to invoice; the
     /// menu bar label watches it and opens the invoices window once.
@@ -80,6 +97,15 @@ final class AppModel: ObservableObject {
         var projects: [Project]
     }
 
+    /// A change to another network while a block is running elsewhere. The user
+    /// decides whether the current project simply continues or a new block starts.
+    struct NetworkSwitch: Equatable {
+        var runningProfileId: Int64
+        var runningLabel: String
+        var context: String
+        var event: ContextEvent
+    }
+
     init() {
         do {
             tracker = Tracker(store: try Store(path: try Store.defaultDatabasePath()))
@@ -89,6 +115,14 @@ final class AppModel: ObservableObject {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
+        }
+
+        // Restore the chosen detection source before the watcher starts.
+        presenceSource = PresenceSource(rawValue: UserDefaults.standard.string(forKey: Self.presenceSourceKey) ?? "") ?? .wifi
+        wifi.source = presenceSource
+        // A coordinate only becomes a signal when it is near a stored location.
+        wifi.resolveLocationContext = { [weak self] latitude, longitude in
+            self?.locationContext(latitude: latitude, longitude: longitude)
         }
 
         // Every Wi-Fi network change becomes a normal context signal; the tracker
@@ -111,8 +145,21 @@ final class AppModel: ObservableObject {
         wifi.start()
     }
 
-    /// Processes a network signal and remembers the outcome for the menu.
+    /// Processes a network signal. A start on another network while a block runs
+    /// is not applied silently: the user first chooses continue or start new.
     private func handle(_ event: ContextEvent) {
+        guard let tracker else { return }
+        if event.kind == .start, let pending = networkSwitchChoice(for: event, tracker: tracker) {
+            pendingNetworkSwitch = pending
+            lastWifiOutcome = "\(Formatting.clock(event.at))  \(displayContext(event.context)) start: waiting for your choice"
+            refresh()
+            return
+        }
+        process(event)
+    }
+
+    /// Applies a signal the normal way; the tracker decides what happens.
+    private func process(_ event: ContextEvent) {
         guard let tracker else { return }
         do {
             let outcome = try tracker.handle(event)
@@ -139,6 +186,51 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// A change to another network while a block runs elsewhere needs a choice.
+    private func networkSwitchChoice(for event: ContextEvent, tracker: Tracker) -> NetworkSwitch? {
+        guard let running = try? tracker.store.runningEntries().first else { return nil }
+        // Same customer (roaming) continues silently and automatically.
+        if let newProfile = try? tracker.store.profile(context: event.context),
+           newProfile.id == running.profileId {
+            return nil
+        }
+        let runningProfile = try? tracker.store.profile(id: running.profileId)
+        let project = running.projectId.flatMap { try? tracker.store.project(id: $0) }
+        return NetworkSwitch(
+            runningProfileId: running.profileId,
+            runningLabel: "\(runningProfile?.name ?? "?") · \(project?.label ?? "no project")",
+            context: event.context,
+            event: event
+        )
+    }
+
+    /// Keep the current block running after a network change: undo the scheduled
+    /// stop and ignore the new network.
+    func keepRunningAfterNetworkSwitch() {
+        guard let pending = pendingNetworkSwitch, let tracker else { return }
+        do {
+            try tracker.cancelPendingStop(profileId: pending.runningProfileId)
+            pendingNetworkSwitch = nil
+            lastWifiOutcome = "\(Formatting.clock(pending.event.at))  \(displayContext(pending.context)) start: kept running"
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// Confirm the switch: close the old block and start on the new network.
+    func startNewBlockAfterNetworkSwitch() {
+        guard let pending = pendingNetworkSwitch else { return }
+        pendingNetworkSwitch = nil
+        process(pending.event)
+    }
+
+    /// A location context (`geo:<id>`) shows the customer's name instead.
+    func displayContext(_ context: String) -> String {
+        guard context.hasPrefix("geo:"), let id = Int64(context.dropFirst(4)) else { return context }
+        return (try? tracker?.store.profile(id: id))?.name ?? context
+    }
+
     var profiles: [ProfileStatus] { status?.profiles ?? [] }
 
     var menuBarTitle: String { status?.menuBarTitle ?? "–" }
@@ -153,6 +245,10 @@ final class AppModel: ObservableObject {
         do {
             try tracker.tick()
             status = try tracker.status()
+            // A prompt about a switch is worthless once nothing runs any more.
+            if pendingNetworkSwitch != nil, try tracker.store.runningEntries().isEmpty {
+                pendingNetworkSwitch = nil
+            }
             var active: [Int64: [Project]] = [:]
             var all: [Int64: [Project]] = [:]
             for item in try tracker.store.profiles(includeInactive: false) {
@@ -183,6 +279,51 @@ final class AppModel: ObservableObject {
     /// Does this network already belong to a customer?
     func isKnownNetwork(_ ssid: String) -> Bool {
         profiles.contains { $0.profile.contexts.contains { $0.caseInsensitiveCompare(ssid) == .orderedSame } }
+    }
+
+    /// The client context for a coordinate, if it lies within a stored radius.
+    private func locationContext(latitude: Double, longitude: Double) -> String? {
+        guard let tracker, let all = try? tracker.store.profiles() else { return nil }
+        return Geo.nearestProfile(to: latitude, longitude, profiles: all)?.geoContext
+    }
+
+    /// Name of the client the Mac is at, when detecting by location.
+    var currentLocationName: String? {
+        guard let context = wifi.currentSSID, context.hasPrefix("geo:") else { return nil }
+        return displayContext(context)
+    }
+
+    /// Marks a customer at the Mac's current position, for location detection.
+    func setCustomerLocation(id: Int64, radiusMeters: Int) {
+        guard let latitude = wifi.latitude, let longitude = wifi.longitude else {
+            errorMessage = "No location fix yet. Wait a moment and try again."
+            return
+        }
+        applyCustomerLocation(id: id, latitude: latitude, longitude: longitude, radiusMeters: radiusMeters)
+    }
+
+    /// Stores or updates a customer's coordinates and radius.
+    func applyCustomerLocation(id: Int64, latitude: Double, longitude: Double, radiusMeters: Int) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.updateProfileLocation(
+                id: id, latitude: latitude, longitude: longitude, radiusMeters: radiusMeters
+            )
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// Switches a customer back to network detection only.
+    func clearCustomerLocation(id: Int64) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.updateProfileLocation(id: id, latitude: nil, longitude: nil, radiusMeters: 150)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
     }
 
     /// Links the network the Mac is currently on to a customer, so the next
@@ -504,7 +645,8 @@ final class AppModel: ObservableObject {
                     currency: profile?.currency ?? .eur
                 )
             }
-            overviewTotal = report.total
+            overviewTotal = report.netTotal
+            overviewBreak = report.breakDeduction
             overviewByProject = report.byProject
             overviewByProfile = report.byProfile
             overviewAmountCents = report.amountCents
@@ -540,6 +682,12 @@ final class AppModel: ObservableObject {
 
     func projects(for profileId: Int64) -> [Project] {
         projectsPerProfile[profileId] ?? []
+    }
+
+    /// The break rule of a customer, so the correction forms can default to the
+    /// break that is configured for them.
+    func breakRule(for profileId: Int64) -> BreakRule {
+        profiles.first { $0.profile.id == profileId }?.profile.breakRule ?? .default
     }
 
     func updateEntry(id: Int64, projectId: Int64?, start: Date, end: Date?, note: String, status: EntryStatus) {

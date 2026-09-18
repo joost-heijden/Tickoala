@@ -59,6 +59,19 @@ public enum Currency: String, CaseIterable, Sendable {
     }
 }
 
+/// What decides whether you are at a client: the network name or a location.
+public enum PresenceSource: String, CaseIterable, Sendable {
+    case wifi
+    case location
+
+    public var label: String {
+        switch self {
+        case .wifi: return "Wi-Fi network"
+        case .location: return "Location"
+        }
+    }
+}
+
 /// An organization/profile. Can be linked to multiple ControlPlane contexts
 /// (Wi-Fi networks), for example a guest and a staff network at the same client.
 /// The hourly rate is stored in whole cents, so rounding errors never creep into
@@ -81,6 +94,11 @@ public struct Profile: Equatable, Identifiable, Sendable {
     public var poNumber: String?
     /// Where the invoice is emailed when you send it from the app.
     public var billingEmail: String?
+    /// Coordinates and radius that mark this client on the map, for location
+    /// detection. `nil` when the client is only recognised by network name.
+    public var latitude: Double?
+    public var longitude: Double?
+    public var presenceRadiusMeters: Int
 
     public init(
         id: Int64,
@@ -94,7 +112,10 @@ public struct Profile: Equatable, Identifiable, Sendable {
         vatNumber: String? = nil,
         vatRatePercent: Int = 21,
         poNumber: String? = nil,
-        billingEmail: String? = nil
+        billingEmail: String? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        presenceRadiusMeters: Int = 150
     ) {
         self.id = id
         self.name = name
@@ -108,6 +129,9 @@ public struct Profile: Equatable, Identifiable, Sendable {
         self.vatRatePercent = vatRatePercent
         self.poNumber = poNumber
         self.billingEmail = billingEmail
+        self.latitude = latitude
+        self.longitude = longitude
+        self.presenceRadiusMeters = presenceRadiusMeters
     }
 
     /// Is there a rate set that can be used for calculations?
@@ -119,9 +143,23 @@ public struct Profile: Equatable, Identifiable, Sendable {
         return Int((interval / 3600 * Double(hourlyRateCents)).rounded())
     }
 
+    /// The network contexts, without the hidden `geo:<id>` marker that location
+    /// detection uses.
+    public var wifiContexts: [String] {
+        contexts.filter { !$0.hasPrefix("geo:") }
+    }
+
+    /// Is a location stored for this client?
+    public var hasLocation: Bool { latitude != nil && longitude != nil }
+
+    /// The hidden context that lets a location signal resolve to this client, just
+    /// like a network name would.
+    public var geoContext: String { "geo:\(id)" }
+
     /// Display in lists: all linked Wi-Fi contexts on one line.
     public var contextsLabel: String {
-        contexts.isEmpty ? "(no Wi-Fi context)" : contexts.joined(separator: ", ")
+        if !wifiContexts.isEmpty { return wifiContexts.joined(separator: ", ") }
+        return hasLocation ? "location" : "(no Wi-Fi context)"
     }
 }
 
@@ -157,6 +195,8 @@ public enum EntryStatus: String, Sendable {
 public enum EntrySource: String, Sendable {
     /// The app itself saw a Wi-Fi network change.
     case wifi
+    /// The app itself saw the Mac arrive at or leave a stored location.
+    case location
     /// Supplied by an external helper via the adapter command.
     case controlplane
     case manual

@@ -186,7 +186,7 @@ func printStatus(_ arguments: Arguments) throws {
         for item in status.profiles {
             let fields: [String] = [
                 "\"profile\":\"\(jsonEscape(item.profile.name))\"",
-                "\"contexts\":\(jsonArray(item.profile.contexts))",
+                "\"contexts\":\(jsonArray(item.profile.wifiContexts))",
                 "\"mode\":\"\(item.mode.rawValue)\"",
                 "\"project\":\(item.project.map { "\"\(jsonEscape($0.label))\"" } ?? "null")",
                 "\"block_seconds\":\(Int(item.elapsedCurrent))",

@@ -124,6 +124,14 @@ enum Schema {
             UNIQUE (profile_id, period_start)
         );
         """,
+
+        // Optional location per client, for detection by place instead of by
+        // network name. A client without coordinates keeps working on Wi-Fi.
+        """
+        ALTER TABLE profiles ADD COLUMN latitude REAL;
+        ALTER TABLE profiles ADD COLUMN longitude REAL;
+        ALTER TABLE profiles ADD COLUMN presence_radius_m INTEGER NOT NULL DEFAULT 150;
+        """,
     ]
 
     static func migrate(_ database: Database) throws {

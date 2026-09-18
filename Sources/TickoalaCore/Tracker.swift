@@ -205,6 +205,15 @@ public final class Tracker {
         return closed
     }
 
+    /// Cancels a scheduled stop so the running block simply continues. Used when
+    /// the user wants to keep the current project after a network change.
+    public func cancelPendingStop(profileId: Int64) throws {
+        var state = try store.state(profileId: profileId)
+        state.pendingStopAt = nil
+        state.pendingStopEntryId = nil
+        try store.save(state)
+    }
+
     /// Closes the pending stop of one profile. While `force` is false the block
     /// keeps running as long as `now` is still the day of the stop signal, so a
     /// reconnect continues the same block. `force` is used when another project

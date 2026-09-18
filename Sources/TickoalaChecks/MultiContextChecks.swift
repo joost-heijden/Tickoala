@@ -83,6 +83,29 @@ func multiContextChecks() {
             expectEqual(try fixture.entries().count, 1, "no second block appeared")
         }
 
+        test("a scheduled stop can be cancelled so the block keeps running") {
+            let fixture = try Fixture()
+            let profile = try fixture.store.createProfile(name: "Acme", contexts: ["Acme-Guest"])
+            let project = try fixture.store.createProject(profileId: profile.id, number: "1", name: "Maintenance")
+            _ = try fixture.tracker.selectProject(profileId: profile.id, projectId: project.id)
+
+            _ = try fixture.tracker.handle(
+                ContextEvent(context: "Acme-Guest", kind: .start, at: at("2026-09-10 09:00")), now: at("2026-09-10 09:00")
+            )
+            _ = try fixture.tracker.handle(
+                ContextEvent(context: "Acme-Guest", kind: .stop, at: at("2026-09-10 12:00")), now: at("2026-09-10 12:00")
+            )
+            _ = try expectNotNil(fixture.store.state(profileId: profile.id).pendingStopAt)
+
+            try fixture.tracker.cancelPendingStop(profileId: profile.id)
+
+            let pending = try fixture.store.state(profileId: profile.id).pendingStopAt
+            expect(pending == nil, "the scheduled stop is gone")
+            try fixture.tracker.tick(now: at("2026-09-10 12:05"))
+            let entry = try expectNotNil(try fixture.store.entry(id: 1))
+            expectEqual(entry.status, .running, "the block keeps running")
+        }
+
         test("CSV export shows all linked contexts of the profile") {
             let fixture = try Fixture()
             let profile = try fixture.store.createProfile(name: "Acme", contexts: ["Acme-Guest", "Acme-Staff"])

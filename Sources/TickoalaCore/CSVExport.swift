@@ -63,7 +63,7 @@ public enum CSVExport {
                     // The context column shows all Wi-Fi contexts of the profile, not
                     // necessarily the specific SSID that started this block (that is
                     // in the event log).
-                    profile?.contexts.joined(separator: "; ") ?? "",
+                    profile?.wifiContexts.joined(separator: "; ") ?? "",
                     project?.number ?? "",
                     project?.name ?? "",
                     Formatting.day(entry.startedAt),
@@ -94,7 +94,7 @@ public enum CSVExport {
                     fields: [
                         "",
                         profile?.name ?? "",
-                        profile?.contexts.joined(separator: "; ") ?? "",
+                        profile?.wifiContexts.joined(separator: "; ") ?? "",
                         "",
                         "",
                         Formatting.day(key.day),

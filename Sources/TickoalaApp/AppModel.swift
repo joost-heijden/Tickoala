@@ -1077,15 +1077,24 @@ final class AppModel: ObservableObject {
     /// Builds the invoice for one customer and the invoiced month. Allocates the
     /// number the first time and reuses it afterwards.
     func makeInvoice(profileId: Int64, poNumber: String?) -> Invoice? {
+        makeInvoice(profileId: profileId, period: invoicePeriod, poNumber: poNumber)
+    }
+
+    /// The same, for any month: what the history list uses to rebuild an old one.
+    func makeInvoice(profileId: Int64, period: DateRange, poNumber: String?) -> Invoice? {
         guard let tracker else { return nil }
         do {
             return try Invoicing.invoice(
-                store: tracker.store, profileId: profileId, period: invoicePeriod, poNumber: poNumber
+                store: tracker.store, profileId: profileId, period: period, poNumber: poNumber
             )
         } catch {
             errorMessage = "\(error)"
             return nil
         }
+    }
+
+    func profile(id: Int64) -> Profile? {
+        try? tracker?.store.profile(id: id)
     }
 
     func write(_ invoice: Invoice, to url: URL) -> Bool {
@@ -1162,9 +1171,12 @@ final class AppModel: ObservableObject {
     }
 
     func exportMonthlyCSV(profileId: Int64, to url: URL) -> Bool {
+        exportMonthlyCSV(profileId: profileId, period: invoicePeriod, to: url)
+    }
+
+    func exportMonthlyCSV(profileId: Int64, period: DateRange, to url: URL) -> Bool {
         guard let tracker else { return false }
         do {
-            let period = invoicePeriod
             let csv = try CSVExport.export(
                 store: tracker.store, from: period.start, to: period.end, profileId: profileId
             )

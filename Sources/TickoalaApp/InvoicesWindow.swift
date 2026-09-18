@@ -117,8 +117,9 @@ struct InvoicesWindow: View {
         .padding(10)
     }
 
-    /// Every invoice ever issued, so past months stay findable. Clicking a row
-    /// jumps the window to that month.
+    /// Every invoice ever issued, so past months stay findable. Clicking the row
+    /// jumps the window to that month; the buttons rebuild the PDF, export the
+    /// hours, or send the invoice again.
     @ViewBuilder
     private var historySection: some View {
         let invoices = model.issuedInvoices()
@@ -126,29 +127,41 @@ struct InvoicesWindow: View {
             DisclosureGroup(isExpanded: $showHistory) {
                 VStack(spacing: 0) {
                     ForEach(invoices) { invoice in
-                        Button {
-                            model.showInvoiceMonth(invoice.periodStart)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text(String(Formatting.day(invoice.periodStart).prefix(7)))
-                                    .monospacedDigit()
-                                    .frame(width: 64, alignment: .leading)
-                                Text(invoice.profileName).lineLimit(1)
-                                Spacer()
-                                Text("Invoice \(invoice.number)")
-                                    .foregroundStyle(.secondary)
-                                Text(Formatting.money(cents: invoice.totalCents, currency: invoice.currency))
-                                    .monospacedDigit()
-                                    .frame(width: 100, alignment: .trailing)
-                                Text(Formatting.day(invoice.issuedAt))
-                                    .foregroundStyle(.secondary)
-                                    .monospacedDigit()
-                                    .frame(width: 90, alignment: .trailing)
+                        HStack(spacing: 8) {
+                            Button {
+                                model.showInvoiceMonth(invoice.periodStart)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Text(String(Formatting.day(invoice.periodStart).prefix(7)))
+                                        .monospacedDigit()
+                                        .frame(width: 64, alignment: .leading)
+                                    Text(invoice.profileName).lineLimit(1)
+                                    Spacer(minLength: 8)
+                                    Text("Invoice \(invoice.number)")
+                                        .foregroundStyle(.secondary)
+                                    Text(Formatting.money(cents: invoice.totalCents, currency: invoice.currency))
+                                        .monospacedDigit()
+                                        .frame(width: 100, alignment: .trailing)
+                                    Text(Formatting.day(invoice.issuedAt))
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                        .frame(width: 90, alignment: .trailing)
+                                }
+                                .contentShape(Rectangle())
                             }
-                            .contentShape(Rectangle())
-                            .padding(.vertical, 3)
+                            .buttonStyle(.plain)
+                            .help("Show the month of this invoice")
+
+                            if sendingId == invoice.profileId {
+                                ProgressView().controlSize(.small)
+                            }
+                            Button("PDF…") { saveHistoryPDF(invoice) }
+                            Button("CSV…") { exportHistoryCSV(invoice) }
+                            Button("Resend…") { resendHistory(invoice) }
                         }
-                        .buttonStyle(.plain)
+                        .controlSize(.small)
+                        .disabled(sendingId != nil)
+                        .padding(.vertical, 3)
                         Divider()
                     }
                 }
@@ -288,6 +301,48 @@ struct InvoicesWindow: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         if model.exportMonthlyCSV(profileId: candidate.profile.id, to: url) {
             status = "CSV saved."
+        }
+    }
+
+    private func historyPeriod(_ invoice: Store.IssuedInvoice) -> DateRange {
+        Reporting.range(.month, containing: invoice.periodStart)
+    }
+
+    private func saveHistoryPDF(_ item: Store.IssuedInvoice) {
+        guard let invoice = model.makeInvoice(
+            profileId: item.profileId, period: historyPeriod(item), poNumber: item.poNumber
+        ) else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "invoice-\(item.number)-\(safeName(item.profileName)).pdf"
+        panel.message = "Save the invoice for \(item.profileName)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if model.write(invoice, to: url) {
+            status = "Invoice \(invoice.number) saved."
+            NSWorkspace.shared.open(url)
+        }
+        model.refresh()
+        loadFields()
+    }
+
+    private func exportHistoryCSV(_ item: Store.IssuedInvoice) {
+        let month = String(Formatting.day(item.periodStart).prefix(7))
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.nameFieldStringValue = "hours-\(safeName(item.profileName))-\(month).csv"
+        panel.message = "Export the hours of \(item.profileName) for \(month)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if model.exportMonthlyCSV(profileId: item.profileId, period: historyPeriod(item), to: url) {
+            status = "CSV saved."
+        }
+    }
+
+    private func resendHistory(_ item: Store.IssuedInvoice) {
+        model.showInvoiceMonth(item.periodStart)
+        if let candidate = model.invoiceCandidates().first(where: { $0.id == item.profileId }) {
+            sendTarget = candidate
+        } else {
+            status = "No invoice to rebuild for \(item.profileName)."
         }
     }
 

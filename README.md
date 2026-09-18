@@ -18,9 +18,10 @@ Built for consultants and contractors who work at more than one client and keep
 forgetting to start a timer.
 
 ```
-Working  3:42
-  Acme [Acme-Guest] — Working   project: 2401 — Data migration
-  today 6:15 · week 28:30   (net; break today -0:30)
+3:42
+  Customer: Acme
+  Working 3:42   project: 2401 — Data migration
+  Today 6:15 · Week 28:30   (net; break today -0:30)
 ```
 
 ## Why
@@ -71,7 +72,13 @@ just uses that.
 - **CSV export** for invoicing
 - **Monthly invoice reminder** on the first weekday of the month
 - **PDF invoices** with VAT, PO number, your logo and a running invoice number
-- **Email invoices** straight from the app over SMTP, with the PDF attached
+- **Invoice history** — every invoice ever issued, with a click to jump to its
+  month and buttons to rebuild the PDF, export the hours or send it again
+- **Email invoices** straight from the app over SMTP, with the PDF attached and
+  optionally the hours CSV
+- **Optional running month revenue** next to the menu bar icon and per customer
+  in the menu — a per-second total of what you have earned this month; off by
+  default under **Settings → General**
 - **First-run welcome screen** with a one-click toggle to launch at login
 - **Full command-line interface** for everything the app does
 
@@ -166,11 +173,13 @@ tickoala location set --profile "Acme" --lat 52.37000 --lon 4.89000 --radius 200
 ```
 
 All of this can also be done from the windows: **Manage customers**, **Manage
-projects…**, **Overview and corrections…**, and under **Settings** the break
-rule, invoices, detection and updates. The menu bar itself keeps the daily work —
-the status per client, Start/Pause/Stop, **Overview**, **Invoices** and
-**Settings** — and **Open Tickoala** opens the hub with the same status per
-client plus the way into every window.
+projects**, **Overview and corrections**, and under **Settings** the general
+options, break rule, invoices, detection and updates. The menu bar itself keeps
+the daily work — the status per client, Start/Pause/Stop, **Overview**,
+**Invoices** and **Settings** — and **Open Tickoala** opens the hub with the
+same status per client plus the way into every window. While a window is open
+Tickoala also takes a Dock icon and its own menu bar; close the last window and
+it becomes a pure menu bar app again.
 
 Not sure what a network is called? Connect to it — the menu bar shows the current
 network and, if it isn't linked yet, offers to attach it to a client on the spot.
@@ -314,6 +323,11 @@ export gains three columns, `hourly_rate`, `amount` and `currency`, next to ever
 block; the break row carries a negative amount so the `amount` column adds up to
 the net total. Clients without a rate simply produce no amounts.
 
+If you like to watch it grow, turn on the running month revenue under
+**Settings → General**: the same amount for the current month then sits next to
+the menu bar icon and per customer in the menu, counting up every second while a
+block runs. Both are off by default.
+
 ## Invoices
 
 On the **first weekday of every month** (if the 1st falls on a Saturday or
@@ -326,9 +340,10 @@ address, and for each one you can:
   VAT and the total.
 - **Export CSV…** — the same month's hours as a CSV, for your own bookkeeping.
 - **Approve & send** — emails the invoice PDF to the customer, after a
-  confirmation.
+  confirmation. Tick **Include hours CSV** to attach that month's hours as well;
+  you can set that as the default under **Settings → Invoices**.
 
-The window is always available from the menu (**Invoices…**, ⌘I), at any moment
+The window is always available from the menu (**Invoices**, ⌘I), at any moment
 of the month. Opened that way it starts on the current month, so the hours
 booked so far can be invoiced straight away; the reminder keeps starting on the
 month that just ended. The arrows next to the month move it either way, so any
@@ -344,6 +359,11 @@ address.
 Invoice numbers are handed out once per customer per month and never repeat:
 reopening the same month keeps its number, and the counter skips any number that
 already exists after a manual edit.
+
+Below the customer list, **Invoice history** shows every invoice ever issued
+with its month, customer, number, total and issue date. Click a row to jump the
+window to that month, or use its **PDF…**, **CSV…** or **Resend…** buttons to
+rebuild the document, export the hours or send the invoice again.
 
 ### Sending by email
 
@@ -397,8 +417,8 @@ swift build && .build/debug/TickoalaChecks
 The suite covers start, stop, pause, resume, duplicate events, brief dropouts, two
 clients at once, multiple networks per client, project linking, switching and
 renumbering, unique project numbers, break deduction, restarting with an open
-timer, day/week/month totals and CSV export, and runs the real CLI as a separate
-process.
+timer, day/week/month totals, CSV export, invoicing, the running month revenue,
+and runs the real CLI as a separate process.
 
 It runs as a plain executable rather than through `swift test`: XCTest and
 swift-testing ship with full Xcode, not with the Command Line Tools, and this

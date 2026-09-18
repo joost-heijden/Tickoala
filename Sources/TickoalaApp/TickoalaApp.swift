@@ -80,31 +80,37 @@ private struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        TickoalaMenuBarIcon(mode: model.status?.mode ?? .stopped)
-            .task {
-                guard !UserDefaults.standard.bool(forKey: AppDelegate.welcomeSeenKey) else { return }
-                UserDefaults.standard.set(true, forKey: AppDelegate.welcomeSeenKey)
-                // Give the scenes a beat to come up before opening a window.
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                NSApp.activateForUI()
-                openWindow(id: "welcome")
+        HStack(spacing: 4) {
+            TickoalaMenuBarIcon(mode: model.status?.mode ?? .stopped)
+            if let earnings = model.menuBarEarnings {
+                Text(earnings)
+                    .monospacedDigit()
             }
-            // On the first weekday of the month the model asks for the invoices
-            // window; open it once, then acknowledge.
-            .onChange(of: model.shouldOpenInvoices) { shouldOpen in
-                guard shouldOpen else { return }
-                NSApp.activateForUI()
-                openWindow(id: "invoices")
-                model.acknowledgeInvoiceReminder()
-            }
-            // Clicking the Dock icon while a window is open asks for Settings;
-            // bringing the window back is all that is needed.
-            .onChange(of: model.shouldOpenSettings) { shouldOpen in
-                guard shouldOpen else { return }
-                NSApp.activateForUI()
-                openWindow(id: "settings")
-                model.acknowledgeSettingsWindow()
-            }
+        }
+        .task {
+            guard !UserDefaults.standard.bool(forKey: AppDelegate.welcomeSeenKey) else { return }
+            UserDefaults.standard.set(true, forKey: AppDelegate.welcomeSeenKey)
+            // Give the scenes a beat to come up before opening a window.
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            NSApp.activateForUI()
+            openWindow(id: "welcome")
+        }
+        // On the first weekday of the month the model asks for the invoices
+        // window; open it once, then acknowledge.
+        .onChange(of: model.shouldOpenInvoices) { shouldOpen in
+            guard shouldOpen else { return }
+            NSApp.activateForUI()
+            openWindow(id: "invoices")
+            model.acknowledgeInvoiceReminder()
+        }
+        // Clicking the Dock icon while a window is open asks for Settings;
+        // bringing the window back is all that is needed.
+        .onChange(of: model.shouldOpenSettings) { shouldOpen in
+            guard shouldOpen else { return }
+            NSApp.activateForUI()
+            openWindow(id: "settings")
+            model.acknowledgeSettingsWindow()
+        }
     }
 }
 

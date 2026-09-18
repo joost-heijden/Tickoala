@@ -53,6 +53,14 @@ private struct GeneralSettings: View {
                 }
             }
 
+            Section("Month revenue") {
+                Toggle("Show this month's revenue next to the menu bar icon", isOn: $model.showEarningsInIcon)
+                Toggle("Show this month's revenue per customer in the menu", isOn: $model.showEarningsInMenu)
+                Text("The amount counts up every second while you work. Both are off by default.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Onboarding") {
                 Button("Show welcome screen") {
                     NSApp.activateForUI()

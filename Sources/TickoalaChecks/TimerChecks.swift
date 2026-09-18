@@ -240,5 +240,20 @@ func timerChecks() {
             expectEqual(status.menuBarTitle, "1:35")
             expectEqual(status.primary?.project?.label, "2401 — Migration")
         }
+
+        test("the month revenue counts the running block at the customer's rate") {
+            let fixture = try Fixture()
+            let profile = try fixture.store.createProfile(
+                name: "Organization C", contexts: ["Office C"], hourlyRateCents: 10_000
+            )
+            try fixture.project(profile)
+            _ = try fixture.event("Office C", .start, "2026-09-10 09:00")
+
+            let status = try fixture.tracker.status(now: at("2026-09-10 10:35"))
+            let item = try expectNotNil(status.profiles.first { $0.profile.id == profile.id })
+
+            expectEqual(item.monthTotal, 95 * 60, "net hours this month")
+            expectEqual(item.monthAmountCents, 15_833, "amount at 100 euro per hour")
+        }
     }
 }

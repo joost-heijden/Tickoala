@@ -51,6 +51,10 @@ struct MenuContent: View {
             Section(item.profile.name) {
                 Text(item.statusHeadline)
                 Text("Today \(Formatting.duration(item.todayTotal))  ·  Week \(Formatting.duration(item.weekTotal))")
+                if model.showEarningsInMenu {
+                    Text("Month \(Formatting.money(cents: item.monthAmountCents, currency: item.profile.currency))")
+                        .monospacedDigit()
+                }
                 if item.todayBreak > 0 {
                     Text("Net, break today -\(Formatting.duration(item.todayBreak))")
                 }
@@ -106,7 +110,7 @@ struct MenuContent: View {
         }
         .keyboardShortcut("o")
 
-        Button("Invoices…") {
+        Button("Invoices") {
             NSApp.activateForUI()
             model.showCurrentInvoiceMonth()
             openWindow(id: "invoices")

@@ -32,6 +32,25 @@ final class AppModel: ObservableObject {
     }
     private static let presenceSourceKey = "presence-source"
 
+    /// Gimmick: show the current month's revenue next to the menu bar icon. Off
+    /// by default; the option lives in Settings.
+    @Published var showEarningsInIcon = false {
+        didSet {
+            guard showEarningsInIcon != oldValue else { return }
+            UserDefaults.standard.set(showEarningsInIcon, forKey: Self.showEarningsInIconKey)
+        }
+    }
+    private static let showEarningsInIconKey = "menu-bar-earnings"
+
+    /// Gimmick: show the current month's revenue per customer in the menu.
+    @Published var showEarningsInMenu = false {
+        didSet {
+            guard showEarningsInMenu != oldValue else { return }
+            UserDefaults.standard.set(showEarningsInMenu, forKey: Self.showEarningsInMenuKey)
+        }
+    }
+    private static let showEarningsInMenuKey = "menu-earnings"
+
     // Overview window
     @Published var period: ReportPeriod = .day {
         didSet { reloadOverview() }
@@ -134,6 +153,10 @@ final class AppModel: ObservableObject {
         // Restore the chosen detection source before the watcher starts.
         presenceSource = PresenceSource(rawValue: UserDefaults.standard.string(forKey: Self.presenceSourceKey) ?? "") ?? .wifi
         wifi.source = presenceSource
+
+        // Both revenue gimmicks are off unless the user ticked them in Settings.
+        showEarningsInIcon = UserDefaults.standard.bool(forKey: Self.showEarningsInIconKey)
+        showEarningsInMenu = UserDefaults.standard.bool(forKey: Self.showEarningsInMenuKey)
         // A coordinate only becomes a signal when it is near a stored location.
         wifi.resolveLocationContext = { [weak self] latitude, longitude in
             self?.locationContext(latitude: latitude, longitude: longitude)
@@ -266,6 +289,14 @@ final class AppModel: ObservableObject {
     var menuBarTitle: String { status?.menuBarTitle ?? "–" }
 
     var menuBarSymbol: String { (status?.mode ?? .stopped).symbol }
+
+    /// The month revenue to show next to the icon, `nil` when the option is off
+    /// or there is nothing to show. It grows every second while a block runs,
+    /// because each `refresh()` measures the running block up to now.
+    var menuBarEarnings: String? {
+        guard showEarningsInIcon, let primary = status?.primary else { return nil }
+        return Formatting.money(cents: primary.monthAmountCents, currency: primary.profile.currency)
+    }
 
     /// Once per second: finalize delayed stops and refresh the status.
     func refresh() {

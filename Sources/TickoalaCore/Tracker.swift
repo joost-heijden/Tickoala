@@ -36,10 +36,15 @@ public struct ProfileStatus: Sendable {
     /// Net, so after deducting the automatic break.
     public var todayTotal: TimeInterval
     public var weekTotal: TimeInterval
+    /// Net hours booked in the current month, up to now. Grows while a block runs.
+    public var monthTotal: TimeInterval
     /// What was automatically deducted today/this week; 0 if the rule is off.
     public var todayBreak: TimeInterval
     public var weekBreak: TimeInterval
     public var attention: String?
+
+    /// This month's revenue at the customer's rate, for the running-total gimmick.
+    public var monthAmountCents: Int { profile.amountCents(for: monthTotal) }
 }
 
 public struct TrackerStatus: Sendable {
@@ -398,6 +403,9 @@ public final class Tracker {
             let weekReport = try Reporting.report(
                 store: store, period: .week, containing: now, profileId: profile.id, now: now
             )
+            let monthReport = try Reporting.report(
+                store: store, period: .month, containing: now, profileId: profile.id, now: now
+            )
             statuses.append(ProfileStatus(
                 profile: profile,
                 project: project,
@@ -407,6 +415,7 @@ public final class Tracker {
                 elapsedCurrent: running?.duration(now: now) ?? 0,
                 todayTotal: todayReport.netTotal,
                 weekTotal: weekReport.netTotal,
+                monthTotal: monthReport.netTotal,
                 todayBreak: todayReport.breakDeduction,
                 weekBreak: weekReport.breakDeduction,
                 attention: state.attention

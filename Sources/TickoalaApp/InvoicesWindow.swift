@@ -14,6 +14,7 @@ struct InvoicesWindow: View {
     @State private var status: String?
     @State private var sendingId: Int64?
     @State private var sendTarget: AppModel.InvoiceCandidate?
+    @State private var deleteTarget: Store.IssuedInvoice?
     @State private var showHistory = true
 
     var body: some View {
@@ -58,6 +59,19 @@ struct InvoicesWindow: View {
             Text(includeCSV(sendTarget)
                 ? "The invoice PDF and the hours CSV are attached. This cannot be undone."
                 : "The invoice PDF is attached. This cannot be undone.")
+        }
+        .alert(
+            "Delete invoice \(deleteTarget?.number ?? "")?",
+            isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } })
+        ) {
+            Button("Delete", role: .destructive) {
+                if let target = deleteTarget { model.deleteInvoice(target) }
+                deleteTarget = nil
+                status = "Invoice removed from the history."
+            }
+            Button("Cancel", role: .cancel) { deleteTarget = nil }
+        } message: {
+            Text("Removes it from the history. The recorded hours stay, so you can issue it again.")
         }
     }
 
@@ -158,6 +172,12 @@ struct InvoicesWindow: View {
                             Button("PDF…") { saveHistoryPDF(invoice) }
                             Button("CSV…") { exportHistoryCSV(invoice) }
                             Button("Resend…") { resendHistory(invoice) }
+                            Button {
+                                deleteTarget = invoice
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .help("Delete this invoice from the history")
                         }
                         .controlSize(.small)
                         .disabled(sendingId != nil)

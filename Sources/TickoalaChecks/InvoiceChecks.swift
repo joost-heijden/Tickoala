@@ -169,6 +169,14 @@ func invoiceChecks() {
             expectEqual(history.first?.profileName, "Organization A")
             expectEqual(Formatting.day(history.first?.periodStart ?? Date()), "2026-08-01")
             expectEqual(history.first?.currency, .eur)
+
+            try fixture.store.deleteInvoice(number: "0001")
+            expectEqual(try fixture.store.issuedInvoices().map(\.number), ["0002"], "the deleted one is gone")
+            expectEqual(
+                try fixture.store.issuedInvoiceNumber(profileId: fixture.profileB.id, periodStart: july.start),
+                nil,
+                "its number is no longer allocated"
+            )
         }
     }
 }

@@ -446,6 +446,12 @@ extension Store {
         }
     }
 
+    /// Removes an issued invoice from the history. The recorded hours stay; only
+    /// the stored number and its allocation go away.
+    public func deleteInvoice(number: String) throws {
+        try database.run("DELETE FROM invoices WHERE number = ?;", [.text(number)])
+    }
+
     /// The number already handed out for this client and month, if any.
     public func issuedInvoiceNumber(profileId: Int64, periodStart: Date) throws -> String? {
         try database.query(

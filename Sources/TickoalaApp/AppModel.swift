@@ -1105,6 +1105,17 @@ final class AppModel: ObservableObject {
         invoicePeriod = Reporting.range(.month, containing: date)
     }
 
+    /// Removes one invoice from the history. The hours remain.
+    func deleteInvoice(_ invoice: Store.IssuedInvoice) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.deleteInvoice(number: invoice.number)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
     /// Builds the invoice for one customer and the invoiced month. Allocates the
     /// number the first time and reuses it afterwards.
     func makeInvoice(profileId: Int64, poNumber: String?) -> Invoice? {

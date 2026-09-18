@@ -27,21 +27,65 @@ cp "$binaries/tickoala" "$app/Contents/Helpers/tickoala"
 bundle="Tickoala_TickoalaApp.bundle"
 cp "$binaries/$bundle/"* "$app/Contents/Resources/"
 
-# App icon: a square master PNG is turned into a real .icns, so Finder,
-# notifications and the About panel show the logo instead of a placeholder. A
-# checkout without the master still builds; that key is then simply absent.
+# App icon. Modern macOS reads it from a compiled asset catalog, so a square
+# master PNG is turned into Assets.car (and an .icns for older paths). Without
+# the master, or without actool on the machine, the build still succeeds; the
+# icon keys are then simply absent.
 icon_source="$root/design/AppIcon.png"
 if [ -f "$icon_source" ]; then
-    iconset="$(mktemp -d)/AppIcon.iconset"
-    mkdir -p "$iconset"
-    for pair in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" \
-                "128 128x128" "256 128x128@2x" "256 256x256" "512 256x256@2x" \
-                "512 512x512" "1024 512x512@2x"; do
-        read -r size name <<< "$pair"
-        sips -z "$size" "$size" "$icon_source" --out "$iconset/icon_$name.png" >/dev/null
+    # actool only ships with a full Xcode. `xcode-select -p` can point at the
+    # Command Line Tools (for example when DEVELOPER_DIR is set for the build), so
+    # the Xcode app itself is a candidate too.
+    actool=""
+    for candidate in "$(xcode-select -p 2>/dev/null)/usr/bin/actool" \
+                     "/Applications/Xcode.app/Contents/Developer/usr/bin/actool"; do
+        if [ -x "$candidate" ]; then actool="$candidate"; break; fi
     done
-    iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
-    rm -rf "$(dirname "$iconset")"
+    icons=("16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" \
+           "128 128x128" "256 128x128@2x" "256 256x256" "512 256x256@2x" \
+           "512 512x512" "1024 512x512@2x")
+    if [ -n "$actool" ]; then
+        assets="$(mktemp -d)"
+        folder="$assets/Assets.xcassets/AppIcon.appiconset"
+        mkdir -p "$folder"
+        printf '{"info":{"author":"xcode","version":1}}' > "$assets/Assets.xcassets/Contents.json"
+        cat > "$folder/Contents.json" <<'JSON'
+{
+  "images": [
+    {"idiom":"mac","size":"16x16","scale":"1x","filename":"icon_16x16.png"},
+    {"idiom":"mac","size":"16x16","scale":"2x","filename":"icon_16x16@2x.png"},
+    {"idiom":"mac","size":"32x32","scale":"1x","filename":"icon_32x32.png"},
+    {"idiom":"mac","size":"32x32","scale":"2x","filename":"icon_32x32@2x.png"},
+    {"idiom":"mac","size":"128x128","scale":"1x","filename":"icon_128x128.png"},
+    {"idiom":"mac","size":"128x128","scale":"2x","filename":"icon_128x128@2x.png"},
+    {"idiom":"mac","size":"256x256","scale":"1x","filename":"icon_256x256.png"},
+    {"idiom":"mac","size":"256x256","scale":"2x","filename":"icon_256x256@2x.png"},
+    {"idiom":"mac","size":"512x512","scale":"1x","filename":"icon_512x512.png"},
+    {"idiom":"mac","size":"512x512","scale":"2x","filename":"icon_512x512@2x.png"}
+  ],
+  "info": {"author":"xcode","version":1}
+}
+JSON
+        for pair in "${icons[@]}"; do
+            read -r size name <<< "$pair"
+            sips -z "$size" "$size" "$icon_source" --out "$folder/icon_$name.png" >/dev/null
+        done
+        "$actool" "$assets/Assets.xcassets" --compile "$app/Contents/Resources" \
+            --platform macosx --minimum-deployment-target 13.0 \
+            --app-icon AppIcon --output-partial-info-plist "$assets/info.plist" >/dev/null 2>&1 || true
+        rm -rf "$assets"
+    fi
+    # Fallback for machines without Xcode: a plain .icns, enough for Finder.
+    if [ ! -f "$app/Contents/Resources/AppIcon.icns" ]; then
+        iconset="$(mktemp -d)/AppIcon.iconset"
+        mkdir -p "$iconset"
+        for pair in "${icons[@]}"; do
+            read -r size name <<< "$pair"
+            sips -z "$size" "$size" "$icon_source" --out "$iconset/icon_$name.png" >/dev/null
+        done
+        iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+        rm -rf "$(dirname "$iconset")"
+    fi
 fi
 
 cat > "$app/Contents/Info.plist" <<'PLIST'
@@ -91,9 +135,13 @@ build="$(git rev-list --count HEAD 2>/dev/null || true)"
 build="${build:-0}"
 sed -i '' "s/__VERSION__/$version/; s/__BUILD__/$build/" "$app/Contents/Info.plist"
 
-# Only point at the icon when it was actually generated.
+# Only point at the icon when it was actually generated. Modern system UI reads
+# the asset catalog through CFBundleIconName; the older keys cover the rest.
 if [ -f "$app/Contents/Resources/AppIcon.icns" ]; then
     /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$app/Contents/Info.plist"
+fi
+if [ -f "$app/Contents/Resources/Assets.car" ]; then
+    /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$app/Contents/Info.plist"
 fi
 
 # Ad-hoc signing: enough for local use on your own Mac.

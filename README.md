@@ -1,5 +1,7 @@
 # Tickoala
 
+<p align="center"><img src="design/AppIcon.png" width="128" alt="Tickoala"></p>
+
 **Automatic work-hours tracking for macOS, based on the Wi-Fi network you're on or the place you're at.**
 
 ![platform](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey)

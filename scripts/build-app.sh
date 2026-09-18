@@ -28,6 +28,23 @@ bundle="Tickoala_TickoalaApp.bundle"
 cp -R "$binaries/$bundle" "$app/Contents/Resources/$bundle"
 ln -s "Contents/Resources/$bundle" "$app/$bundle"
 
+# App icon: a square master PNG is turned into a real .icns, so Finder,
+# notifications and the About panel show the logo instead of a placeholder. A
+# checkout without the master still builds; that key is then simply absent.
+icon_source="$root/design/AppIcon.png"
+if [ -f "$icon_source" ]; then
+    iconset="$(mktemp -d)/AppIcon.iconset"
+    mkdir -p "$iconset"
+    for pair in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" \
+                "128 128x128" "256 128x128@2x" "256 256x256" "512 256x256@2x" \
+                "512 512x512" "1024 512x512@2x"; do
+        read -r size name <<< "$pair"
+        sips -z "$size" "$size" "$icon_source" --out "$iconset/icon_$name.png" >/dev/null
+    done
+    iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+    rm -rf "$(dirname "$iconset")"
+fi
+
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -74,6 +91,11 @@ version="${version:-0.0.0}"
 build="$(git rev-list --count HEAD 2>/dev/null || true)"
 build="${build:-0}"
 sed -i '' "s/__VERSION__/$version/; s/__BUILD__/$build/" "$app/Contents/Info.plist"
+
+# Only point at the icon when it was actually generated.
+if [ -f "$app/Contents/Resources/AppIcon.icns" ]; then
+    /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$app/Contents/Info.plist"
+fi
 
 # Ad-hoc signing: enough for local use on your own Mac.
 codesign --force --sign - --timestamp=none "$app" >/dev/null 2>&1 || true

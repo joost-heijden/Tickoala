@@ -150,10 +150,11 @@ struct OverviewWindow: View {
             TableColumn("Start") { Text(Formatting.clock($0.entry.startedAt)) }.width(50)
             TableColumn("End") { Text($0.entry.endedAt.map(Formatting.clock) ?? "—") }.width(50)
             TableColumn("Break") { row in
-                Text(row.entry.breakDuration > 0 ? Formatting.duration(row.entry.breakDuration) : "—")
-                    .foregroundStyle(row.entry.breakDuration > 0 ? .primary : .secondary)
+                Text(row.breakDisplay > 0 ? Formatting.duration(row.breakDisplay) : "—")
+                    .foregroundStyle(row.breakDisplay > 0 ? (row.breakIsAutomatic ? .secondary : .primary) : .secondary)
+                    .help(row.breakIsAutomatic ? "Automatic break deduction for this customer" : "")
             }.width(50)
-            TableColumn("Duration") { Text(Formatting.duration($0.entry.duration())) }.width(60)
+            TableColumn("Duration") { Text(Formatting.duration($0.durationDisplay)) }.width(60)
             TableColumn("Customer") { Text($0.profileName) }.width(min: 100, ideal: 120)
             TableColumn("Project") { Text($0.projectLabel) }.width(min: 160, ideal: 220)
             TableColumn("Amount") { row in

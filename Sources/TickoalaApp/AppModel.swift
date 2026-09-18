@@ -85,13 +85,20 @@ final class AppModel: ObservableObject {
         var projectLabel: String
         var hourlyRateCents: Int
         var currency: Currency
+        /// The break the row shows: the block's own break, or the customer's
+        /// automatic deduction for the day when the block has none.
+        var breakDisplay: TimeInterval = 0
+        /// Is `breakDisplay` the automatic deduction rather than a recorded break?
+        var breakIsAutomatic: Bool = false
+        /// Duration to show: the worked time, with the automatic deduction for the
+        /// day taken off the row that carries it.
+        var durationDisplay: TimeInterval = 0
         var id: Int64 { entry.id }
 
-        /// Gross amount of this block at the customer's rate; the break deduction
-        /// appears as a separate row in the export, not here.
+        /// Amount of this block at the customer's rate, on the shown (net) duration.
         var amountCents: Int {
             guard hourlyRateCents > 0 else { return 0 }
-            return Int((entry.duration() / 3600 * Double(hourlyRateCents)).rounded())
+            return Int((durationDisplay / 3600 * Double(hourlyRateCents)).rounded())
         }
     }
 
@@ -725,14 +732,35 @@ final class AppModel: ObservableObject {
         do {
             let report = try Reporting.report(store: tracker.store, period: period, containing: anchor, profileId: profileFilter)
             let entries = try tracker.store.entries(from: report.range.start, to: report.range.end, profileId: profileFilter)
+            // The automatic deduction belongs to a client-day, not to one block.
+            // Show it on the first block of that day, so a day with several blocks
+            // does not show the same break more than once. Entries arrive sorted by
+            // start time.
+            var firstEntryOfDay: [ProfileDay: Int64] = [:]
+            for entry in entries {
+                let key = ProfileDay(profileId: entry.profileId, day: Formatting.calendar.startOfDay(for: entry.startedAt))
+                if firstEntryOfDay[key] == nil { firstEntryOfDay[key] = entry.id }
+            }
             overviewEntries = try entries.map { entry in
                 let profile = try tracker.store.profile(id: entry.profileId)
+                let key = ProfileDay(profileId: entry.profileId, day: Formatting.calendar.startOfDay(for: entry.startedAt))
+                var breakDisplay = entry.breakDuration
+                var breakIsAutomatic = false
+                if breakDisplay == 0,
+                   let automatic = report.breakByProfileDay[key], automatic > 0,
+                   firstEntryOfDay[key] == entry.id {
+                    breakDisplay = automatic
+                    breakIsAutomatic = true
+                }
                 return EntryRow(
                     entry: entry,
                     profileName: profile?.name ?? "?",
                     projectLabel: try entry.projectId.flatMap { try tracker.store.project(id: $0) }?.label ?? "(no project)",
                     hourlyRateCents: profile?.hourlyRateCents ?? 0,
-                    currency: profile?.currency ?? .eur
+                    currency: profile?.currency ?? .eur,
+                    breakDisplay: breakDisplay,
+                    breakIsAutomatic: breakIsAutomatic,
+                    durationDisplay: max(0, entry.duration() - (breakIsAutomatic ? breakDisplay : 0))
                 )
             }
             overviewTotal = report.netTotal

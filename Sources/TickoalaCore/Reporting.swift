@@ -56,11 +56,16 @@ public struct DayTotal: Equatable, Sendable {
 
 public struct Report: Sendable {
     public var range: DateRange
-    /// Gross: everything in the blocks, without break deduction.
+    /// Recorded time with any recorded breaks already taken off, but before the
+    /// automatic break deduction.
     public var total: TimeInterval
     /// Sum of the automatic break deduction over the days in this window.
     public var breakDeduction: TimeInterval
-    /// The per-project distribution stays gross: a break belongs to a day, not to a project.
+    /// The automatic deduction per client per day, so a row can show the break
+    /// that applies to it. Only days with a deduction appear.
+    public var breakByProfileDay: [ProfileDay: TimeInterval]
+    /// The per-project distribution stays gross of the automatic deduction: that
+    /// break belongs to a day, not to a project.
     public var byProject: [ProjectTotal]
     public var byDay: [DayTotal]
     /// The distribution per client, including break deduction and the amount at the rate.
@@ -183,6 +188,7 @@ public enum Reporting {
             range: range,
             total: total,
             breakDeduction: breakTotal,
+            breakByProfileDay: breakPerProfileDay,
             byProject: byProject,
             byDay: byDay,
             byProfile: byProfile,

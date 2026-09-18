@@ -146,5 +146,29 @@ func invoiceChecks() {
             let other = try Invoicing.invoice(store: fixture.store, profileId: fixture.profileB.id, period: period)
             expectEqual(other.number, "0002")
         }
+
+        test("the history lists every issued invoice, newest month first") {
+            let fixture = try Fixture()
+            let july = Reporting.range(.month, containing: at("2026-07-15"))
+            let august = Invoicing.previousMonthRange(containing: at("2026-09-01"))
+
+            for (profile, period, day) in [
+                (fixture.profileB, july, "2026-07-10"),
+                (fixture.profileA, august, "2026-08-10"),
+            ] {
+                _ = try fixture.store.createEntry(
+                    profileId: profile.id, projectId: nil,
+                    startedAt: at("\(day) 09:00"), endedAt: at("\(day) 17:00"),
+                    status: .completed, source: .manual, note: nil
+                )
+                _ = try Invoicing.invoice(store: fixture.store, profileId: profile.id, period: period)
+            }
+
+            let history = try fixture.store.issuedInvoices()
+            expectEqual(history.map(\.number), ["0002", "0001"], "the newest month comes first")
+            expectEqual(history.first?.profileName, "Organization A")
+            expectEqual(Formatting.day(history.first?.periodStart ?? Date()), "2026-08-01")
+            expectEqual(history.first?.currency, .eur)
+        }
     }
 }

@@ -406,6 +406,46 @@ extension Store {
         return StoredInvoice(number: number, poNumber: poNumber, sender: settings)
     }
 
+    /// A stored invoice as the history list shows it, with the client's name.
+    public struct IssuedInvoice: Equatable, Sendable, Identifiable {
+        public var id: String { number }
+        public var number: String
+        public var profileId: Int64
+        public var profileName: String
+        public var periodStart: Date
+        public var issuedAt: Date
+        public var totalCents: Int
+        public var currency: Currency
+        public var poNumber: String?
+    }
+
+    /// Every invoice ever issued, newest month first: when you invoiced and whom.
+    public func issuedInvoices() throws -> [IssuedInvoice] {
+        try database.query(
+            """
+            SELECT i.number, i.profile_id, p.name AS profile_name, i.period_start,
+                   i.issued_at, i.total_cents, i.currency, i.po_number
+            FROM invoices i JOIN profiles p ON p.id = i.profile_id
+            ORDER BY i.period_start DESC, p.name COLLATE NOCASE ASC;
+            """
+        ).compactMap { row in
+            guard let number = row.string("number"),
+                  let profileId = row.int("profile_id"),
+                  let periodStart = row.date("period_start"),
+                  let issuedAt = row.date("issued_at") else { return nil }
+            return IssuedInvoice(
+                number: number,
+                profileId: profileId,
+                profileName: row.string("profile_name") ?? "",
+                periodStart: periodStart,
+                issuedAt: issuedAt,
+                totalCents: row.int("total_cents").map(Int.init) ?? 0,
+                currency: row.string("currency").flatMap(Currency.init(rawValue:)) ?? .eur,
+                poNumber: row.string("po_number")
+            )
+        }
+    }
+
     /// The number already handed out for this client and month, if any.
     public func issuedInvoiceNumber(profileId: Int64, periodStart: Date) throws -> String? {
         try database.query(

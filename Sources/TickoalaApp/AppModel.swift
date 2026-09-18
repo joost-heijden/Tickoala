@@ -1064,6 +1064,16 @@ final class AppModel: ObservableObject {
         return result.sorted { $0.profile.name.localizedCaseInsensitiveCompare($1.profile.name) == .orderedAscending }
     }
 
+    /// Every invoice issued so far, for the history list.
+    func issuedInvoices() -> [Store.IssuedInvoice] {
+        (try? tracker?.store.issuedInvoices()) ?? []
+    }
+
+    /// Jumps the invoices window to the month the given date falls in.
+    func showInvoiceMonth(_ date: Date) {
+        invoicePeriod = Reporting.range(.month, containing: date)
+    }
+
     /// Builds the invoice for one customer and the invoiced month. Allocates the
     /// number the first time and reuses it afterwards.
     func makeInvoice(profileId: Int64, poNumber: String?) -> Invoice? {

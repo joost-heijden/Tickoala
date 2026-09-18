@@ -14,25 +14,27 @@ struct InvoicesWindow: View {
     @State private var status: String?
     @State private var sendingId: Int64?
     @State private var sendTarget: AppModel.InvoiceCandidate?
+    @State private var showHistory = true
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            if model.invoiceCandidates().isEmpty {
-                Spacer()
-                Text("No hours to invoice for \(periodLabel).")
-                    .foregroundStyle(.secondary)
-                Spacer()
-            } else {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(model.invoiceCandidates()) { candidate in
+            ScrollView {
+                VStack(spacing: 12) {
+                    let candidates = model.invoiceCandidates()
+                    if candidates.isEmpty {
+                        Text("No hours to invoice for \(periodLabel).")
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 40)
+                    } else {
+                        ForEach(candidates) { candidate in
                             candidateBox(candidate)
                         }
                     }
-                    .padding()
+                    historySection
                 }
+                .padding()
             }
             Divider()
             footer
@@ -113,6 +115,49 @@ struct InvoicesWindow: View {
             Spacer()
         }
         .padding(10)
+    }
+
+    /// Every invoice ever issued, so past months stay findable. Clicking a row
+    /// jumps the window to that month.
+    @ViewBuilder
+    private var historySection: some View {
+        let invoices = model.issuedInvoices()
+        if !invoices.isEmpty {
+            DisclosureGroup(isExpanded: $showHistory) {
+                VStack(spacing: 0) {
+                    ForEach(invoices) { invoice in
+                        Button {
+                            model.showInvoiceMonth(invoice.periodStart)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text(String(Formatting.day(invoice.periodStart).prefix(7)))
+                                    .monospacedDigit()
+                                    .frame(width: 64, alignment: .leading)
+                                Text(invoice.profileName).lineLimit(1)
+                                Spacer()
+                                Text("Invoice \(invoice.number)")
+                                    .foregroundStyle(.secondary)
+                                Text(Formatting.money(cents: invoice.totalCents, currency: invoice.currency))
+                                    .monospacedDigit()
+                                    .frame(width: 100, alignment: .trailing)
+                                Text(Formatting.day(invoice.issuedAt))
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                                    .frame(width: 90, alignment: .trailing)
+                            }
+                            .contentShape(Rectangle())
+                            .padding(.vertical, 3)
+                        }
+                        .buttonStyle(.plain)
+                        Divider()
+                    }
+                }
+                .padding(.top, 4)
+            } label: {
+                Text("Invoice history (\(invoices.count))").font(.headline)
+            }
+            .padding(.top, 8)
+        }
     }
 
     private func candidateBox(_ candidate: AppModel.InvoiceCandidate) -> some View {

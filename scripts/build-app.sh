@@ -54,11 +54,12 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
     <true/>
     <!-- macOS only reveals the name of the Wi-Fi network to programs with
          Location Services permission. Without these two keys the system won't
-         even show the prompt. No location is ever stored. -->
+         even show the prompt. The same permission covers optional location
+         detection; coordinates stay on this Mac. -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Tickoala uses this only to see the name of the Wi-Fi network, so time tracking starts and stops automatically at a client. No location is stored or transmitted.</string>
+    <string>Tickoala uses this to see the name of the Wi-Fi network, so time tracking starts and stops automatically at a client. If you switch detection to Location, the same permission is used to compare your coordinates with the places you stored; nothing is transmitted.</string>
     <key>NSLocationUsageDescription</key>
-    <string>Tickoala uses this only to see the name of the Wi-Fi network, so time tracking starts and stops automatically at a client. No location is stored or transmitted.</string>
+    <string>Tickoala uses this to see the name of the Wi-Fi network, so time tracking starts and stops automatically at a client. If you switch detection to Location, the same permission is used to compare your coordinates with the places you stored; nothing is transmitted.</string>
 </dict>
 </plist>
 PLIST

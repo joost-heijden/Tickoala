@@ -25,6 +25,18 @@ func geoChecks() {
             expect(found == nil, "far away is nobody")
         }
 
+        test("a client you are at stays selected a bit outside its radius") {
+            // Radius 100 m, but the client stays current up to 130 m.
+            let client = Profile(id: 1, name: "Near", contexts: ["geo:1"], latitude: 52.3700, longitude: 4.8900, presenceRadiusMeters: 100)
+            let justOutside = 52.3700 + 0.00107 // about 119 m north
+
+            let withoutCurrent = Geo.nearestProfile(to: justOutside, 4.8900, profiles: [client])
+            expect(withoutCurrent == nil, "alone it is outside the radius")
+
+            let withCurrent = Geo.nearestProfile(to: justOutside, 4.8900, profiles: [client], stayingAt: client)
+            expectEqual(withCurrent?.id, client.id, "but current stays until clearly gone")
+        }
+
         test("a stored location links a hidden context and survives a restart") {
             let fixture = try Fixture()
             try fixture.store.updateProfileLocation(

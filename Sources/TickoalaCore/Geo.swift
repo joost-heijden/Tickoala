@@ -14,9 +14,26 @@ public enum Geo {
         return 2 * earthRadius * atan2(a.squareRoot(), (1 - a).squareRoot())
     }
 
+    /// How much wider the radius gets once you are inside, so GPS jitter around
+    /// the edge does not flap between "here" and "gone".
+    public static let hysteresis: Double = 1.3
+
     /// The client whose stored location is within its radius and closest to the
     /// given coordinate, or `nil` when the coordinate is not near any of them.
-    public static func nearestProfile(to latitude: Double, _ longitude: Double, profiles: [Profile]) -> Profile? {
+    ///
+    /// `current` is the client the Mac is already considered to be at. As long as
+    /// it stays within its radius times `hysteresis` it keeps winning, even if
+    /// another client is momentarily closer.
+    public static func nearestProfile(
+        to latitude: Double,
+        _ longitude: Double,
+        profiles: [Profile],
+        stayingAt current: Profile? = nil
+    ) -> Profile? {
+        if let current, let lat = current.latitude, let lon = current.longitude {
+            let distance = distanceMeters(lat1: latitude, lon1: longitude, lat2: lat, lon2: lon)
+            if distance <= Double(current.presenceRadiusMeters) * hysteresis { return current }
+        }
         var best: (profile: Profile, distance: Double)?
         for profile in profiles {
             guard let lat = profile.latitude, let lon = profile.longitude else { continue }

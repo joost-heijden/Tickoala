@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 
 /// Owns the `AppModel`.
@@ -13,6 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Key in UserDefaults; once seen means it never opens by itself again.
     static let welcomeSeenKey = "welcome-seen"
 
+    /// Watches for a network change that needs the user's answer.
+    private var networkObserver: AnyCancellable?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
         // SwiftUI may replace the main menu while the scenes come up, so put ours
@@ -23,6 +27,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
+        // The menu already offers the choice; this alert makes sure it is seen
+        // even when the menu is closed. Deferred, so the signal handler finishes.
+        networkObserver = model.$pendingNetworkSwitch
+            .compactMap { $0 }
+            .sink { [weak self] pending in
+                DispatchQueue.main.async { self?.presentSwitchAlert(pending) }
+            }
+    }
+
+    /// Asks continue-or-new when a block runs and the network changed to another
+    /// customer. Reuses the model, so the menu and the alert share one state.
+    private func presentSwitchAlert(_ pending: AppModel.NetworkSwitch) {
+        guard model.pendingNetworkSwitch == pending else { return }
+        let alert = NSAlert()
+        alert.messageText = "Network changed to \(model.displayContext(pending.context))"
+        alert.informativeText = "Now running: \(pending.runningLabel)"
+        alert.addButton(withTitle: "Keep running")
+        alert.addButton(withTitle: "Start new block")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            model.keepRunningAfterNetworkSwitch()
+        } else {
+            model.startNewBlockAfterNetworkSwitch()
+        }
     }
 
     @objc private func reinstallMainMenu(_ notification: Notification) {

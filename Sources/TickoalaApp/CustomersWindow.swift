@@ -98,6 +98,7 @@ private struct CustomerForm: View {
     @State private var poNumber = ""
     @State private var billingEmail = ""
     @State private var radius = 150
+    @State private var confirmDelete = false
 
     var body: some View {
         ScrollView {
@@ -288,10 +289,21 @@ private struct CustomerForm: View {
                 if let error = model.errorMessage {
                     Text(error).foregroundStyle(.red)
                 }
+
+                HStack {
+                    Button("Delete customer", role: .destructive) { confirmDelete = true }
+                    Spacer()
+                }
             }
             .padding(16)
         }
         .onAppear(perform: load)
+        .confirmationDialog("Delete \(profile.name) with all projects and blocks?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) { model.deleteCustomer(id: profile.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("All projects, blocks and invoices of this customer are removed. Press ⌘Z to undo.")
+        }
     }
 
     private var rateSummary: String {

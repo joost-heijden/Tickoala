@@ -45,10 +45,12 @@ just uses that.
   hop between networks at the same place
 - **Multiple networks per client** — guest network, staff network, several
   offices; roaming between them doesn't split your work block
-- **Switch prompt** — moving to another client's network while a block runs asks
-  whether to keep the current project running or start a new block
-- **Undo and redo** with ⌘Z / ⇧⌘Z for every project and block change, including
-  deleting a project or block, adding one, editing one and inserting a break
+- **Switch prompt** — moving to another client while a block runs pops up the
+  question whether to keep the current project or start a new block
+- **Undo and redo** with ⌘Z / ⇧⌘Z for every customer, project and block change,
+  including deleting a customer or project, adding one, editing one, switching
+  the active project and inserting a break
+- **Delete a customer** with all their data, and get it back whole with ⌘Z
 - **Multiple clients**, each with their own projects and settings
 - **Hourly rate per client**, in euro or dollar, with the resulting amounts shown
   in the overview and the CSV export
@@ -151,6 +153,9 @@ tickoala rate set --profile "Acme" --rate 87.50
 
 # Optional: subtract 30 minutes on days of 6 hours or more
 tickoala break set --profile "Acme" --minutes 30 --threshold 6:00
+
+# Optional: store a location, for detection by place instead of by network
+tickoala location set --profile "Acme" --lat 52.37000 --lon 4.89000 --radius 200
 ```
 
 All of this can also be done from the menu bar: **Manage customers**, **Manage
@@ -165,8 +170,19 @@ Detection is set under **Network → Detect by** in the menu bar: *Wi-Fi network
 Switching networks at the same place then no longer looks like moving.
 
 When you arrive at another client while a block is still running, Tickoala asks
-first: keep the current project running, or start a new block there. The same
-question appears when only the network changed but the client did not.
+first: keep the current project running, or start a new block there. That question
+comes as a pop-up (and stays available in the menu bar) so you don't miss it. The
+same question appears when only the network changed but the client did not.
+
+For location detection the radius has a little slack: once you are at a client,
+you stay there until you are clearly outside, so GPS jitter along the edge does
+not flap your block. The same settings can be scripted:
+
+```bash
+tickoala location set   --profile "Acme" --lat 52.37000 --lon 4.89000 --radius 200
+tickoala location list
+tickoala location clear --profile "Acme"
+```
 
 ## How it works
 
@@ -216,11 +232,13 @@ tickoala stop  --context "Acme-Guest"
 
 ## Undo and corrections
 
-Everything you do to projects and blocks can be taken back with **⌘Z**, and put
-back with **⇧⌘Z**: adding or deleting a block, editing one, inserting a break, and
-adding, editing, activating or deleting a project. Deleting a project leaves its
-blocks in place but drops the project link; undoing the delete puts the project
-back and relinks those blocks.
+Everything you do to customers, projects and blocks can be taken back with
+**⌘Z**, and put back with **⇧⌘Z**: adding or deleting a block, editing one,
+inserting a break, switching the active project, deleting a customer, and adding,
+editing, activating or deleting a project. Deleting a project leaves its blocks
+in place but drops the project link; undoing the delete puts the project back and
+relinks those blocks. Deleting a customer takes their projects, blocks and
+invoices along; undo restores the whole customer exactly as it was.
 
 While the cursor is in a text field, ⌘Z takes back typing as usual. The menu bar
 shows what the next undo would be — **Undo Delete project**, for example. The

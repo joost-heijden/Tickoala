@@ -51,6 +51,33 @@ func persistenceChecks() {
             expectThrows({ try fixture.store.setSetting(key: "junk", value: 1) }, "unknown keys are refused")
         }
 
+        test("a deleted customer can be restored with projects and blocks") {
+            let fixture = try Fixture()
+            let project = try fixture.project(fixture.profileA)
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: project.id,
+                startedAt: at("2026-09-10 09:00"), endedAt: at("2026-09-10 12:00"),
+                status: .completed, source: .manual, note: "kept"
+            )
+            try fixture.store.updateProfileLocation(
+                id: fixture.profileA.id, latitude: 52.37, longitude: 4.89, radiusMeters: 200
+            )
+
+            let backup = try fixture.store.deleteProfile(id: fixture.profileA.id)
+            expect(try fixture.store.profile(id: fixture.profileA.id) == nil, "the customer is gone")
+            expect(try fixture.entries().isEmpty, "the blocks went with it")
+
+            try fixture.store.restoreProfile(backup)
+
+            let restored = try expectNotNil(fixture.store.profile(id: fixture.profileA.id))
+            expectEqual(restored.name, fixture.profileA.name)
+            expect(restored.hasLocation, "the location comes back")
+            let entry = try expectNotNil(fixture.store.entry(id: 1))
+            expectEqual(entry.projectId, project.id, "the block points at its project again")
+            expectEqual(entry.note, "kept")
+            expectEqual(try fixture.store.state(profileId: fixture.profileA.id).activeProjectId, project.id)
+        }
+
         test("correcting and deleting blocks works") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)

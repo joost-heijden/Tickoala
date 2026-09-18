@@ -209,6 +209,51 @@ public final class Store {
         }
     }
 
+    /// Everything that belongs to a deleted customer, kept raw so the deletion
+    /// can be undone. Rows go back with the same ids, which is safe because the
+    /// tables use AUTOINCREMENT and never hand a deleted id to a new row.
+    public struct ProfileBackup {
+        let tables: [(table: String, rows: [[String: SQLValue]])]
+    }
+
+    /// Deletes a customer. The foreign keys cascade, so projects, blocks,
+    /// contexts, state and issued invoices go with it. The returned backup lets
+    /// the app put all of it back.
+    @discardableResult
+    public func deleteProfile(id: Int64) throws -> ProfileBackup {
+        guard try profile(id: id) != nil else { throw TrackerError.unknownProfile(String(id)) }
+        // Order matters when inserting again: parents before children.
+        let queries: [(String, String)] = [
+            ("profiles", "SELECT * FROM profiles WHERE id = ?;"),
+            ("projects", "SELECT * FROM projects WHERE profile_id = ?;"),
+            ("time_entries", "SELECT * FROM time_entries WHERE profile_id = ?;"),
+            ("profile_state", "SELECT * FROM profile_state WHERE profile_id = ?;"),
+            ("profile_contexts", "SELECT * FROM profile_contexts WHERE profile_id = ?;"),
+            ("invoices", "SELECT * FROM invoices WHERE profile_id = ?;"),
+        ]
+        var tables: [(String, [[String: SQLValue]])] = []
+        for (table, sql) in queries {
+            tables.append((table, try database.query(sql, [.int(id)]).map(\.values)))
+        }
+        try database.run("DELETE FROM profiles WHERE id = ?;", [.int(id)])
+        return ProfileBackup(tables: tables)
+    }
+
+    /// Puts a backed-up customer back exactly as it was, links included.
+    public func restoreProfile(_ backup: ProfileBackup) throws {
+        for (table, rows) in backup.tables {
+            for row in rows {
+                let columns = row.keys.sorted()
+                let values = columns.map { row[$0] ?? .null }
+                let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ", ")
+                try database.run(
+                    "INSERT INTO \(table) (\(columns.joined(separator: ", "))) VALUES (\(placeholders));",
+                    values
+                )
+            }
+        }
+    }
+
     // MARK: - Wi-Fi contexts
 
     public func contexts(profileId: Int64) throws -> [String] {

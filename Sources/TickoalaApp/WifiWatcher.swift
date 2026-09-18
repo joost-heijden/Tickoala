@@ -32,12 +32,14 @@ final class WifiWatcher: NSObject, ObservableObject {
             case .granted:
                 return nil
             case .unknown:
-                return "Tickoala needs Location Services access to be able to see the network name."
+                return "Tickoala needs Location Services access to see the network name "
+                     + "(and, when detection is set to Location, your position)."
             case .denied:
                 return "Without Location Services access, macOS cannot reveal the network name, "
                      + "so tracking will not start and stop automatically."
             case .locationServicesOff:
-                return "Location Services is turned off on this Mac; the network name is therefore not visible."
+                return "Location Services is turned off on this Mac; the network name and your "
+                     + "position are therefore not visible."
             }
         }
     }
@@ -114,7 +116,10 @@ final class WifiWatcher: NSObject, ObservableObject {
         // On location detection the network is irrelevant: the delegate turns
         // coordinate updates into context changes instead.
         if source == .location {
+            // Coarse but battery-friendly: we only need to know the client's
+            // radius, and updates only when the Mac has moved a bit.
             locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+            locationManager.distanceFilter = 50
             locationManager.startUpdatingLocation()
             return
         }

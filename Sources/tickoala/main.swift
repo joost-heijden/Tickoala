@@ -32,6 +32,11 @@ Projects:
   tickoala project select --profile <name> --number <number>
   tickoala project edit --profile <name> --number <number> [--new-number y] [--name x] [--active true|false]
 
+Location (per customer, for detection by place instead of network):
+  tickoala location set   --profile <name> --lat <n> --lon <n> [--radius <meters>]
+  tickoala location clear --profile <name>
+  tickoala location list
+
 Automatic break deduction (per customer):
   tickoala break list
   tickoala break set --profile <name> [--enabled true|false] [--minutes 30] [--threshold 6:00]
@@ -134,6 +139,9 @@ func run() throws {
 
     case "project":
         try runProject(arguments)
+
+    case "location":
+        try runLocation(arguments)
 
     case "timer":
         try runTimer(arguments)
@@ -369,6 +377,43 @@ func runProject(_ arguments: Arguments) throws {
         }
     default:
         throw CLIError.usage("usage: tickoala project list|add|select|edit")
+    }
+}
+
+// MARK: - Location
+
+/// Stores or clears a customer's coordinates for detection by place. The same
+/// hidden context the app uses is linked, so both share one database.
+func runLocation(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    switch arguments.word(1) ?? "list" {
+    case "list":
+        let profiles = try tracker.store.profiles()
+        for profile in profiles where profile.hasLocation {
+            let latitude = profile.latitude ?? 0
+            let longitude = profile.longitude ?? 0
+            print("\(profile.name): \(String(format: "%.5f, %.5f", latitude, longitude))  radius \(profile.presenceRadiusMeters) m")
+        }
+        if !profiles.contains(where: { $0.hasLocation }) { print("no customer has a location yet") }
+    case "set":
+        let profile = try resolveProfile(arguments, tracker.store)
+        guard let rawLatitude = arguments.string("lat"), let latitude = Double(rawLatitude) else {
+            throw CLIError.usage("missing or unreadable option --lat")
+        }
+        guard let rawLongitude = arguments.string("lon"), let longitude = Double(rawLongitude) else {
+            throw CLIError.usage("missing or unreadable option --lon")
+        }
+        let radius = arguments.int("radius") ?? 150
+        try tracker.store.updateProfileLocation(
+            id: profile.id, latitude: latitude, longitude: longitude, radiusMeters: radius
+        )
+        print("location set for \(profile.name): \(String(format: "%.5f, %.5f", latitude, longitude))  radius \(max(20, radius)) m")
+    case "clear":
+        let profile = try resolveProfile(arguments, tracker.store)
+        try tracker.store.updateProfileLocation(id: profile.id, latitude: nil, longitude: nil, radiusMeters: 150)
+        print("location cleared for \(profile.name)")
+    default:
+        throw CLIError.usage("usage: tickoala location list|set|clear")
     }
 }
 

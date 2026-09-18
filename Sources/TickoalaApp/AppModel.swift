@@ -26,6 +26,7 @@ final class AppModel: ObservableObject {
             guard presenceSource != oldValue else { return }
             UserDefaults.standard.set(presenceSource.rawValue, forKey: Self.presenceSourceKey)
             wifi.source = presenceSource
+            currentLocationProfileId = nil
             refresh()
         }
     }
@@ -94,6 +95,7 @@ final class AppModel: ObservableObject {
         var profileId: Int64
         var ssid: String
         var eventAt: Date
+        var source: EntrySource
         var projects: [Project]
     }
 
@@ -163,7 +165,7 @@ final class AppModel: ObservableObject {
         guard let tracker else { return }
         do {
             let outcome = try tracker.handle(event)
-            lastWifiOutcome = "\(Formatting.clock(event.at))  \(event.context) \(event.kind.rawValue): \(outcome.summary)"
+            lastWifiOutcome = "\(Formatting.clock(event.at))  \(displayContext(event.context)) \(event.kind.rawValue): \(outcome.summary)"
 
             switch outcome {
             case .needsProjectChoice(let profileId, let projectIds):
@@ -171,8 +173,9 @@ final class AppModel: ObservableObject {
                 if projects.count > 1 {
                     pendingWifiProjectSelection = WifiProjectSelection(
                         profileId: profileId,
-                        ssid: event.context,
+                        ssid: displayContext(event.context),
                         eventAt: event.at,
+                        source: event.source,
                         projects: projects
                     )
                 }
@@ -281,10 +284,18 @@ final class AppModel: ObservableObject {
         profiles.contains { $0.profile.contexts.contains { $0.caseInsensitiveCompare(ssid) == .orderedSame } }
     }
 
+    /// The client the Mac is currently considered to be at, for hysteresis.
+    private var currentLocationProfileId: Int64?
+
     /// The client context for a coordinate, if it lies within a stored radius.
+    /// Keeps the current client until it is clearly out of range.
     private func locationContext(latitude: Double, longitude: Double) -> String? {
         guard let tracker, let all = try? tracker.store.profiles() else { return nil }
-        return Geo.nearestProfile(to: latitude, longitude, profiles: all)?.geoContext
+        let candidates = all.filter(\.active)
+        let current = candidates.first { $0.id == currentLocationProfileId }
+        let found = Geo.nearestProfile(to: latitude, longitude, profiles: candidates, stayingAt: current)
+        currentLocationProfileId = found?.id
+        return found?.geoContext
     }
 
     /// Name of the client the Mac is at, when detecting by location.
@@ -320,6 +331,7 @@ final class AppModel: ObservableObject {
         guard let tracker else { return }
         do {
             try tracker.store.updateProfileLocation(id: id, latitude: nil, longitude: nil, radiusMeters: 150)
+            if currentLocationProfileId == id { currentLocationProfileId = nil }
             refresh()
         } catch {
             errorMessage = "\(error)"
@@ -343,7 +355,7 @@ final class AppModel: ObservableObject {
         guard selection.projects.contains(where: { $0.id == projectId }) else { return }
         do {
             _ = try tracker.selectProject(profileId: selection.profileId, projectId: projectId, now: selection.eventAt)
-            _ = try tracker.start(profileId: selection.profileId, now: selection.eventAt, source: .wifi)
+            _ = try tracker.start(profileId: selection.profileId, now: selection.eventAt, source: selection.source)
             pendingWifiProjectSelection = nil
             lastWifiOutcome = "\(Formatting.clock(selection.eventAt))  \(selection.ssid) start: timer started"
             refresh()
@@ -407,6 +419,26 @@ final class AppModel: ObservableObject {
         guard let tracker else { return }
         do {
             try tracker.store.updateProfile(id: id, active: active)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// Deletes a customer with all their projects and blocks. Undo puts the whole
+    /// customer back from a raw copy of the rows.
+    func deleteCustomer(id: Int64, undoManager: UndoManager? = nil) {
+        guard let tracker else { return }
+        do {
+            let backup = try tracker.store.deleteProfile(id: id)
+            record("Delete customer",
+                perform: { [weak self] in
+                    try? self?.tracker?.store.restoreProfile(backup)
+                },
+                revert: { [weak self] in
+                    _ = try? self?.tracker?.store.deleteProfile(id: id)
+                })
+            if selectedCustomerId == id { selectedCustomerId = nil }
             refresh()
         } catch {
             errorMessage = "\(error)"
@@ -598,11 +630,49 @@ final class AppModel: ObservableObject {
 
     // MARK: - Control
 
+    /// Switches the active project. A running block is closed and a new one starts
+    /// on the new project, so undo has to reopen the old block and drop the new.
     func selectProject(profileId: Int64, projectId: Int64) {
         if pendingWifiProjectSelection?.profileId == profileId {
             pendingWifiProjectSelection = nil
         }
-        perform { try $0.selectProject(profileId: profileId, projectId: projectId) }
+        guard let tracker else { return }
+        do {
+            let previousState = try tracker.store.state(profileId: profileId)
+            let previousRunning = try tracker.store.runningEntry(profileId: profileId)
+            _ = try tracker.selectProject(profileId: profileId, projectId: projectId)
+            let newRunning = try tracker.store.runningEntry(profileId: profileId)
+
+            // Choosing the project that is already active changes nothing to undo.
+            guard previousState.activeProjectId != projectId else {
+                refresh()
+                return
+            }
+
+            record("Switch project",
+                perform: { [weak self] in
+                    guard let self, let tracker = self.tracker else { return }
+                    // Drop the block the switch opened, then reopen the old one.
+                    if let newRunning, newRunning.id != previousRunning?.id {
+                        try? tracker.store.deleteEntry(id: newRunning.id)
+                    }
+                    try? tracker.store.save(previousState)
+                    if let previousRunning {
+                        try? tracker.store.updateEntry(
+                            id: previousRunning.id,
+                            projectId: .some(previousRunning.projectId),
+                            endedAt: .some(previousRunning.endedAt),
+                            status: previousRunning.status
+                        )
+                    }
+                },
+                revert: { [weak self] in
+                    _ = try? self?.tracker?.selectProject(profileId: profileId, projectId: projectId)
+                })
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
     }
 
     func pause(profileId: Int64) {

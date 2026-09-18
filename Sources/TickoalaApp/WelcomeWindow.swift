@@ -67,7 +67,7 @@ struct WelcomeView: View {
 
     private var koalaImage: NSImage? {
         let theme = colorScheme == .dark ? "dark" : "light"
-        guard let url = Bundle.module.url(
+        guard let url = Bundle.tickoalaURL(
             forResource: "tickoala-menu-working-\(theme)",
             withExtension: "svg"
         ), let image = NSImage(contentsOf: url) else {

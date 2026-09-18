@@ -19,14 +19,13 @@ cp "$binaries/TickoalaApp" "$app/Contents/MacOS/Tickoala"
 # 'Tickoala' in Contents/MacOS.
 cp "$binaries/tickoala" "$app/Contents/Helpers/tickoala"
 
-# The menu bar icons live in the resource bundle SwiftPM builds. Without this
-# copy, `Bundle.module` falls back to the path in .build, and that path doesn't
-# exist outside this Mac: the app would then stop at the first icon.
-# The bundle belongs in Contents/Resources so the signing is correct, but
-# `Bundle.module` looks for it next to the app itself; hence the symlink to it.
+# The menu bar and welcome icons. They go flat into Contents/Resources, where
+# `Bundle.main` finds them. The app must not carry the SwiftPM resource bundle at
+# its root: that needs a symlink, and codesign then refuses to sign the app
+# ("unsealed contents present in the bundle root"), which in turn makes macOS
+# show a generic icon in Finder, notifications and System Settings.
 bundle="Tickoala_TickoalaApp.bundle"
-cp -R "$binaries/$bundle" "$app/Contents/Resources/$bundle"
-ln -s "Contents/Resources/$bundle" "$app/$bundle"
+cp "$binaries/$bundle/"* "$app/Contents/Resources/"
 
 # App icon: a square master PNG is turned into a real .icns, so Finder,
 # notifications and the About panel show the logo instead of a placeholder. A

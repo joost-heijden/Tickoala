@@ -2,6 +2,17 @@ import AppKit
 import SwiftUI
 import TickoalaCore
 
+extension Bundle {
+    /// Finds a resource in the packaged app first (`Contents/Resources`), then in
+    /// the SwiftPM resource bundle for `swift run`. The packaged app must not use
+    /// the latter: its resource bundle sat at the app root as a symlink, which
+    /// makes `codesign` refuse to sign the bundle.
+    static func tickoalaURL(forResource name: String, withExtension ext: String) -> URL? {
+        Bundle.main.url(forResource: name, withExtension: ext)
+            ?? Bundle.module.url(forResource: name, withExtension: ext)
+    }
+}
+
 @main
 struct TickoalaApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -95,7 +106,7 @@ private struct TickoalaMenuBarIcon: View {
     }
 
     private var menuBarImage: NSImage? {
-        guard let url = Bundle.module.url(
+        guard let url = Bundle.tickoalaURL(
             forResource: resourceName,
             withExtension: "svg"
         ) else {

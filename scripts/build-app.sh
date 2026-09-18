@@ -25,7 +25,11 @@ cp "$binaries/tickoala" "$app/Contents/Helpers/tickoala"
 # ("unsealed contents present in the bundle root"), which in turn makes macOS
 # show a generic icon in Finder, notifications and System Settings.
 bundle="Tickoala_TickoalaApp.bundle"
-cp "$binaries/$bundle/"* "$app/Contents/Resources/"
+# A full Xcode writes a proper .bundle with Contents/Resources; the Command Line
+# Tools used to lay the files out flat. Accept both.
+resources="$binaries/$bundle/Contents/Resources"
+[ -d "$resources" ] || resources="$binaries/$bundle"
+cp "$resources/"* "$app/Contents/Resources/"
 
 # App icon. Modern macOS reads it from a compiled asset catalog, so a square
 # master PNG is turned into Assets.car (and an .icns for older paths). Without

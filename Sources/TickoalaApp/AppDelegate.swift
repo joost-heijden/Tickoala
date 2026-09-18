@@ -35,6 +35,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
+        // A window gives the app the menu bar; the last one closing returns it to
+        // being a pure menu bar app without a Dock icon.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: nil
+        )
         configureNotifications()
         // The menu already offers the choice; the notification (or, if that is
         // not allowed, the alert) makes sure it is seen. Deferred, so the signal
@@ -92,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.informativeText = "Now running: \(pending.runningLabel)"
         alert.addButton(withTitle: "Keep running")
         alert.addButton(withTitle: "Start new block")
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activateForUI()
         if alert.runModal() == .alertFirstButtonReturn {
             model.keepRunningAfterNetworkSwitch()
         } else {
@@ -100,8 +108,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    /// Clicking the Dock icon asks the app to reopen. Tickoala lives in the menu
+    /// bar, so the window that belongs to the icon is Settings; open it again and
+    /// suppress the standard behaviour, which would reopen the hub instead.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        model.requestSettingsWindow()
+        return false
+    }
+
     @objc private func reinstallMainMenu(_ notification: Notification) {
         installMainMenu()
+    }
+
+    /// Back to a pure menu bar app once the last window is gone. The short pause
+    /// lets a window that is being opened from the menu settle first.
+    @objc private func windowWillClose(_ notification: Notification) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if !NSApp.windows.contains(where: { $0.isVisible }) {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
     }
 
     /// An accessory app shows no menu bar, but a main menu still makes the
@@ -109,7 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func installMainMenu() {
         let mainMenu = NSMenu()
 
-        let appItem = NSMenuItem()
+        let appItem = NSMenuItem(title: "Tickoala", action: nil, keyEquivalent: "")
         mainMenu.addItem(appItem)
         let appMenu = NSMenu()
         appItem.submenu = appMenu
@@ -175,6 +201,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return model.canRedo
         }
         return true
+    }
+}
+
+extension NSApplication {
+    /// A menu bar app normally stays `.accessory`: no Dock icon, but also no menu
+    /// bar of its own, so an opened window keeps the previously active app in the
+    /// menu bar (and that app keeps focus). Switching to `.regular` for as long as
+    /// a window is open gives Tickoala the menu bar; the temporary Dock icon
+    /// disappears again once the last window closes.
+    func activateForUI() {
+        setActivationPolicy(.regular)
+        activate(ignoringOtherApps: true)
     }
 }
 

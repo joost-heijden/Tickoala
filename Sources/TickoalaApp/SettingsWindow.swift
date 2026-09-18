@@ -21,6 +21,9 @@ struct SettingsWindow: View {
             UpdateSettings(model: model)
                 .tabItem { Label("Updates", systemImage: "arrow.down.circle") }
         }
+        // macOS draws the tab strip flush against the title bar; a little top
+        // margin keeps it clear of the window title.
+        .padding(.top, 8)
         .frame(minWidth: 620, minHeight: 520)
     }
 }
@@ -52,7 +55,7 @@ private struct GeneralSettings: View {
 
             Section("Onboarding") {
                 Button("Show welcome screen") {
-                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.activateForUI()
                     openWindow(id: "welcome")
                 }
             }
@@ -98,7 +101,7 @@ private struct DetectionSettings: View {
                     Text(model.wifi.access.explanation
                          ?? "Tickoala only reads the Wi-Fi network name, nothing else.")
                     Button("Grant Location Services access") {
-                        NSApp.activate(ignoringOtherApps: true)
+                        NSApp.activateForUI()
                         model.wifi.requestAccess()
                     }
                 }

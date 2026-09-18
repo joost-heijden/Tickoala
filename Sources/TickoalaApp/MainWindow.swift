@@ -83,7 +83,7 @@ struct MainWindow: View {
         HStack(spacing: 10) {
             Button("Overview") { open("overview") }
             Button("Invoices") {
-                NSApp.activate(ignoringOtherApps: true)
+                NSApp.activateForUI()
                 model.showCurrentInvoiceMonth()
                 openWindow(id: "invoices")
             }
@@ -97,13 +97,13 @@ struct MainWindow: View {
     }
 
     private func open(_ id: String) {
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activateForUI()
         openWindow(id: id)
     }
 
     private func exportCSV() {
         guard let csv = model.exportCSV() else { return }
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activateForUI()
         let panel = NSSavePanel()
         panel.nameFieldStringValue = model.suggestedExportName()
         panel.allowedContentTypes = [.commaSeparatedText]

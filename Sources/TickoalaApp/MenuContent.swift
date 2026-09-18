@@ -38,7 +38,7 @@ struct MenuContent: View {
                            ? "✓ \(item.profile.name)"
                            : "   \(item.profile.name)") {
                         model.selectedCustomerId = item.profile.id
-                        NSApp.activate(ignoringOtherApps: true)
+                        NSApp.activateForUI()
                         openWindow(id: "customers")
                     }
                 }
@@ -72,7 +72,7 @@ struct MenuContent: View {
                     }
                     Divider()
                     Button("Manage projects") {
-                        NSApp.activate(ignoringOtherApps: true)
+                        NSApp.activateForUI()
                         openWindow(id: "projects")
                     }
                     Button("Manage customer") {
@@ -96,18 +96,18 @@ struct MenuContent: View {
         Divider()
 
         Button("Open Tickoala") {
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activateForUI()
             openWindow(id: "main")
         }
 
         Button("Overview and corrections") {
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activateForUI()
             openWindow(id: "overview")
         }
         .keyboardShortcut("o")
 
         Button("Invoices…") {
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activateForUI()
             model.showCurrentInvoiceMonth()
             openWindow(id: "invoices")
         }
@@ -116,7 +116,7 @@ struct MenuContent: View {
         Divider()
 
         Button("Settings…") {
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activateForUI()
             openWindow(id: "settings")
         }
         .keyboardShortcut(",", modifiers: .command)
@@ -178,7 +178,7 @@ struct MenuContent: View {
     }
 
     private func openCustomers() {
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activateForUI()
         openWindow(id: "customers")
     }
 }

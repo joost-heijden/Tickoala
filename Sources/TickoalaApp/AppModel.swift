@@ -69,6 +69,10 @@ final class AppModel: ObservableObject {
     /// menu bar label watches it and opens the invoices window once.
     @Published private(set) var shouldOpenInvoices = false
 
+    /// Set when the Dock icon is clicked while the app runs; the menu bar label
+    /// watches it and brings the Settings window up once.
+    @Published private(set) var shouldOpenSettings = false
+
     private var tracker: Tracker?
     private var timer: Timer?
     private var wifiObserver: AnyCancellable?
@@ -1178,6 +1182,16 @@ final class AppModel: ObservableObject {
     /// The label opened the window; no need to ask again.
     func acknowledgeInvoiceReminder() {
         shouldOpenInvoices = false
+    }
+
+    /// The Dock icon was clicked while a window was open: show Settings again.
+    func requestSettingsWindow() {
+        shouldOpenSettings = true
+    }
+
+    /// The label opened the window; no need to ask again.
+    func acknowledgeSettingsWindow() {
+        shouldOpenSettings = false
     }
 
     // MARK: - Undo

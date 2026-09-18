@@ -85,7 +85,7 @@ struct InvoicesWindow: View {
                     .lineLimit(1)
             }
             Button("Invoice settings") {
-                NSApp.activate(ignoringOtherApps: true)
+                NSApp.activateForUI()
                 openWindow(id: "invoice-settings")
             }
         }

@@ -103,7 +103,7 @@ struct WelcomeView: View {
                 .fixedSize(horizontal: false, vertical: true)
             if model.wifi.access.needsAttention {
                 Button("Grant access") {
-                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.activateForUI()
                     model.wifi.requestAccess()
                 }
             }

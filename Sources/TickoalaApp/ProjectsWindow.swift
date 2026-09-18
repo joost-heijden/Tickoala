@@ -46,7 +46,7 @@ struct ProjectsWindow: View {
             .frame(maxWidth: 320)
 
             Button("Manage customers") {
-                NSApp.activate(ignoringOtherApps: true)
+                NSApp.activateForUI()
                 openWindow(id: "customers")
             }
             .fixedSize()
@@ -73,7 +73,7 @@ struct ProjectsWindow: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button("Manage customers") {
-                NSApp.activate(ignoringOtherApps: true)
+                NSApp.activateForUI()
                 openWindow(id: "customers")
             }
             Spacer()

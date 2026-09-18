@@ -208,7 +208,7 @@ struct OverviewWindow: View {
             Spacer()
 
             Button("Projects") {
-                NSApp.activate(ignoringOtherApps: true)
+                NSApp.activateForUI()
                 openWindow(id: "projects")
             }
             .fixedSize()

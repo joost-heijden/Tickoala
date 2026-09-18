@@ -17,6 +17,9 @@ final class UpdateChecker: ObservableObject {
     /// not in the settings table: that is Int-based, is shared with the adapter
     /// command and concerns tracking, not the app itself.
     static let disabledKey = "update-check-disabled"
+    /// Version we already announced with a notification, so a version is only
+    /// announced once and the app never nags.
+    static let notifiedVersionKey = "update-notified-version"
     /// The project page on GitHub.
     static let repositoryURL = URL(string: "https://github.com/joost-heijden/Tickoala")!
     /// The releases page on GitHub, where the app can be downloaded. The whole

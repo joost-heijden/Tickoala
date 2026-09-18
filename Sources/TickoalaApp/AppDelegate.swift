@@ -20,8 +20,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     static let switchKeepAction = "SWITCH_KEEP"
     static let switchNewAction = "SWITCH_NEW"
 
+    /// The notification that a newer version can be downloaded.
+    static let updateCategory = "UPDATE_AVAILABLE"
+    static let updateDownloadAction = "UPDATE_DOWNLOAD"
+
     /// Watches for a network change that needs the user's answer.
     private var networkObserver: AnyCancellable?
+    /// Watches the version check so a new version is announced once.
+    private var updateAnnounceObserver: AnyCancellable?
     /// Whether the system allows notifications; otherwise the alert is the fallback.
     private var notificationsAllowed = false
 
@@ -52,6 +58,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .sink { [weak self] pending in
                 DispatchQueue.main.async { self?.announceSwitch(pending) }
             }
+        // A new version is easy to miss in a menu bar app, so say it out loud once.
+        updateAnnounceObserver = model.updateChecker.$availableVersion
+            .compactMap { $0 }
+            .sink { [weak self] version in
+                DispatchQueue.main.async { self?.announceUpdate(version) }
+            }
     }
 
     /// Sets up the notification buttons that answer the switch question.
@@ -62,9 +74,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         center.delegate = self
         let keep = UNNotificationAction(identifier: Self.switchKeepAction, title: "Keep running")
         let start = UNNotificationAction(identifier: Self.switchNewAction, title: "Start new block")
+        let download = UNNotificationAction(identifier: Self.updateDownloadAction, title: "Download")
         center.setNotificationCategories([
             UNNotificationCategory(
                 identifier: Self.switchCategory, actions: [keep, start], intentIdentifiers: [], options: []
+            ),
+            UNNotificationCategory(
+                identifier: Self.updateCategory, actions: [download], intentIdentifiers: [], options: []
             )
         ])
         center.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
@@ -106,6 +122,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             model.startNewBlockAfterNetworkSwitch()
         }
+    }
+
+    /// Announces a newer version once, the first time it is seen. Stays quiet when
+    /// notifications are refused; the menu keeps showing the item either way. The
+    /// decision rests with the user, so the app never insists.
+    private func announceUpdate(_ version: String) {
+        // A plain command-line run has no bundle and no notification centre.
+        guard Bundle.main.bundleIdentifier != nil, notificationsAllowed else { return }
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: UpdateChecker.notifiedVersionKey) != version else { return }
+        defaults.set(version, forKey: UpdateChecker.notifiedVersionKey)
+
+        let content = UNMutableNotificationContent()
+        content.title = "Tickoala \(version) is available"
+        content.body = "Open the menu bar menu to update, or download it from the releases page."
+        content.categoryIdentifier = Self.updateCategory
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: "update-\(version)", content: content, trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
     /// Clicking the Dock icon asks the app to reopen. Tickoala lives in the menu
@@ -233,8 +270,13 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let action = response.actionIdentifier
+        let category = response.notification.request.content.categoryIdentifier
         Task { @MainActor in
-            if action == Self.switchKeepAction {
+            if category == Self.updateCategory {
+                // Both tapping the banner and the Download button lead to the
+                // releases page, where the new build is waiting.
+                NSWorkspace.shared.open(UpdateChecker.releasesURL)
+            } else if action == Self.switchKeepAction {
                 model.keepRunningAfterNetworkSwitch()
             } else if action == Self.switchNewAction {
                 model.startNewBlockAfterNetworkSwitch()

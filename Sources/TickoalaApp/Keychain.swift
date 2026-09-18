@@ -4,6 +4,9 @@ import Security
 /// Stores the SMTP password in the macOS Keychain, never in the database or the
 /// settings JSON.
 enum Keychain {
+    /// The historical service name, kept on purpose: the bundle id changed for
+    /// macOS 26's menu bar administration, and this way an already stored SMTP
+    /// password is still found.
     private static let service = "local.tickoala.app"
     private static let account = "smtp-password"
 

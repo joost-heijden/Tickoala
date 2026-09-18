@@ -109,6 +109,7 @@ final class AppModel: ObservableObject {
     }
 
     init() {
+        Self.migrateOldPreferences()
         do {
             tracker = Tracker(store: try Store(path: try Store.defaultDatabasePath()))
         } catch {
@@ -145,6 +146,21 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.objectWillChange.send() }
         }
         wifi.start()
+    }
+
+    /// The app used `local.tickoala.app` before the bundle id had to change for
+    /// macOS 26's menu bar administration. Carry the handful of preferences over
+    /// once, so the detection source and the update switch are not silently lost.
+    private static func migrateOldPreferences() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "migrated-bundle-id") else { return }
+        defaults.set(true, forKey: "migrated-bundle-id")
+        guard let old = UserDefaults(suiteName: "local.tickoala.app") else { return }
+        for key in ["presence-source", "update-check-disabled", "invoice-reminder-shown", "welcome-seen"] {
+            if defaults.object(forKey: key) == nil, let value = old.object(forKey: key) {
+                defaults.set(value, forKey: key)
+            }
+        }
     }
 
     /// Processes a network signal. A start on another network while a block runs

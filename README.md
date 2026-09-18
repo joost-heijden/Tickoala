@@ -122,7 +122,7 @@ running, **Check now**, and **Stop checking for updates**. Turn it off
 there, or with:
 
 ```bash
-defaults write local.tickoala.app update-check-disabled -bool true
+defaults write nl.tickoala.app update-check-disabled -bool true
 ```
 
 ### Location Services

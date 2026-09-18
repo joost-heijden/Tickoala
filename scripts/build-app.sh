@@ -98,7 +98,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDisplayName</key>
     <string>Tickoala</string>
     <key>CFBundleIdentifier</key>
-    <string>local.tickoala.app</string>
+    <string>nl.tickoala.app</string>
     <key>CFBundleExecutable</key>
     <string>Tickoala</string>
     <key>CFBundlePackageType</key>

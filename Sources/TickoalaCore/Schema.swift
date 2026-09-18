@@ -132,6 +132,14 @@ enum Schema {
         ALTER TABLE profiles ADD COLUMN longitude REAL;
         ALTER TABLE profiles ADD COLUMN presence_radius_m INTEGER NOT NULL DEFAULT 150;
         """,
+
+        // A break as part of a block rather than a gap between two blocks, so the
+        // day stays one row. Empty for the usual case; both are set when a break
+        // is recorded.
+        """
+        ALTER TABLE time_entries ADD COLUMN break_started_at INTEGER;
+        ALTER TABLE time_entries ADD COLUMN break_ended_at INTEGER;
+        """,
     ]
 
     static func migrate(_ database: Database) throws {

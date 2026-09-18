@@ -203,12 +203,16 @@ public enum EntrySource: String, Sendable {
 }
 
 /// A single work block. Pausing closes a block, resuming starts a new one.
+/// A break belongs to the whole block: it is recorded on the block itself, so a
+/// day stays one row instead of being cut into two.
 public struct TimeEntry: Equatable, Identifiable, Sendable {
     public var id: Int64
     public var profileId: Int64
     public var projectId: Int64?
     public var startedAt: Date
     public var endedAt: Date?
+    public var breakStartedAt: Date?
+    public var breakEndedAt: Date?
     public var status: EntryStatus
     public var source: EntrySource
     public var note: String?
@@ -221,6 +225,8 @@ public struct TimeEntry: Equatable, Identifiable, Sendable {
         projectId: Int64?,
         startedAt: Date,
         endedAt: Date?,
+        breakStartedAt: Date? = nil,
+        breakEndedAt: Date? = nil,
         status: EntryStatus,
         source: EntrySource,
         note: String?,
@@ -232,6 +238,8 @@ public struct TimeEntry: Equatable, Identifiable, Sendable {
         self.projectId = projectId
         self.startedAt = startedAt
         self.endedAt = endedAt
+        self.breakStartedAt = breakStartedAt
+        self.breakEndedAt = breakEndedAt
         self.status = status
         self.source = source
         self.note = note
@@ -239,10 +247,22 @@ public struct TimeEntry: Equatable, Identifiable, Sendable {
         self.updatedAt = updatedAt
     }
 
-    /// Duration of the block; for a running block measured up to `now`.
-    public func duration(now: Date = Date()) -> TimeInterval {
+    /// Span of the block, break included; for a running block measured up to `now`.
+    public func grossDuration(now: Date = Date()) -> TimeInterval {
         let end = endedAt ?? (status == .running ? now : startedAt)
         return max(0, end.timeIntervalSince(startedAt))
+    }
+
+    /// The recorded break, zero when none was set. Never longer than the block.
+    public var breakDuration: TimeInterval {
+        guard let start = breakStartedAt, let end = breakEndedAt else { return 0 }
+        return max(0, min(end.timeIntervalSince(start), grossDuration()))
+    }
+
+    /// Net worked time: the span minus the break. For a running block measured
+    /// up to `now`.
+    public func duration(now: Date = Date()) -> TimeInterval {
+        max(0, grossDuration(now: now) - breakDuration)
     }
 }
 

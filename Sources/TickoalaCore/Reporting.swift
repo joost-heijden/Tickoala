@@ -108,6 +108,10 @@ public enum Reporting {
         // A break is determined per client and per day: every client has its own rule.
         var perProfileDay: [ProfileDay: TimeInterval] = [:]
         var perProfileGross: [Int64: TimeInterval] = [:]
+        // A block with a recorded break has already lost that break from its
+        // duration. On such a day the automatic rule steps aside, so nothing is
+        // deducted twice.
+        var manualBreakDay: [ProfileDay: TimeInterval] = [:]
         var total: TimeInterval = 0
         for entry in entries {
             let duration = entry.duration(now: now)
@@ -117,6 +121,9 @@ public enum Reporting {
             perDay[day, default: 0] += duration
             perProfileDay[ProfileDay(profileId: entry.profileId, day: day), default: 0] += duration
             perProfileGross[entry.profileId, default: 0] += duration
+            if entry.breakDuration > 0 {
+                manualBreakDay[ProfileDay(profileId: entry.profileId, day: day), default: 0] += entry.breakDuration
+            }
         }
 
         // Load clients once; both the break row and the rate depend on them.
@@ -130,7 +137,7 @@ public enum Reporting {
 
         var breakPerDay: [Date: TimeInterval] = [:]
         var breakPerProfile: [Int64: TimeInterval] = [:]
-        let breakPerProfileDay = try deductions(for: perProfileDay) {
+        let breakPerProfileDay = try deductions(for: perProfileDay, manualBreak: manualBreakDay) {
             try loadProfile($0)?.breakRule ?? .default
         }
         for (key, deduction) in breakPerProfileDay {
@@ -194,22 +201,30 @@ public enum Reporting {
         calendar: Calendar = Formatting.calendar
     ) throws -> [ProfileDay: TimeInterval] {
         var worked: [ProfileDay: TimeInterval] = [:]
+        var manualBreak: [ProfileDay: TimeInterval] = [:]
         for entry in try store.entries(from: from, to: to, profileId: profileId) {
             let key = ProfileDay(profileId: entry.profileId, day: calendar.startOfDay(for: entry.startedAt))
             worked[key, default: 0] += entry.duration(now: now)
+            manualBreak[key, default: 0] += entry.breakDuration
         }
-        return try deductions(for: worked) { try store.profile(id: $0)?.breakRule ?? .default }
+        return try deductions(for: worked, manualBreak: manualBreak) {
+            try store.profile(id: $0)?.breakRule ?? .default
+        }
     }
 
     /// Break deduction per client per day, with each client's rule looked up once.
-    /// Only days with a positive deduction appear in the result.
+    /// A day with a recorded break is left alone: that break was already taken off
+    /// the block, so the automatic rule would otherwise deduct twice. Only days
+    /// with a positive deduction appear in the result.
     static func deductions(
         for worked: [ProfileDay: TimeInterval],
+        manualBreak: [ProfileDay: TimeInterval] = [:],
         loadRule: (Int64) throws -> BreakRule
     ) rethrows -> [ProfileDay: TimeInterval] {
         var rules: [Int64: BreakRule] = [:]
         var result: [ProfileDay: TimeInterval] = [:]
         for (key, total) in worked {
+            guard (manualBreak[key] ?? 0) <= 0 else { continue }
             let deduction: TimeInterval
             if let cached = rules[key.profileId] {
                 deduction = cached.deduction(forDayTotal: total)

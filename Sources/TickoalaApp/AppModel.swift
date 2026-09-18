@@ -780,10 +780,21 @@ final class AppModel: ObservableObject {
         profiles.first { $0.profile.id == profileId }?.profile.breakRule ?? .default
     }
 
-    func updateEntry(id: Int64, projectId: Int64?, start: Date, end: Date?, note: String, status: EntryStatus) {
+    func updateEntry(
+        id: Int64,
+        projectId: Int64?,
+        start: Date,
+        end: Date?,
+        breakStart: Date?,
+        breakEnd: Date?,
+        note: String,
+        status: EntryStatus
+    ) {
         guard let tracker else { return }
         let start = Formatting.minute(start)
         let end = end.map(Formatting.minute)
+        let breakStart = breakStart.map(Formatting.minute)
+        let breakEnd = breakEnd.map(Formatting.minute)
         guard end == nil || end! >= start else {
             errorMessage = "The end is before the start."
             return
@@ -798,6 +809,12 @@ final class AppModel: ObservableObject {
                 status: status,
                 note: .some(note.isEmpty ? nil : note)
             )
+            // The store validates that the break falls within the block.
+            if let breakStart, let breakEnd, end != nil {
+                try tracker.store.setBreak(id: id, breakStart: breakStart, breakEnd: breakEnd)
+            } else {
+                try tracker.store.clearBreak(id: id)
+            }
             if let previous {
                 record("Edit block",
                     perform: { [weak self] in
@@ -806,6 +823,8 @@ final class AppModel: ObservableObject {
                             projectId: .some(previous.projectId),
                             startedAt: previous.startedAt,
                             endedAt: .some(previous.endedAt),
+                            breakStartedAt: .some(previous.breakStartedAt),
+                            breakEndedAt: .some(previous.breakEndedAt),
                             status: previous.status,
                             note: .some(previous.note)
                         )
@@ -816,6 +835,8 @@ final class AppModel: ObservableObject {
                             projectId: .some(projectId),
                             startedAt: start,
                             endedAt: .some(end),
+                            breakStartedAt: .some(breakStart),
+                            breakEndedAt: .some(breakEnd),
                             status: status,
                             note: .some(note.isEmpty ? nil : note)
                         )
@@ -828,17 +849,33 @@ final class AppModel: ObservableObject {
     }
 
     @discardableResult
-    func addEntry(profileId: Int64, projectId: Int64?, start: Date, end: Date, note: String) -> Int64? {
+    func addEntry(
+        profileId: Int64,
+        projectId: Int64?,
+        start: Date,
+        end: Date,
+        breakStart: Date? = nil,
+        breakEnd: Date? = nil,
+        note: String
+    ) -> Int64? {
         guard let tracker else { return nil }
         let start = Formatting.minute(start)
         let end = Formatting.minute(end)
+        let breakStart = breakStart.map(Formatting.minute)
+        let breakEnd = breakEnd.map(Formatting.minute)
         guard end > start else {
             errorMessage = "The end must be after the start."
+            return nil
+        }
+        guard breakStart == nil || breakEnd == nil
+            || (breakStart! >= start && breakEnd! <= end && breakStart! < breakEnd!) else {
+            errorMessage = "The break must fall within the block and have a positive duration."
             return nil
         }
         do {
             let entry = try tracker.store.createEntry(
                 profileId: profileId, projectId: projectId, startedAt: start, endedAt: end,
+                breakStartedAt: breakStart, breakEndedAt: breakEnd,
                 status: .completed, source: .manual, note: note.isEmpty ? nil : note
             )
             record("Add block",
@@ -851,6 +888,8 @@ final class AppModel: ObservableObject {
                         projectId: entry.projectId,
                         startedAt: entry.startedAt,
                         endedAt: entry.endedAt,
+                        breakStartedAt: entry.breakStartedAt,
+                        breakEndedAt: entry.breakEndedAt,
                         status: entry.status,
                         source: entry.source,
                         note: entry.note
@@ -884,42 +923,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Cuts a block in two around a break and returns the new (second) block.
-    @discardableResult
-    func splitEntry(id: Int64, pauseStart: Date, pauseEnd: Date) -> Int64? {
-        guard let tracker else { return nil }
-        do {
-            let original = try? tracker.store.entry(id: id)
-            let second = try tracker.store.splitEntry(
-                id: id,
-                pauseStart: Formatting.minute(pauseStart),
-                pauseEnd: Formatting.minute(pauseEnd)
-            )
-            if let original {
-                record("Insert break",
-                    perform: { [weak self] in
-                        guard let tracker = self?.tracker else { return }
-                        try? tracker.store.deleteEntry(id: second.id)
-                        try? tracker.store.updateEntry(
-                            id: id, endedAt: .some(original.endedAt), status: original.status
-                        )
-                    },
-                    revert: { [weak self] in
-                        _ = try? self?.tracker?.store.splitEntry(
-                            id: id,
-                            pauseStart: Formatting.minute(pauseStart),
-                            pauseEnd: Formatting.minute(pauseEnd)
-                        )
-                    })
-            }
-            refresh()
-            return second.id
-        } catch {
-            errorMessage = "\(error)"
-            return nil
-        }
-    }
-
     @discardableResult
     func deleteEntry(id: Int64) -> Bool {
         guard let tracker else { return false }
@@ -935,6 +938,8 @@ final class AppModel: ObservableObject {
                             projectId: previous.projectId,
                             startedAt: previous.startedAt,
                             endedAt: previous.endedAt,
+                            breakStartedAt: previous.breakStartedAt,
+                            breakEndedAt: previous.breakEndedAt,
                             status: previous.status,
                             source: previous.source,
                             note: previous.note

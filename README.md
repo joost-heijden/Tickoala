@@ -55,7 +55,7 @@ just uses that.
   block
 - **Undo and redo** with ⌘Z / ⇧⌘Z for every customer, project and block change,
   including deleting a customer or project, adding one, editing one, switching
-  the active project and inserting a break
+  the active project and recording a break on a block
 - **Delete a customer** with all their data, and get it back whole with ⌘Z
 - **Multiple clients**, each with their own projects and settings
 - **Hourly rate per client**, in euro or dollar, with the resulting amounts shown
@@ -251,7 +251,7 @@ tickoala stop  --context "Acme-Guest"
 
 Everything you do to customers, projects and blocks can be taken back with
 **⌘Z**, and put back with **⇧⌘Z**: adding or deleting a block, editing one,
-inserting a break, switching the active project, deleting a customer, and adding,
+recording a break, switching the active project, deleting a customer, and adding,
 editing, activating or deleting a project. Deleting a project leaves its blocks
 in place but drops the project link; undoing the delete puts the project back and
 relinks those blocks. Deleting a customer takes their projects, blocks and
@@ -270,8 +270,10 @@ automatic tracking keeps its real seconds.
 
 ## Break deduction
 
-Set per client: how much break to subtract, and from how many hours it applies.
-Both are configured separately, and it's off by default.
+There are two ways a break gets taken off your hours.
+
+**Automatic, per client.** Set how much break to subtract, and from how many
+hours it applies. Both are configured separately, and it's off by default.
 
 - applies **per client per day**, not per block — pausing during the day doesn't
   cause it to be subtracted twice
@@ -280,10 +282,17 @@ Both are configured separately, and it's off by default.
 - below the threshold nothing is subtracted
 - never subtracts more than you actually worked, so a day can't go negative
 
-This is a **calculation on top of your raw blocks**. Time entries are never
-modified, so you can change or disable the rule at any time — including
-retroactively. Totals, the menu bar and the export show net hours; the per-project
-breakdown stays gross, because a break belongs to a day rather than to a project.
+**By hand, on a block.** Open a block from the Overview and turn on **Break
+recorded**, with its own start and end. The block keeps its start and end, so the
+day stays a single row; the row shows the break in the **Break** column and the
+worked duration without it. A day with a recorded break is left to that break: the
+automatic rule does not subtract a second time.
+
+The automatic rule is a **calculation on top of your raw blocks**. Time entries are
+never modified by it, so you can change or disable the rule at any time — including
+retroactively. A break recorded by hand does live on the block. Totals, the menu bar
+and the export show net hours; the per-project breakdown keeps the automatic
+deduction out, because that break belongs to a day rather than to a project.
 
 In the CSV export the deduction appears as its own row with a negative duration,
 so the duration column adds up to your net hours. Use `--gross` to leave it out.

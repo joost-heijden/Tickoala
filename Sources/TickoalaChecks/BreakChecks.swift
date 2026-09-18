@@ -94,6 +94,25 @@ func breakChecks() {
             expectEqual(report.netTotal, 7.5 * 3600)
         }
 
+        test("a recorded break replaces the automatic deduction for that day") {
+            let fixture = try Fixture()
+            try fixture.store.updateBreakRule(
+                profileId: fixture.profileA.id,
+                rule: BreakRule(enabled: true, minutes: 30, thresholdMinutes: 360)
+            )
+            let entry = try workday(fixture, fixture.profileA, "2026-09-10", hours: 8)
+            _ = try fixture.store.setBreak(
+                id: entry.id,
+                breakStart: at("2026-09-10 13:00"),
+                breakEnd: at("2026-09-10 13:45")
+            )
+
+            let report = try dayReport(fixture, fixture.profileA, "2026-09-10")
+            expectEqual(report.total, 7.25 * 3600, "the block keeps its edges, the break comes off")
+            expectEqual(report.breakDeduction, 0, "the rule does not deduct a second time")
+            expectEqual(report.netTotal, 7.25 * 3600)
+        }
+
         test("every customer has its own rule") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(

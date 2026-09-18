@@ -25,8 +25,7 @@ struct OverviewWindow: View {
                 EntryEditor(
                     model: model,
                     row: row,
-                    onClose: { self.selection = nil },
-                    onSplit: { self.selection = $0 }
+                    onClose: { self.selection = nil }
                 )
                     .id(row.id)
                     .frame(minWidth: 280, maxWidth: 360)
@@ -150,6 +149,10 @@ struct OverviewWindow: View {
             TableColumn("Date") { Text(Formatting.day($0.entry.startedAt)) }.width(90)
             TableColumn("Start") { Text(Formatting.clock($0.entry.startedAt)) }.width(50)
             TableColumn("End") { Text($0.entry.endedAt.map(Formatting.clock) ?? "—") }.width(50)
+            TableColumn("Break") { row in
+                Text(row.entry.breakDuration > 0 ? Formatting.duration(row.entry.breakDuration) : "—")
+                    .foregroundStyle(row.entry.breakDuration > 0 ? .primary : .secondary)
+            }.width(50)
             TableColumn("Duration") { Text(Formatting.duration($0.entry.duration())) }.width(60)
             TableColumn("Customer") { Text($0.profileName) }.width(min: 100, ideal: 120)
             TableColumn("Project") { Text($0.projectLabel) }.width(min: 160, ideal: 220)
@@ -157,11 +160,17 @@ struct OverviewWindow: View {
                 Text(row.hourlyRateCents > 0 ? Formatting.money(cents: row.amountCents, currency: row.currency) : "—")
                     .foregroundStyle(row.hourlyRateCents > 0 ? .primary : .secondary)
             }.width(90)
+            // Status and source share one column: `Table` allows at most ten, and
+            // the break column is worth more than splitting these two.
             TableColumn("Status") { row in
-                Text(row.entry.status.rawValue)
-                    .foregroundStyle(row.entry.status == .open ? Color.orange : .secondary)
-            }.width(80)
-            TableColumn("Source") { Text($0.entry.source.rawValue).foregroundStyle(.secondary) }.width(90)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(row.entry.status.rawValue)
+                        .foregroundStyle(row.entry.status == .open ? Color.orange : .primary)
+                    Text(row.entry.source.rawValue)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }.width(90)
             TableColumn("Note") { Text($0.entry.note ?? "") }
         } rows: {
             ForEach(model.overviewEntries) { row in
@@ -293,8 +302,6 @@ struct EntryEditor: View {
     @ObservedObject var model: AppModel
     let row: AppModel.EntryRow
     var onClose: () -> Void
-    /// Receives the id of the new second block after a break has been inserted.
-    var onSplit: (Int64) -> Void
 
     @State private var start: Date
     @State private var end: Date
@@ -302,19 +309,18 @@ struct EntryEditor: View {
     @State private var note: String
     @State private var projectId: Int64?
     @State private var confirmDelete = false
+    @State private var hasBreak: Bool
     @State private var pauseStart: Date
     @State private var pauseEnd: Date
 
     init(
         model: AppModel,
         row: AppModel.EntryRow,
-        onClose: @escaping () -> Void,
-        onSplit: @escaping (Int64) -> Void
+        onClose: @escaping () -> Void
     ) {
         self.model = model
         self.row = row
         self.onClose = onClose
-        self.onSplit = onSplit
         _start = State(initialValue: Formatting.minute(row.entry.startedAt))
         _end = State(initialValue: Formatting.minute(row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600)))
         _hasEnd = State(initialValue: row.entry.endedAt != nil)
@@ -330,8 +336,10 @@ struct EntryEditor: View {
             end: Formatting.minute(row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600)),
             minutes: rule.enabled ? rule.minutes : 30
         )
-        _pauseStart = State(initialValue: breakWindow.start)
-        _pauseEnd = State(initialValue: breakWindow.end)
+        let recorded = row.entry.breakStartedAt != nil && row.entry.breakEndedAt != nil
+        _hasBreak = State(initialValue: recorded)
+        _pauseStart = State(initialValue: row.entry.breakStartedAt.map(Formatting.minute) ?? breakWindow.start)
+        _pauseEnd = State(initialValue: row.entry.breakEndedAt.map(Formatting.minute) ?? breakWindow.end)
     }
 
     var body: some View {
@@ -342,6 +350,12 @@ struct EntryEditor: View {
                     Toggle("End recorded", isOn: $hasEnd)
                     DatePicker("End", selection: $end)
                         .disabled(!hasEnd)
+                    Toggle("Break recorded", isOn: $hasBreak)
+                        .disabled(!hasEnd)
+                    DatePicker("Break starts", selection: $pauseStart)
+                        .disabled(!hasEnd || !hasBreak)
+                    DatePicker("Break ends", selection: $pauseEnd)
+                        .disabled(!hasEnd || !hasBreak)
                     Picker("Project", selection: $projectId) {
                         Text("(no project)").tag(Int64?.none)
                         ForEach(model.projects(for: row.entry.profileId)) { project in
@@ -354,7 +368,7 @@ struct EntryEditor: View {
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.leading)
                     }
-                    LabeledContent("Duration", value: Formatting.duration(hasEnd ? end.timeIntervalSince(start) : row.entry.duration()))
+                    LabeledContent("Duration", value: Formatting.duration(netDuration))
                     LabeledContent("Source", value: row.entry.source.rawValue)
                 }
 
@@ -363,31 +377,18 @@ struct EntryEditor: View {
                         .foregroundStyle(.orange)
                 }
 
+                if !canSave {
+                    Text("The end must be after the start, and the break must fall within the block.")
+                        .foregroundStyle(.orange)
+                }
+
                 HStack {
                     Button("Save") { save() }
                         .keyboardShortcut(.defaultAction)
+                        .disabled(!canSave)
 
                     Button("Delete", role: .destructive) { confirmDelete = true }
                     Spacer()
-                }
-
-                if hasEnd {
-                    FormSection(title: "Add break") {
-                        DatePicker("Break starts", selection: $pauseStart)
-                        DatePicker("Break ends", selection: $pauseEnd)
-                        LabeledContent("Break duration", value: Formatting.duration(max(0, pauseEnd.timeIntervalSince(pauseStart))))
-                        Button {
-                            // Save the corrections first, then split: the break is
-                            // validated against the just-saved start and end.
-                            save()
-                            if let second = model.splitEntry(id: row.entry.id, pauseStart: pauseStart, pauseEnd: pauseEnd) {
-                                onSplit(second)
-                            }
-                        } label: {
-                            Label("Insert break", systemImage: "pause.circle")
-                        }
-                        .disabled(!canSplit)
-                    }
                 }
             }
             .padding(14)
@@ -399,14 +400,31 @@ struct EntryEditor: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        // Switching the break on fills a sensible window within the block, so the
+        // fields are usable right away.
+        .onChange(of: hasBreak) { on in
+            guard on, hasEnd, end > start else { return }
+            let rule = model.breakRule(for: row.entry.profileId)
+            let window = defaultBreak(start: start, end: end, minutes: rule.enabled ? rule.minutes : 30)
+            pauseStart = window.start
+            pauseEnd = window.end
+        }
     }
 
-    /// A break can only fall within the (edited) start and end.
-    private var canSplit: Bool {
-        row.entry.status != .running
-            && pauseStart >= start
-            && pauseEnd <= end
-            && pauseStart < pauseEnd
+    /// The end has to follow the start, and a switched-on break has to fall in
+    /// between.
+    private var canSave: Bool {
+        guard !hasEnd || end >= start else { return false }
+        guard hasBreak, hasEnd else { return true }
+        return pauseStart >= start && pauseEnd <= end && pauseStart < pauseEnd
+    }
+
+    /// The shown duration already has the break taken off.
+    private var netDuration: TimeInterval {
+        guard hasEnd else { return row.entry.duration() }
+        let span = max(0, end.timeIntervalSince(start))
+        guard hasBreak else { return span }
+        return max(0, span - max(0, pauseEnd.timeIntervalSince(pauseStart)))
     }
 
     private func save() {
@@ -415,6 +433,8 @@ struct EntryEditor: View {
             projectId: projectId,
             start: start,
             end: hasEnd ? end : nil,
+            breakStart: hasBreak && hasEnd ? pauseStart : nil,
+            breakEnd: hasBreak && hasEnd ? pauseEnd : nil,
             note: note,
             status: hasEnd ? .completed : (row.entry.status == .running ? .running : .open)
         )
@@ -507,12 +527,12 @@ struct AddEntrySheet: View {
     }
 
     private func add() {
-        guard let id = model.addEntry(profileId: profileId, projectId: projectId, start: start, end: end, note: note) else {
-            return
-        }
-        if hasBreak {
-            model.splitEntry(id: id, pauseStart: pauseStart, pauseEnd: pauseEnd)
-        }
+        model.addEntry(
+            profileId: profileId, projectId: projectId, start: start, end: end,
+            breakStart: hasBreak ? pauseStart : nil,
+            breakEnd: hasBreak ? pauseEnd : nil,
+            note: note
+        )
         onClose()
     }
 }

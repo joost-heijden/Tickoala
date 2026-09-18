@@ -405,6 +405,8 @@ public final class Store {
         projectId: Int64?,
         startedAt: Date,
         endedAt: Date?,
+        breakStartedAt: Date? = nil,
+        breakEndedAt: Date? = nil,
         status: EntryStatus,
         source: EntrySource,
         note: String?
@@ -412,14 +414,16 @@ public final class Store {
         let now = Date()
         let id = try database.run(
             """
-            INSERT INTO time_entries (profile_id, project_id, started_at, ended_at, status, source, note, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO time_entries (profile_id, project_id, started_at, ended_at, break_started_at, break_ended_at, status, source, note, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             [
                 .int(profileId),
                 projectId.map { SQLValue.int($0) } ?? .null,
                 .int(Int64(startedAt.timeIntervalSince1970)),
                 endedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null,
+                breakStartedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null,
+                breakEndedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null,
                 .text(status.rawValue),
                 .text(source.rawValue),
                 note.map { SQLValue.text($0) } ?? .null,
@@ -429,6 +433,7 @@ public final class Store {
         )
         return TimeEntry(
             id: id, profileId: profileId, projectId: projectId, startedAt: startedAt, endedAt: endedAt,
+            breakStartedAt: breakStartedAt, breakEndedAt: breakEndedAt,
             status: status, source: source, note: note, createdAt: now, updatedAt: now
         )
     }
@@ -472,6 +477,8 @@ public final class Store {
         projectId: Int64?? = nil,
         startedAt: Date? = nil,
         endedAt: Date?? = nil,
+        breakStartedAt: Date?? = nil,
+        breakEndedAt: Date?? = nil,
         status: EntryStatus? = nil,
         note: String?? = nil
     ) throws {
@@ -489,6 +496,14 @@ public final class Store {
         if let endedAt {
             assignments.append("ended_at = ?")
             parameters.append(endedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null)
+        }
+        if let breakStartedAt {
+            assignments.append("break_started_at = ?")
+            parameters.append(breakStartedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null)
+        }
+        if let breakEndedAt {
+            assignments.append("break_ended_at = ?")
+            parameters.append(breakEndedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null)
         }
         if let status {
             assignments.append("status = ?")
@@ -520,40 +535,39 @@ public final class Store {
             projectId: entry.projectId,
             startedAt: entry.startedAt,
             endedAt: entry.endedAt,
+            breakStartedAt: entry.breakStartedAt,
+            breakEndedAt: entry.breakEndedAt,
             status: entry.status,
             source: entry.source,
             note: entry.note
         )
     }
 
-    /// Splits a block around a break: the existing block stops at `pauseStart`,
-    /// and from `pauseEnd` a new block begins with the same project, source and
-    /// note. The break itself stays unrecorded, exactly like manually pausing and
-    /// resuming the timer. The raw blocks therefore remain untouched; nothing is
-    /// fiddled with in their duration.
+    /// Records a break on the block itself. The block keeps its start and end, so
+    /// the day stays one row; the break only lowers the worked duration. The break
+    /// must fall within the block and have a positive duration.
     @discardableResult
-    public func splitEntry(id: Int64, pauseStart: Date, pauseEnd: Date) throws -> TimeEntry {
+    public func setBreak(id: Int64, breakStart: Date, breakEnd: Date) throws -> TimeEntry {
         guard let entry = try self.entry(id: id) else { throw TrackerError.unknownEntry(id) }
         guard entry.status != .running else {
-            throw TrackerError.invalidRange("a running block cannot be split")
+            throw TrackerError.invalidRange("a running block cannot get a fixed break")
         }
         guard let endedAt = entry.endedAt else {
-            throw TrackerError.invalidRange("a block without an end cannot be split")
+            throw TrackerError.invalidRange("a block without an end cannot get a break")
         }
-        guard pauseStart >= entry.startedAt, pauseEnd <= endedAt, pauseStart < pauseEnd else {
+        guard breakStart >= entry.startedAt, breakEnd <= endedAt, breakStart < breakEnd else {
             throw TrackerError.invalidRange("the break must fall within the block and have a positive duration")
         }
 
-        try updateEntry(id: id, endedAt: .some(pauseStart))
-        return try createEntry(
-            profileId: entry.profileId,
-            projectId: entry.projectId,
-            startedAt: pauseEnd,
-            endedAt: endedAt,
-            status: entry.status,
-            source: entry.source,
-            note: entry.note
-        )
+        try updateEntry(id: id, breakStartedAt: .some(breakStart), breakEndedAt: .some(breakEnd))
+        guard let updated = try self.entry(id: id) else { throw TrackerError.unknownEntry(id) }
+        return updated
+    }
+
+    /// Removes the recorded break; the block keeps its full duration.
+    public func clearBreak(id: Int64) throws {
+        guard try entry(id: id) != nil else { throw TrackerError.unknownEntry(id) }
+        try updateEntry(id: id, breakStartedAt: .some(nil), breakEndedAt: .some(nil))
     }
 
     // MARK: - Event log
@@ -666,6 +680,8 @@ public final class Store {
             projectId: row.int("project_id"),
             startedAt: row.date("started_at") ?? Date(timeIntervalSince1970: 0),
             endedAt: row.date("ended_at"),
+            breakStartedAt: row.date("break_started_at"),
+            breakEndedAt: row.date("break_ended_at"),
             status: EntryStatus(rawValue: row.string("status") ?? "") ?? .open,
             source: EntrySource(rawValue: row.string("source") ?? "") ?? .manual,
             note: row.string("note"),

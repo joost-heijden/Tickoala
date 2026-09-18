@@ -152,7 +152,7 @@ func persistenceChecks() {
             expectThrows({ _ = try fixture.store.duplicateEntry(id: 42) }, "an unknown block is refused")
         }
 
-        test("a block can be cut in two around a break") {
+        test("a break is recorded on the block, not cut into two blocks") {
             let fixture = try Fixture()
             let project = try fixture.project(fixture.profileA)
             _ = try fixture.store.createEntry(
@@ -165,21 +165,21 @@ func persistenceChecks() {
                 note: "meeting"
             )
 
-            let second = try fixture.store.splitEntry(
+            let entry = try fixture.store.setBreak(
                 id: 1,
-                pauseStart: at("2026-09-10 12:00"),
-                pauseEnd: at("2026-09-10 12:30")
+                breakStart: at("2026-09-10 12:00"),
+                breakEnd: at("2026-09-10 12:30")
             )
 
-            let first = try expectNotNil(try fixture.store.entry(id: 1))
-            expectEqual(first.endedAt, at("2026-09-10 12:00"), "the first block stops at the break")
-            expectEqual(first.duration(), 3 * 3600)
-            expectEqual(second.startedAt, at("2026-09-10 12:30"), "the second block begins after the break")
-            expectEqual(second.endedAt, at("2026-09-10 17:00"))
-            expectEqual(second.projectId, project.id)
-            expectEqual(second.note, "meeting")
-            expectEqual(second.duration(), 4.5 * 3600)
-            expectEqual(try fixture.entries().count, 2, "the break is a gap, not a third block")
+            expectEqual(entry.startedAt, at("2026-09-10 09:00"), "the day stays whole")
+            expectEqual(entry.endedAt, at("2026-09-10 17:00"))
+            expectEqual(entry.breakDuration, 30 * 60)
+            expectEqual(entry.grossDuration(), 8 * 3600)
+            expectEqual(entry.duration(), 7.5 * 3600, "the break comes off the worked time")
+            expectEqual(try fixture.entries().count, 1, "still one block for the whole day")
+
+            try fixture.store.clearBreak(id: 1)
+            expectEqual(try fixture.store.entry(id: 1)?.duration(), 8 * 3600, "clearing the break restores the day")
         }
 
         test("a break outside the block is refused") {
@@ -188,18 +188,18 @@ func persistenceChecks() {
             _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
             _ = try fixture.tracker.stop(profileId: fixture.profileA.id, now: at("2026-09-10 17:00"))
 
-            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 08:00"), pauseEnd: at("2026-09-10 08:30")) }, "break before the start")
-            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 17:00"), pauseEnd: at("2026-09-10 17:30")) }, "break after the end")
-            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 12:30"), pauseEnd: at("2026-09-10 12:00")) }, "reversed break")
+            expectThrows({ _ = try fixture.store.setBreak(id: 1, breakStart: at("2026-09-10 08:00"), breakEnd: at("2026-09-10 08:30")) }, "break before the start")
+            expectThrows({ _ = try fixture.store.setBreak(id: 1, breakStart: at("2026-09-10 17:00"), breakEnd: at("2026-09-10 17:30")) }, "break after the end")
+            expectThrows({ _ = try fixture.store.setBreak(id: 1, breakStart: at("2026-09-10 12:30"), breakEnd: at("2026-09-10 12:00")) }, "reversed break")
             expectEqual(try fixture.entries().count, 1, "nothing was split")
         }
 
-        test("a running block cannot be split") {
+        test("a running block cannot get a break") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
             _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
 
-            expectThrows({ _ = try fixture.store.splitEntry(id: 1, pauseStart: at("2026-09-10 10:00"), pauseEnd: at("2026-09-10 10:30")) }, "a running block is refused")
+            expectThrows({ _ = try fixture.store.setBreak(id: 1, breakStart: at("2026-09-10 10:00"), breakEnd: at("2026-09-10 10:30")) }, "a running block is refused")
             expectEqual(try fixture.entries().count, 1)
         }
     }

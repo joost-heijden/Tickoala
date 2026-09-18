@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # Tags and full history are needed for `git describe` and the build
           # counter that scripts/build-app.sh writes into the Info.plist.
@@ -34,7 +34,7 @@ jobs:
           ditto -c -k --keepParent build/Tickoala.app "$zip"
           echo "ZIP=$zip" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: Tickoala-app
           path: ${{ env.ZIP }}

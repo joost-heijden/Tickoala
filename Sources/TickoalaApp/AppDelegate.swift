@@ -124,16 +124,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    /// Announces a newer version once, the first time it is seen. Stays quiet when
-    /// notifications are refused; the menu keeps showing the item either way. The
-    /// decision rests with the user, so the app never insists.
+    /// Announces a newer version once, the first time it is seen. Tells the truth
+    /// about the hard part: an unsigned (ad-hoc) build cannot get notification
+    /// permission on macOS 26 at all, so when notifications are refused this falls
+    /// back to an alert, which needs no permission. The menu keeps showing the item
+    /// either way, and the decision stays with the user.
     private func announceUpdate(_ version: String) {
         // A plain command-line run has no bundle and no notification centre.
-        guard Bundle.main.bundleIdentifier != nil, notificationsAllowed else { return }
+        guard Bundle.main.bundleIdentifier != nil else { return }
         let defaults = UserDefaults.standard
         guard defaults.string(forKey: UpdateChecker.notifiedVersionKey) != version else { return }
         defaults.set(version, forKey: UpdateChecker.notifiedVersionKey)
 
+        guard notificationsAllowed else {
+            presentUpdateAlert(version)
+            return
+        }
         let content = UNMutableNotificationContent()
         content.title = "Tickoala \(version) is available"
         content.body = "Open the menu bar menu to update, or download it from the releases page."
@@ -143,6 +149,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             identifier: "update-\(version)", content: content, trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
+    }
+
+    /// Fallback when notifications are refused, mirroring the network switch. A
+    /// modal alert needs no permission, so it reaches users of an ad-hoc build too.
+    private func presentUpdateAlert(_ version: String) {
+        let alert = NSAlert()
+        alert.messageText = "Tickoala \(version) is available"
+        alert.informativeText = "Download the new version from the releases page to update."
+        alert.addButton(withTitle: "Download")
+        alert.addButton(withTitle: "Later")
+        NSApp.activateForUI()
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(UpdateChecker.releasesURL)
+        }
     }
 
     /// Clicking the Dock icon asks the app to reopen. Tickoala lives in the menu

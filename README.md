@@ -163,9 +163,11 @@ Gatekeeper.
 The app also checks once a day whether a newer version exists, so the menu bar can
 tell you when there is one. When a new version appears, the menu shows
 **Version X available** with a button to the releases page where you can download
-it. The first time a new version is seen it also posts a notification, once per
-version, so it isn't missed; tap it to open the releases page. That check is the
-only network access Tickoala makes: one request per day to
+it. The first time a new version is seen it announces it once: as a notification
+when macOS allows it, otherwise as a small dialog, because an ad-hoc signed build
+cannot get notification permission on macOS 26. Either way it leads to the
+releases page. That check is the only network access Tickoala makes: one request
+per day to
 `https://api.github.com/repos/joost-heijden/Tickoala/tags`. GitHub sees your IP
 address and the version string in the `User-Agent` header (`Tickoala/<version>`);
 nothing else is sent — no identifier, no usage data, no time entries, no location.

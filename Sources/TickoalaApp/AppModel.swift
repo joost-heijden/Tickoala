@@ -971,8 +971,8 @@ final class AppModel: ObservableObject {
 
     // MARK: - Invoicing
 
-    /// The month the invoices window acts on. Starts on the month that just
-    /// ended, but can be moved to any month to invoice by hand.
+    /// The month the invoices window acts on. Can be moved to any month to
+    /// invoice by hand; the reminder and the menu set the starting month.
     @Published var invoicePeriod: DateRange = Invoicing.previousMonthRange(containing: Date())
 
     /// Moves the invoices window to another month, any month.
@@ -982,9 +982,15 @@ final class AppModel: ObservableObject {
         invoicePeriod = Reporting.range(.month, containing: moved)
     }
 
-    /// Back to the month that just ended, the default when the window opens.
-    func resetInvoicePeriod() {
+    /// The month that just ended: what the automatic reminder opens.
+    func showPreviousInvoiceMonth() {
         invoicePeriod = Invoicing.previousMonthRange(containing: Date())
+    }
+
+    /// The month we are in now: the starting point when the window is opened by
+    /// hand, so the hours booked so far this month can be invoiced right away.
+    func showCurrentInvoiceMonth() {
+        invoicePeriod = Reporting.range(.month, containing: Date())
     }
 
     struct InvoiceCandidate: Identifiable {
@@ -1163,7 +1169,10 @@ final class AppModel: ObservableObject {
             ) else { return false }
             return report.total > 0
         }
-        if hasHours { shouldOpenInvoices = true }
+        if hasHours {
+            showPreviousInvoiceMonth()
+            shouldOpenInvoices = true
+        }
     }
 
     /// The label opened the window; no need to ask again.

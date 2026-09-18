@@ -37,10 +37,7 @@ struct InvoicesWindow: View {
             footer
         }
         .frame(minWidth: 680, minHeight: 480)
-        .onAppear {
-            model.resetInvoicePeriod()
-            loadFields()
-        }
+        .onAppear(perform: loadFields)
         .confirmationDialog(
             "Send invoice to \(sendTarget?.profile.name ?? "")?",
             isPresented: Binding(get: { sendTarget != nil }, set: { if !$0 { sendTarget = nil } }),
@@ -159,9 +156,14 @@ struct InvoicesWindow: View {
     }
 
     private var periodCaption: String {
-        model.invoicePeriod.start == Invoicing.previousMonthRange(containing: Date()).start
-            ? "The previous month, ready to send."
-            : "Manually chosen month, ready to send."
+        let start = model.invoicePeriod.start
+        if start == Invoicing.previousMonthRange(containing: Date()).start {
+            return "The previous month, ready to send."
+        }
+        if start == Reporting.range(.month, containing: Date()).start {
+            return "This month so far, ready to send."
+        }
+        return "Manually chosen month, ready to send."
     }
 
     private func summary(_ candidate: AppModel.InvoiceCandidate) -> String {

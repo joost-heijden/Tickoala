@@ -53,7 +53,7 @@ public final class Store {
 
     /// Creates a profile with one or more linked Wi-Fi contexts.
     @discardableResult
-    public func createProfile(name: String, contexts: [String], hourlyRateCents: Int = 0, currency: Currency = .eur) throws -> Profile {
+    public func createProfile(name: String, contexts: [String], hourlyRateCents: Int = 0, currency: Currency = .eur, vatRatePercent: Int = 21) throws -> Profile {
         guard !contexts.isEmpty else {
             throw TrackerError.invalidRange("a profile needs at least one Wi-Fi context")
         }
@@ -63,9 +63,10 @@ public final class Store {
             }
         }
         let rate = max(0, hourlyRateCents)
+        let vatRate = min(max(0, vatRatePercent), 100)
         let id = try database.run(
-            "INSERT INTO profiles (name, active, hourly_rate_cents, currency, created_at) VALUES (?, 1, ?, ?, ?);",
-            [.text(name), .int(Int64(rate)), .text(currency.rawValue), .int(Int64(Date().timeIntervalSince1970))]
+            "INSERT INTO profiles (name, active, hourly_rate_cents, currency, vat_rate_percent, created_at) VALUES (?, 1, ?, ?, ?, ?);",
+            [.text(name), .int(Int64(rate)), .text(currency.rawValue), .int(Int64(vatRate)), .int(Int64(Date().timeIntervalSince1970))]
         )
         try database.run("INSERT INTO profile_state (profile_id) VALUES (?);", [.int(id)])
         for context in contexts {
@@ -74,7 +75,7 @@ public final class Store {
                 [.int(id), .text(context), .int(Int64(Date().timeIntervalSince1970))]
             )
         }
-        return Profile(id: id, name: name, contexts: contexts, hourlyRateCents: rate, currency: currency)
+        return Profile(id: id, name: name, contexts: contexts, hourlyRateCents: rate, currency: currency, vatRatePercent: vatRate)
     }
 
     public func profiles(includeInactive: Bool = true) throws -> [Profile] {

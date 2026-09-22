@@ -36,6 +36,16 @@ struct InvoiceSettingsWindow: View {
                     }
                 }
 
+                FormSection(title: "VAT") {
+                    Stepper(value: binding(\.defaultVatRatePercent), in: 0...100) {
+                        Text("Default VAT rate: \(settings.defaultVatRatePercent) %")
+                            .monospacedDigit()
+                    }
+                    Text("New customers start with this rate. Change it per customer for 9%, 0% or reverse charge.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 FormSection(title: "Numbering") {
                     FormField(label: "Prefix") {
                         FormTextField(text: binding(\.invoiceNumberPrefix), prompt: "e.g. 2026-")

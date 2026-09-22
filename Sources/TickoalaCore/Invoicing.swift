@@ -11,6 +11,8 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
     public var senderEmail: String
     /// Days between the invoice date and the due date.
     public var paymentTermDays: Int
+    /// VAT rate a new customer starts with. Each customer can override it.
+    public var defaultVatRatePercent: Int
     /// Optional prefix for the invoice number, for example `2026-`.
     public var invoiceNumberPrefix: String
     /// The next number to hand out. Never lowered automatically.
@@ -38,6 +40,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         senderIban: String = "",
         senderEmail: String = "",
         paymentTermDays: Int = 30,
+        defaultVatRatePercent: Int = 21,
         invoiceNumberPrefix: String = "",
         nextInvoiceNumber: Int = 1,
         logoFileName: String? = nil,
@@ -55,6 +58,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         self.senderIban = senderIban
         self.senderEmail = senderEmail
         self.paymentTermDays = paymentTermDays
+        self.defaultVatRatePercent = defaultVatRatePercent
         self.invoiceNumberPrefix = invoiceNumberPrefix
         self.nextInvoiceNumber = nextInvoiceNumber
         self.logoFileName = logoFileName
@@ -90,6 +94,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         senderIban = try container.decodeIfPresent(String.self, forKey: .senderIban) ?? fallback.senderIban
         senderEmail = try container.decodeIfPresent(String.self, forKey: .senderEmail) ?? fallback.senderEmail
         paymentTermDays = try container.decodeIfPresent(Int.self, forKey: .paymentTermDays) ?? fallback.paymentTermDays
+        defaultVatRatePercent = try container.decodeIfPresent(Int.self, forKey: .defaultVatRatePercent) ?? fallback.defaultVatRatePercent
         invoiceNumberPrefix = try container.decodeIfPresent(String.self, forKey: .invoiceNumberPrefix) ?? fallback.invoiceNumberPrefix
         nextInvoiceNumber = try container.decodeIfPresent(Int.self, forKey: .nextInvoiceNumber) ?? fallback.nextInvoiceNumber
         logoFileName = try container.decodeIfPresent(String.self, forKey: .logoFileName) ?? fallback.logoFileName

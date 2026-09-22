@@ -125,6 +125,51 @@ func timerChecks() {
             expectEqual(outcome, .stopScheduled(effectiveAt: at("2026-09-10 17:00")))
         }
 
+        test("a check-in near the workday start snaps to the start") {
+            let fixture = try Fixture()
+            try fixture.project(fixture.profileA)
+            // Start is 08:00 by default; checking in at 08:07 or 08:25 counts from 08:00.
+            _ = try fixture.event("Office A", .start, "2026-09-10 08:07")
+
+            let entry = try expectNotNil(try fixture.store.runningEntry(profileId: fixture.profileA.id))
+            expectEqual(entry.startedAt, at("2026-09-10 08:00"))
+        }
+
+        test("a check-in within half an hour after the start still snaps to the start") {
+            let fixture = try Fixture()
+            try fixture.project(fixture.profileA)
+            _ = try fixture.event("Office A", .start, "2026-09-10 08:25")
+
+            let entry = try expectNotNil(try fixture.store.runningEntry(profileId: fixture.profileA.id))
+            expectEqual(entry.startedAt, at("2026-09-10 08:00"))
+        }
+
+        test("a check-in further out rounds to the nearest half hour") {
+            let early = try Fixture()
+            try early.project(early.profileA)
+            _ = try early.event("Office A", .start, "2026-09-10 08:40")
+            expectEqual(try early.store.runningEntry(profileId: early.profileA.id)?.startedAt, at("2026-09-10 08:30"))
+
+            let late = try Fixture()
+            try late.project(late.profileA)
+            _ = try late.event("Office A", .start, "2026-09-10 08:50")
+            expectEqual(try late.store.runningEntry(profileId: late.profileA.id)?.startedAt, at("2026-09-10 09:00"))
+        }
+
+        test("a departure rounds to the nearest half hour") {
+            let fixture = try Fixture()
+            try fixture.project(fixture.profileA)
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
+
+            _ = try fixture.tracker.handle(
+                ContextEvent(context: "Office A", kind: .stop, at: at("2026-09-10 16:52")),
+                now: at("2026-09-11 08:00")
+            )
+
+            let entry = try expectNotNil(try fixture.store.entry(id: 1))
+            expectEqual(entry.endedAt, at("2026-09-10 17:00"))
+        }
+
         test("a brief Wi-Fi dropout does not close the block") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)

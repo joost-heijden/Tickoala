@@ -44,6 +44,17 @@ func invoiceChecks() {
             expectEqual(loaded.nextNumberText, "2026-0007")
         }
 
+        test("a new customer starts with the default VAT rate from settings") {
+            let fixture = try Fixture()
+            var settings = try fixture.store.invoiceSettings()
+            settings.defaultVatRatePercent = 9
+            try fixture.store.updateInvoiceSettings(settings)
+            expectEqual(try fixture.store.invoiceSettings().defaultVatRatePercent, 9)
+
+            let fresh = try fixture.store.createProfile(name: "New", contexts: ["New-Net"], vatRatePercent: 9)
+            expectEqual(try fixture.store.profile(id: fresh.id)?.vatRatePercent, 9)
+        }
+
         test("an invoice allocates a number once and reuses it") {
             let fixture = try Fixture()
             let period = Invoicing.previousMonthRange(containing: at("2026-09-01"))

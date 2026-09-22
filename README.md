@@ -293,6 +293,12 @@ Workday**, or `workday-end-minutes` from the CLI) is the fallback last moment: a
 block that never got a stop signal — the Mac slept, Tickoala was closed — is closed
 there instead of running into the night and asking about it the next morning.
 
+The same place sets a workday **start** (`workday-start-minutes`). Automatic
+check-ins and departures are rounded to the nearest whole or half hour, so a
+check-in at 08:07 with an 08:00 start counts from 08:00. Within half an hour of the
+start the start time wins; further out the nearest half hour is used (08:40 → 08:30,
+08:50 → 09:00). Manually started or stopped blocks keep the exact minute.
+
 Because the source is just an event feed, it's replaceable. A CLI adapter is
 included if you'd rather drive it from something else:
 
@@ -396,10 +402,10 @@ month can be invoiced by hand.
 
 Put your own details under **Settings → Invoices** (or from the invoices
 window): name, address, KvK, VAT number, IBAN, email, payment term,
-invoice number prefix, and an optional logo. Per customer you set the billing
-address, their VAT number, the VAT rate (21% by default, change it per customer
-for 9%, 0% or reverse charge), a default PO number and the invoice email
-address.
+invoice number prefix, and an optional logo. The default VAT rate for new
+customers is set there too (21% by default). Per customer you set the billing
+address, their VAT number, the VAT rate (change it per customer for 9%, 0% or
+reverse charge), a default PO number and the invoice email address.
 
 Invoice numbers are handed out once per customer per month and never repeat:
 reopening the same month keeps its number, and the counter skips any number that

@@ -114,6 +114,7 @@ public final class Tracker {
     }
 
     private func handleStart(profile: Profile, event: ContextEvent, now: Date) throws -> EventOutcome {
+        let settings = try store.settings()
         var state = try store.state(profileId: profile.id)
 
         // The context came back while the pending stop is still open: the block
@@ -156,7 +157,7 @@ public final class Tracker {
             let entry = try store.createEntry(
                 profileId: profile.id,
                 projectId: project.id,
-                startedAt: event.at,
+                startedAt: settings.roundedStart(event.at),
                 endedAt: nil,
                 status: .running,
                 source: event.source,
@@ -234,7 +235,7 @@ public final class Tracker {
         if let entryId = state.pendingStopEntryId,
            let entry = try store.entry(id: entryId),
            entry.status == .running {
-            let end = max(pendingAt, entry.startedAt)
+            let end = max(settings.roundedEnd(pendingAt), entry.startedAt)
             try store.updateEntry(id: entry.id, endedAt: .some(end), status: .completed)
             closed = try store.entry(id: entry.id)
         }
@@ -260,7 +261,7 @@ public final class Tracker {
             var state = try store.state(profileId: entry.profileId)
             let end: Date
             if state.pendingStopEntryId == entry.id, let pendingAt = state.pendingStopAt {
-                end = min(pendingAt, cutoff)
+                end = min(settings.roundedEnd(pendingAt), cutoff)
             } else {
                 end = cutoff
             }

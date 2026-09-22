@@ -56,7 +56,16 @@ final class AppModel: ObservableObject {
     @Published var workdayEndMinutes = TrackerSettings.default.workdayEndMinutes {
         didSet {
             guard workdayEndMinutes != oldValue else { return }
-            persistWorkdayEnd()
+            persistWorkdaySetting(key: "workday-end-minutes", value: workdayEndMinutes)
+        }
+    }
+
+    /// Start of the workday in minutes since midnight. Automatic check-ins within
+    /// half an hour of it are recorded as this time.
+    @Published var workdayStartMinutes = TrackerSettings.default.workdayStartMinutes {
+        didSet {
+            guard workdayStartMinutes != oldValue else { return }
+            persistWorkdaySetting(key: "workday-start-minutes", value: workdayStartMinutes)
         }
     }
 
@@ -169,6 +178,7 @@ final class AppModel: ObservableObject {
         // Restore the workday end from the database.
         if let settings = try? tracker?.store.settings() {
             workdayEndMinutes = settings.workdayEndMinutes
+            workdayStartMinutes = settings.workdayStartMinutes
         }
         // A coordinate only becomes a signal when it is near a stored location.
         wifi.resolveLocationContext = { [weak self] latitude, longitude in
@@ -210,11 +220,11 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Stores the workday end in the database, so the tracker reads the same value.
-    private func persistWorkdayEnd() {
+    /// Stores a workday setting in the database, so the tracker reads the same value.
+    private func persistWorkdaySetting(key: String, value: Int) {
         guard let tracker else { return }
         do {
-            try tracker.store.setSetting(key: "workday-end-minutes", value: workdayEndMinutes)
+            try tracker.store.setSetting(key: key, value: value)
         } catch {
             errorMessage = "\(error)"
         }
@@ -481,7 +491,8 @@ final class AppModel: ObservableObject {
         }
         do {
             let profile = try tracker.store.createProfile(
-                name: name, contexts: cleaned, hourlyRateCents: hourlyRateCents, currency: currency
+                name: name, contexts: cleaned, hourlyRateCents: hourlyRateCents, currency: currency,
+                vatRatePercent: invoiceSettings().defaultVatRatePercent
             )
             selectedCustomerId = profile.id
             refresh()

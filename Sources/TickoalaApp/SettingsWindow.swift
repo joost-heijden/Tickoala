@@ -15,7 +15,7 @@ struct SettingsWindow: View {
             DetectionSettings(model: model)
                 .tabItem { Label("Detection", systemImage: "wifi") }
             BreakWindow(model: model)
-                .tabItem { Label("Breaks", systemImage: "pause.circle") }
+                .tabItem { Label("Workday", systemImage: "sun.max") }
             InvoiceSettingsWindow(model: model)
                 .tabItem { Label("Invoices", systemImage: "doc.text") }
             UpdateSettings(model: model)
@@ -61,22 +61,6 @@ private struct GeneralSettings: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Workday") {
-                DatePicker("Day starts at", selection: timeBinding(
-                    get: { model.workdayStartMinutes },
-                    set: { model.workdayStartMinutes = $0 }
-                ), displayedComponents: .hourAndMinute)
-                DatePicker("Day ends at", selection: timeBinding(
-                    get: { model.workdayEndMinutes },
-                    set: { model.workdayEndMinutes = $0 }
-                ), displayedComponents: .hourAndMinute)
-                Text("A block that gets no stop signal — the Mac slept or Tickoala was closed — "
-                     + "is closed at the end time instead of running into the night. Automatic "
-                     + "check-ins and departures are rounded to the nearest half hour.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("Onboarding") {
                 Button("Show welcome screen") {
                     NSApp.activateForUI()
@@ -93,22 +77,6 @@ private struct GeneralSettings: View {
         }
         .formStyle(.grouped)
         .padding(6)
-    }
-
-    /// A stored workday time is a minute count; the picker works with a time.
-    private func timeBinding(get: @escaping () -> Int, set: @escaping (Int) -> Void) -> Binding<Date> {
-        Binding(
-            get: {
-                var components = DateComponents()
-                components.hour = get() / 60
-                components.minute = get() % 60
-                return Formatting.calendar.date(from: components) ?? Date()
-            },
-            set: { date in
-                let components = Formatting.calendar.dateComponents([.hour, .minute], from: date)
-                set((components.hour ?? 0) * 60 + (components.minute ?? 0))
-            }
-        )
     }
 }
 

@@ -1,41 +1,87 @@
 import SwiftUI
 import TickoalaCore
 
-/// Configure automatic break deduction per customer.
+/// Workday settings and the automatic break deduction per customer.
 struct BreakWindow: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.profiles.isEmpty {
-                Spacer()
-                Text("No customer configured yet.")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            } else {
-                ScrollView {
-                    VStack(spacing: 16) {
+            ScrollView {
+                VStack(spacing: 16) {
+                    WorkdaySettings(model: model)
+
+                    if model.profiles.isEmpty {
+                        Text("No customer configured yet.")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 20)
+                    } else {
                         ForEach(model.profiles, id: \.profile.id) { item in
                             BreakRuleForm(model: model, profile: item.profile)
                                 .id(item.profile.id)
                         }
                     }
-                    .padding()
                 }
-
-                Divider()
-                HStack {
-                    Text("The deduction is a calculation: your time entries stay unchanged, "
-                         + "so you can always adjust or turn off the break.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(10)
+                .padding()
             }
+
+            Divider()
+            HStack {
+                Text("The deduction is a calculation: your time entries stay unchanged, "
+                     + "so you can always adjust or turn off the break.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(10)
         }
         .frame(minWidth: 520, minHeight: 380)
+    }
+}
+
+/// The start and end of the workday, shared by every customer.
+private struct WorkdaySettings: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        FormSection(title: "Workday") {
+            FormField(label: "Day starts at") {
+                DatePicker("", selection: timeBinding(
+                    get: { model.workdayStartMinutes },
+                    set: { model.workdayStartMinutes = $0 }
+                ), displayedComponents: .hourAndMinute)
+                .labelsHidden()
+            }
+            FormField(label: "Day ends at") {
+                DatePicker("", selection: timeBinding(
+                    get: { model.workdayEndMinutes },
+                    set: { model.workdayEndMinutes = $0 }
+                ), displayedComponents: .hourAndMinute)
+                .labelsHidden()
+            }
+            Text("A block that gets no stop signal — the Mac slept or Tickoala was closed — "
+                 + "is closed at the end time instead of running into the night. Automatic "
+                 + "check-ins and departures are rounded to the nearest half hour.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// A stored workday time is a minute count; the picker works with a time.
+    private func timeBinding(get: @escaping () -> Int, set: @escaping (Int) -> Void) -> Binding<Date> {
+        Binding(
+            get: {
+                var components = DateComponents()
+                components.hour = get() / 60
+                components.minute = get() % 60
+                return Formatting.calendar.date(from: components) ?? Date()
+            },
+            set: { date in
+                let components = Formatting.calendar.dateComponents([.hour, .minute], from: date)
+                set((components.hour ?? 0) * 60 + (components.minute ?? 0))
+            }
+        )
     }
 }
 

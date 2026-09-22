@@ -55,7 +55,7 @@ struct TickoalaApp: App {
         }
         .defaultSize(width: 820, height: 520)
 
-        Window("Break settings", id: "break-settings") {
+        Window("Workday settings", id: "break-settings") {
             BreakWindow(model: appDelegate.model)
         }
         .defaultSize(width: 560, height: 420)

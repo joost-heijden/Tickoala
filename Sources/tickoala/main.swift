@@ -746,6 +746,7 @@ func runConfig(_ arguments: Arguments) throws {
         let settings = try tracker.store.settings()
         print("dedupe-window-seconds \(settings.dedupeWindowSeconds)   window in which repeated events are ignored")
         print("max-entry-seconds     \(settings.maxEntrySeconds)   after this a running block becomes 'open'")
+        print("workday-end-minutes   \(settings.workdayEndMinutes)   a block with no signal ends at this time (minutes since midnight)")
     case "set":
         guard let key = arguments.word(2), let raw = arguments.word(3), let value = Int(raw) else {
             throw CLIError.usage("usage: tickoala config set <key> <value>")

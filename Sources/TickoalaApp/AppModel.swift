@@ -51,6 +51,15 @@ final class AppModel: ObservableObject {
     }
     private static let showEarningsInMenuKey = "menu-earnings"
 
+    /// End of the workday in minutes since midnight. A block that gets no signal
+    /// (the Mac slept, the app was closed) is closed here rather than running on.
+    @Published var workdayEndMinutes = TrackerSettings.default.workdayEndMinutes {
+        didSet {
+            guard workdayEndMinutes != oldValue else { return }
+            persistWorkdayEnd()
+        }
+    }
+
     // Overview window
     @Published var period: ReportPeriod = .day {
         didSet { reloadOverview() }
@@ -157,6 +166,10 @@ final class AppModel: ObservableObject {
         // Both revenue gimmicks are off unless the user ticked them in Settings.
         showEarningsInIcon = UserDefaults.standard.bool(forKey: Self.showEarningsInIconKey)
         showEarningsInMenu = UserDefaults.standard.bool(forKey: Self.showEarningsInMenuKey)
+        // Restore the workday end from the database.
+        if let settings = try? tracker?.store.settings() {
+            workdayEndMinutes = settings.workdayEndMinutes
+        }
         // A coordinate only becomes a signal when it is near a stored location.
         wifi.resolveLocationContext = { [weak self] latitude, longitude in
             self?.locationContext(latitude: latitude, longitude: longitude)
@@ -197,10 +210,24 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Stores the workday end in the database, so the tracker reads the same value.
+    private func persistWorkdayEnd() {
+        guard let tracker else { return }
+        do {
+            try tracker.store.setSetting(key: "workday-end-minutes", value: workdayEndMinutes)
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
     /// Processes a network signal. A start on another network while a block runs
     /// is not applied silently: the user first chooses continue or start new.
     private func handle(_ event: ContextEvent) {
         guard let tracker else { return }
+        // A block left running past the workday end (Mac slept, app closed) is
+        // closed first, so a morning arrival starts fresh instead of asking whether
+        // the block from yesterday should continue.
+        _ = try? tracker.closeBlocksPastWorkday()
         if event.kind == .start, let pending = networkSwitchChoice(for: event, tracker: tracker) {
             pendingNetworkSwitch = pending
             lastWifiOutcome = "\(Formatting.clock(event.at))  \(displayContext(event.context)) start: waiting for your choice"

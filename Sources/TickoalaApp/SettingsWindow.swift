@@ -61,6 +61,14 @@ private struct GeneralSettings: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Workday") {
+                DatePicker("Day ends at", selection: workdayEndBinding, displayedComponents: .hourAndMinute)
+                Text("A block that gets no stop signal — the Mac slept or Tickoala was closed — "
+                     + "is closed at this time instead of running into the night.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Onboarding") {
                 Button("Show welcome screen") {
                     NSApp.activateForUI()
@@ -77,6 +85,22 @@ private struct GeneralSettings: View {
         }
         .formStyle(.grouped)
         .padding(6)
+    }
+
+    /// The stored workday end is a minute count; the picker works with a time.
+    private var workdayEndBinding: Binding<Date> {
+        Binding(
+            get: {
+                var components = DateComponents()
+                components.hour = model.workdayEndMinutes / 60
+                components.minute = model.workdayEndMinutes % 60
+                return Formatting.calendar.date(from: components) ?? Date()
+            },
+            set: { date in
+                let components = Formatting.calendar.dateComponents([.hour, .minute], from: date)
+                model.workdayEndMinutes = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+            }
+        )
     }
 }
 

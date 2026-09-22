@@ -78,14 +78,16 @@ func reportChecks() {
         test("exporting an open block leaves the end empty but names the status") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
-            try fixture.tracker.tick(now: at("2026-09-11 09:00"))
+            // Over sixteen hours but the same day, so it stays open rather than
+            // being closed at a workday end.
+            _ = try fixture.event("Office A", .start, "2026-09-10 07:00")
+            try fixture.tracker.tick(now: at("2026-09-10 23:30"))
 
             let csv = try CSVExport.export(store: fixture.store, from: at("2026-09-10"), to: at("2026-09-11"),
-                                           now: at("2026-09-11 09:00"))
+                                           now: at("2026-09-10 23:30"))
             let row = csv.split(separator: "\n").map(String.init)[1]
 
-            expect(row.contains(",09:00,,"), "no end time: \(row)")
+            expect(row.contains(",07:00,,"), "no end time: \(row)")
             expect(row.hasSuffix("open,controlplane,"), "status and source are named: \(row)")
         }
 

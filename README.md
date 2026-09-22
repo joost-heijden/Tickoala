@@ -275,7 +275,7 @@ the tracker, which is what makes the behaviour predictable:
 | No project selected yet | no start; the menu bar asks you to pick one |
 | Second start while already running | no second block |
 | Repeated signal within the dedupe window | ignored (default 30s) |
-| Leaving | the block keeps running for the rest of the day; it closes at the signal moment once the day is over |
+| Leaving | the block keeps running until the workday end; it closes at the signal moment once the workday is over |
 | Coming back the same day | the pending stop is cancelled, the same block continues |
 | Roaming between two networks of one client | the same block continues, no new block |
 | Wi-Fi has no SSID (Internet Sharing) | the wired connection is used instead, named after its DHCP domain or router |
@@ -283,12 +283,15 @@ the tracker, which is what makes the behaviour predictable:
 | Leaving to another customer | Tickoala asks: keep the current project running, or start a new block at the new place |
 | Leaving with no timer running | log line only; never an empty or negative block |
 | Two client networks active at once | nothing is stopped automatically; you choose |
-| Mac asleep or shut down | no events invented; a block running over 16h is marked `open` for correction |
+| Mac asleep or shut down | no events invented; a block with no signal closes at the workday end, and only an implausible same-day block over 16h is marked `open` for correction |
 | No Location Services permission | no signals at all; the menu bar asks for access |
 
 A block ends at the moment of the stop signal, even though it is only closed once
-the day is over. That way a dropout during the day never splits your work, while
-the night after you leave is not counted.
+the workday is over. That way a dropout during the day never splits your work, while
+the night after you leave is not counted. The workday end (**Settings → General →
+Workday**, or `workday-end-minutes` from the CLI) is the fallback last moment: a
+block that never got a stop signal — the Mac slept, Tickoala was closed — is closed
+there instead of running into the night and asking about it the next morning.
 
 Because the source is just an event feed, it's replaceable. A CLI adapter is
 included if you'd rather drive it from something else:

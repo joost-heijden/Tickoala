@@ -83,7 +83,7 @@ public final class Tracker {
     public func handle(_ event: ContextEvent, now: Date = Date()) throws -> EventOutcome {
         let settings = try store.settings()
 
-        // A stop whose day has passed is final first; only then this event.
+        // A stop whose workday is over is final first; only then this event.
         _ = try finalizePendingStops(now: now)
 
         let key = dedupeKey(for: event, window: settings.dedupeWindowSeconds)
@@ -177,6 +177,7 @@ public final class Tracker {
     }
 
     private func handleStop(profile: Profile, event: ContextEvent, now: Date) throws -> EventOutcome {
+        let settings = try store.settings()
         var state = try store.state(profileId: profile.id)
         guard let running = try store.runningEntry(profileId: profile.id) else {
             return .noRunningTimer
@@ -186,19 +187,19 @@ public final class Tracker {
         state.pendingStopEntryId = running.id
         try store.save(state)
 
-        // Within the same day the block keeps running, so a return cancels this
-        // pending stop and the block continues. Only a signal from an earlier day
-        // is final right away.
+        // Within the same workday the block keeps running, so a return cancels
+        // this pending stop and the block continues. Once the workday end is
+        // reached the stop becomes final, with the signal time as the end.
         if try finalizePendingStop(profileId: profile.id, now: now, force: false) != nil {
             return .stopped(entryId: running.id)
         }
-        return .stopScheduled(effectiveAt: Self.endOfDay(for: event.at))
+        return .stopScheduled(effectiveAt: settings.endOfWorkday(for: event.at))
     }
 
     // MARK: - Background work
 
-    /// Closes stops whose day is over. The end is the moment of the stop signal,
-    /// not the moment of finalizing.
+    /// Closes stops whose workday is over. The end is the moment of the stop
+    /// signal, not the moment of finalizing.
     @discardableResult
     public func finalizePendingStops(now: Date = Date()) throws -> [TimeEntry] {
         var closed: [TimeEntry] = []
@@ -220,13 +221,14 @@ public final class Tracker {
     }
 
     /// Closes the pending stop of one profile. While `force` is false the block
-    /// keeps running as long as `now` is still the day of the stop signal, so a
-    /// reconnect continues the same block. `force` is used when another project
-    /// starts, which makes the stop final at once.
+    /// keeps running until the workday end, so a return within the day continues
+    /// the same block. `force` is used when another project starts, which makes
+    /// the stop final at once.
     private func finalizePendingStop(profileId: Int64, now: Date, force: Bool) throws -> TimeEntry? {
         var state = try store.state(profileId: profileId)
         guard let pendingAt = state.pendingStopAt else { return nil }
-        guard force || !Formatting.calendar.isDate(now, inSameDayAs: pendingAt) else { return nil }
+        let settings = try store.settings()
+        guard force || now >= settings.endOfWorkday(for: pendingAt) else { return nil }
 
         var closed: TimeEntry?
         if let entryId = state.pendingStopEntryId,
@@ -242,10 +244,43 @@ public final class Tracker {
         return closed
     }
 
-    private static func endOfDay(for date: Date) -> Date {
-        let calendar = Formatting.calendar
-        let start = calendar.startOfDay(for: date)
-        return calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(24 * 3600)
+    /// Closes blocks that were left running past the workday end of an earlier
+    /// day, for example because the Mac slept or the app was closed. Without this
+    /// the block runs into the night and is only closed (or questioned) the next
+    /// morning. Today's block is left alone: the user may still be working.
+    @discardableResult
+    public func closeBlocksPastWorkday(now: Date = Date()) throws -> [TimeEntry] {
+        let settings = try store.settings()
+        var closed: [TimeEntry] = []
+        for entry in try store.runningEntries() {
+            guard !Formatting.calendar.isDate(now, inSameDayAs: entry.startedAt) else { continue }
+            let cutoff = workdayCutoff(for: entry.startedAt, settings: settings)
+            guard now >= cutoff else { continue }
+
+            var state = try store.state(profileId: entry.profileId)
+            let end: Date
+            if state.pendingStopEntryId == entry.id, let pendingAt = state.pendingStopAt {
+                end = min(pendingAt, cutoff)
+            } else {
+                end = cutoff
+            }
+            try store.updateEntry(id: entry.id, endedAt: .some(max(end, entry.startedAt)), status: .completed)
+            state.pendingStopAt = nil
+            state.pendingStopEntryId = nil
+            try store.save(state)
+            if let updated = try store.entry(id: entry.id) { closed.append(updated) }
+        }
+        return closed
+    }
+
+    /// The first workday end strictly after `start`. A block that began after the
+    /// workday end (late-night work) gets the next day's workday end instead of a
+    /// zero-length block.
+    private func workdayCutoff(for start: Date, settings: TrackerSettings) -> Date {
+        let sameDay = settings.endOfWorkday(for: start)
+        guard start >= sameDay else { return sameDay }
+        let nextDay = Formatting.calendar.date(byAdding: .day, value: 1, to: start) ?? start
+        return settings.endOfWorkday(for: nextDay)
     }
 
     /// Flags implausibly long blocks (sleep, restart) as `open`, so the user can
@@ -258,7 +293,7 @@ public final class Tracker {
             guard now.timeIntervalSince(entry.startedAt) > TimeInterval(settings.maxEntrySeconds) else { continue }
             var state = try store.state(profileId: entry.profileId)
             // A pending stop already knows where the block ends; it waits for the
-            // day to close, so it is not an implausible block.
+            // workday to close, so it is not an implausible block.
             guard state.pendingStopEntryId != entry.id else { continue }
             try store.updateEntry(id: entry.id, status: .open)
             state.attention = "Block \(entry.id) has been running since \(Formatting.timestamp(entry.startedAt)) and needs correction."
@@ -271,6 +306,7 @@ public final class Tracker {
     /// One maintenance round: finalize delayed stops and flag stuck blocks.
     public func tick(now: Date = Date()) throws {
         _ = try finalizePendingStops(now: now)
+        _ = try closeBlocksPastWorkday(now: now)
         _ = try flagStaleEntries(now: now)
     }
 

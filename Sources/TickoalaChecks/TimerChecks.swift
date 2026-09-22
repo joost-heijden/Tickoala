@@ -80,25 +80,49 @@ func timerChecks() {
             expect(try fixture.store.runningEntries().isEmpty, "no timer may be running")
         }
 
-        test("a same-day stop keeps the block running and closes at the next day") {
+        test("a same-day stop keeps the block running until the workday end") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
             _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
 
             let outcome = try fixture.event("Office A", .stop, "2026-09-10 17:00")
-            expectEqual(outcome, .stopScheduled(effectiveAt: at("2026-09-11 00:00")))
+            expectEqual(outcome, .stopScheduled(effectiveAt: at("2026-09-10 18:00")))
             expect(try fixture.store.runningEntry(profileId: fixture.profileA.id) != nil, "the block keeps running during the day")
 
-            let before = try fixture.tracker.finalizePendingStops(now: at("2026-09-10 23:59"))
-            expect(before.isEmpty, "still the same day, nothing closes yet")
+            let before = try fixture.tracker.finalizePendingStops(now: at("2026-09-10 17:59"))
+            expect(before.isEmpty, "before the workday end nothing closes yet")
             expect(try fixture.store.runningEntry(profileId: fixture.profileA.id) != nil, "the timer is still running")
 
-            let closed = try fixture.tracker.finalizePendingStops(now: at("2026-09-11 00:01"))
-            expectEqual(closed.count, 1, "the day is over, the block closes")
+            let closed = try fixture.tracker.finalizePendingStops(now: at("2026-09-10 18:01"))
+            expectEqual(closed.count, 1, "the workday end is over, the block closes")
             let entry = try expectNotNil(try fixture.store.entry(id: 1))
             expectEqual(entry.status, .completed)
             expectEqual(entry.endedAt, at("2026-09-10 17:00"), "the end is the moment of the stop signal")
             expectEqual(entry.duration(), 8 * 3600, "duration in seconds")
+        }
+
+        test("a block without a signal is closed at the previous workday end") {
+            let fixture = try Fixture()
+            try fixture.project(fixture.profileA)
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
+
+            // The Mac slept: no stop signal ever arrived, the next tick is the morning after.
+            try fixture.tracker.tick(now: at("2026-09-11 08:00"))
+
+            let entry = try expectNotNil(try fixture.store.entry(id: 1))
+            expectEqual(entry.status, .completed, "the block does not run into the next day")
+            expectEqual(entry.endedAt, at("2026-09-10 18:00"), "it ends at the workday end")
+            expectEqual(entry.duration(), 9 * 3600)
+        }
+
+        test("the workday end is configurable") {
+            let fixture = try Fixture()
+            try fixture.project(fixture.profileA)
+            try fixture.store.setSetting(key: "workday-end-minutes", value: 17 * 60)
+            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
+
+            let outcome = try fixture.event("Office A", .stop, "2026-09-10 12:00")
+            expectEqual(outcome, .stopScheduled(effectiveAt: at("2026-09-10 17:00")))
         }
 
         test("a brief Wi-Fi dropout does not close the block") {
@@ -219,14 +243,16 @@ func timerChecks() {
         test("a block that runs too long becomes 'open' and asks for correction") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)
-            _ = try fixture.event("Office A", .start, "2026-09-10 09:00")
+            // Same day, so the workday-end rule does not touch it; the block is
+            // simply implausible (over sixteen hours) and needs a manual end.
+            _ = try fixture.event("Office A", .start, "2026-09-10 07:00")
 
-            try fixture.tracker.tick(now: at("2026-09-11 09:00"))
+            try fixture.tracker.tick(now: at("2026-09-10 23:30"))
 
             let entry = try expectNotNil(try fixture.store.entry(id: 1))
             expectEqual(entry.status, .open, "status after a block that ran too long")
             expect(entry.endedAt == nil, "no end is invented")
-            expectEqual(try fixture.tracker.status(now: at("2026-09-11 09:00")).mode, .attention)
+            expectEqual(try fixture.tracker.status(now: at("2026-09-10 23:30")).mode, .attention)
         }
 
         test("the menu bar shows the elapsed time of the running block") {

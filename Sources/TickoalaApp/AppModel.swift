@@ -79,6 +79,10 @@ final class AppModel: ObservableObject {
     @Published var profileFilter: Int64? {
         didSet { reloadOverview() }
     }
+    /// The calendar day the anchor was last on while it followed "today". The
+    /// overview has to move along when the clock passes midnight, otherwise it
+    /// keeps showing yesterday while the week totals already include today.
+    private var anchorDay = Formatting.calendar.startOfDay(for: Date())
     @Published private(set) var overviewEntries: [EntryRow] = []
     /// Net hours of the shown period, after the automatic break deduction.
     @Published private(set) var overviewTotal: TimeInterval = 0
@@ -367,8 +371,21 @@ final class AppModel: ObservableObject {
             errorMessage = "\(error)"
         }
         ensureSelectedCustomer()
+        followTodayIfNeeded()
         reloadOverview()
         checkInvoiceReminder()
+    }
+
+    /// Advances the overview anchor when the day has rolled over and the anchor
+    /// was still on the day the app started; a day the user chose stays.
+    private func followTodayIfNeeded() {
+        let now = Date()
+        let today = Formatting.calendar.startOfDay(for: now)
+        guard today != anchorDay else { return }
+        if Reporting.shouldFollowToday(anchor: anchor, lastDay: anchorDay, now: now) {
+            anchor = now
+        }
+        anchorDay = today
     }
 
     /// Keeps the chosen customer valid: if it disappears (or nothing is chosen

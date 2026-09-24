@@ -97,6 +97,18 @@ public enum Reporting {
         return DateRange(start: interval.start, end: interval.end)
     }
 
+    /// Whether the overview anchor should follow the clock to a new day. True only
+    /// when the day has rolled over since `lastDay` and the anchor was still on that
+    /// day; a day the user navigated to stays put.
+    public static func shouldFollowToday(
+        anchor: Date,
+        lastDay: Date,
+        now: Date,
+        calendar: Calendar = Formatting.calendar
+    ) -> Bool {
+        calendar.startOfDay(for: now) != lastDay && calendar.isDate(anchor, inSameDayAs: lastDay)
+    }
+
     public static func report(
         store: Store,
         period: ReportPeriod,

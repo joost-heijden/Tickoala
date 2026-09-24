@@ -52,6 +52,22 @@ func reportChecks() {
             expectEqual(report.range.end, at("2026-10-01 00:00"))
         }
 
+        test("the overview anchor follows today across midnight unless it was moved") {
+            let lastDay = at("2026-09-23 00:00")
+            expect(
+                Reporting.shouldFollowToday(anchor: at("2026-09-23 15:00"), lastDay: lastDay, now: at("2026-09-24 08:00")),
+                "an anchor still on the old today rolls to the new day"
+            )
+            expect(
+                !Reporting.shouldFollowToday(anchor: at("2026-09-20 15:00"), lastDay: lastDay, now: at("2026-09-24 08:00")),
+                "a day the user navigated to stays put"
+            )
+            expect(
+                !Reporting.shouldFollowToday(anchor: at("2026-09-23 15:00"), lastDay: lastDay, now: at("2026-09-23 18:00")),
+                "the same day does not move"
+            )
+        }
+
         test("a running block counts up to now") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)

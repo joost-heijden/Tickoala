@@ -140,6 +140,11 @@ enum Schema {
         ALTER TABLE time_entries ADD COLUMN break_started_at INTEGER;
         ALTER TABLE time_entries ADD COLUMN break_ended_at INTEGER;
         """,
+
+        // Extra copy (CC) addresses per client, on top of the global ones.
+        """
+        ALTER TABLE profiles ADD COLUMN billing_cc TEXT;
+        """,
     ]
 
     static func migrate(_ database: Database) throws {

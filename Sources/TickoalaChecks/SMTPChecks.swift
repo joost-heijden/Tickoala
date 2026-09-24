@@ -68,6 +68,31 @@ func smtpChecks() {
             expect(server.dataPayload.contains(csv.base64EncodedString()), "the CSV is base64 in the message")
         }
 
+        test("CC addresses get their own envelope recipient and a Cc header") {
+            let server = try MockSMTPServer()
+            server.start()
+            defer { server.stop() }
+
+            let message = EmailMessage(
+                from: "me@example.com",
+                to: ["client@example.com"],
+                cc: ["books@example.com", "second@example.com"],
+                subject: "Invoice 0001",
+                body: "Hello\r\n"
+            )
+            let configuration = SMTPConfiguration(
+                host: "127.0.0.1", port: Int(server.port),
+                username: "", password: "", from: "me@example.com", useTLS: false
+            )
+            try SMTPClient.send(message, configuration: configuration)
+
+            expect(server.waitForData(timeout: 5), "the server received a message")
+            expect(server.commands.contains("RCPT TO:<client@example.com>"), "the main recipient was sent")
+            expect(server.commands.contains("RCPT TO:<books@example.com>"), "the first CC recipient was sent")
+            expect(server.commands.contains("RCPT TO:<second@example.com>"), "the second CC recipient was sent")
+            expect(server.dataPayload.contains("Cc: books@example.com, second@example.com"), "the Cc header lists the copies")
+        }
+
         test("a rejected login surfaces as an error") {
             let server = try MockSMTPServer()
             server.rejectAuth = true

@@ -1311,13 +1311,15 @@ final class AppModel: ObservableObject {
         vatNumber: String,
         vatRatePercent: Int,
         poNumber: String,
-        billingEmail: String
+        billingEmail: String,
+        billingCc: String
     ) {
         guard let tracker else { return }
         do {
             try tracker.store.updateProfileInvoicing(
                 id: id, billingAddress: billingAddress, vatNumber: vatNumber,
-                vatRatePercent: vatRatePercent, poNumber: poNumber, billingEmail: billingEmail
+                vatRatePercent: vatRatePercent, poNumber: poNumber,
+                billingEmail: billingEmail, billingCc: billingCc
             )
             refresh()
         } catch {

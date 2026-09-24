@@ -94,6 +94,9 @@ public struct Profile: Equatable, Identifiable, Sendable {
     public var poNumber: String?
     /// Where the invoice is emailed when you send it from the app.
     public var billingEmail: String?
+    /// Extra addresses that get a copy of this client's invoice (CC), on top of
+    /// the ones in the invoice settings. Several, separated by commas or new lines.
+    public var billingCc: String?
     /// Coordinates and radius that mark this client on the map, for location
     /// detection. `nil` when the client is only recognised by network name.
     public var latitude: Double?
@@ -113,6 +116,7 @@ public struct Profile: Equatable, Identifiable, Sendable {
         vatRatePercent: Int = 21,
         poNumber: String? = nil,
         billingEmail: String? = nil,
+        billingCc: String? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil,
         presenceRadiusMeters: Int = 150
@@ -129,6 +133,7 @@ public struct Profile: Equatable, Identifiable, Sendable {
         self.vatRatePercent = vatRatePercent
         self.poNumber = poNumber
         self.billingEmail = billingEmail
+        self.billingCc = billingCc
         self.latitude = latitude
         self.longitude = longitude
         self.presenceRadiusMeters = presenceRadiusMeters

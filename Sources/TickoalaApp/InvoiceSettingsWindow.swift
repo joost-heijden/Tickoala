@@ -73,6 +73,15 @@ struct InvoiceSettingsWindow: View {
                     FormField(label: "From address") {
                         FormTextField(text: binding(\.smtpFromEmail), prompt: "you@example.com")
                     }
+                    FormFieldStacked(label: "CC") {
+                        TextField("", text: binding(\.smtpCcEmails), prompt: Text("extra copies, separated by commas"), axis: .vertical)
+                            .lineLimit(1...3)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
+                    }
+                    Text("These addresses get a copy of every invoice. Each client can add more.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Toggle("Use TLS (port 465)", isOn: binding(\.smtpUseTLS))
                     Toggle("Attach the hours CSV to the invoice email", isOn: binding(\.attachHoursCSV))
                     FormField(label: "Password") {

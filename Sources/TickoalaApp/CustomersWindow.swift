@@ -97,6 +97,7 @@ private struct CustomerForm: View {
     @State private var vatRate = 21
     @State private var poNumber = ""
     @State private var billingEmail = ""
+    @State private var billingCc = ""
     @State private var radius = 150
     @State private var confirmDelete = false
 
@@ -159,6 +160,13 @@ private struct CustomerForm: View {
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.leading)
                             .onChange(of: billingEmail) { _ in saveInvoicing() }
+                    }
+                    FormFieldStacked(label: "CC") {
+                        TextField("", text: $billingCc, prompt: Text("extra copies, separated by commas"), axis: .vertical)
+                            .lineLimit(1...3)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
+                            .onChange(of: billingCc) { _ in saveInvoicing() }
                     }
                     FormField(label: "PO number") {
                         TextField("", text: $poNumber)
@@ -326,6 +334,7 @@ private struct CustomerForm: View {
         vatRate = profile.vatRatePercent
         poNumber = profile.poNumber ?? ""
         billingEmail = profile.billingEmail ?? ""
+        billingCc = profile.billingCc ?? ""
         radius = profile.presenceRadiusMeters
         loaded = true
     }
@@ -338,7 +347,8 @@ private struct CustomerForm: View {
             vatNumber: vatNumber,
             vatRatePercent: vatRate,
             poNumber: poNumber,
-            billingEmail: billingEmail
+            billingEmail: billingEmail,
+            billingCc: billingCc
         )
     }
 

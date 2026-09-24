@@ -134,6 +134,29 @@ func invoiceChecks() {
             expectEqual(profile?.poNumber, nil)
         }
 
+        test("the invoice email copies the global and the client CC addresses") {
+            let fixture = try Fixture()
+            var settings = try fixture.store.invoiceSettings()
+            settings.smtpFromEmail = "me@example.com"
+            settings.smtpCcEmails = "books@example.com, books@example.com; second@example.com"
+            try fixture.store.updateInvoiceSettings(settings)
+            try fixture.store.updateProfileInvoicing(
+                id: fixture.profileA.id, billingAddress: "", vatNumber: "", vatRatePercent: 21,
+                poNumber: "", billingEmail: "client@example.com", billingCc: "client-books@example.com"
+            )
+            expectEqual(try fixture.store.profile(id: fixture.profileA.id)?.billingCc, "client-books@example.com")
+
+            let period = Invoicing.previousMonthRange(containing: at("2026-09-01"))
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: nil,
+                startedAt: at("2026-08-10 09:00"), endedAt: at("2026-08-10 17:00"),
+                status: .completed, source: .manual, note: nil
+            )
+            let invoice = try Invoicing.invoice(store: fixture.store, profileId: fixture.profileA.id, period: period)
+            let message = InvoiceEmail.message(for: invoice, to: "client@example.com", pdf: Data("x".utf8))
+            expectEqual(message.cc, ["books@example.com", "second@example.com", "client-books@example.com"])
+        }
+
         test("a manual number edit skips numbers that already exist") {
             let fixture = try Fixture()
             let period = Invoicing.previousMonthRange(containing: at("2026-09-01"))

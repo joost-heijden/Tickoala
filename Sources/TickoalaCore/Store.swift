@@ -160,7 +160,8 @@ public final class Store {
         vatNumber: String,
         vatRatePercent: Int,
         poNumber: String,
-        billingEmail: String = ""
+        billingEmail: String = "",
+        billingCc: String = ""
     ) throws {
         func cleaned(_ value: String) -> SQLValue {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -168,7 +169,7 @@ public final class Store {
         }
         try database.run(
             """
-            UPDATE profiles SET billing_address = ?, vat_number = ?, vat_rate_percent = ?, po_number = ?, billing_email = ?
+            UPDATE profiles SET billing_address = ?, vat_number = ?, vat_rate_percent = ?, po_number = ?, billing_email = ?, billing_cc = ?
             WHERE id = ?;
             """,
             [
@@ -177,6 +178,7 @@ public final class Store {
                 .int(Int64(min(max(0, vatRatePercent), 100))),
                 cleaned(poNumber),
                 cleaned(billingEmail),
+                cleaned(billingCc),
                 .int(id),
             ]
         )
@@ -658,6 +660,7 @@ public final class Store {
             vatRatePercent: Int(row.int("vat_rate_percent") ?? 21),
             poNumber: row.string("po_number"),
             billingEmail: row.string("billing_email"),
+            billingCc: row.string("billing_cc"),
             latitude: row.double("latitude"),
             longitude: row.double("longitude"),
             presenceRadiusMeters: Int(row.int("presence_radius_m") ?? 150)

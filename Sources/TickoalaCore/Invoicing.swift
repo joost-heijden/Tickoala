@@ -25,6 +25,9 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
     public var smtpPort: Int
     public var smtpUsername: String
     public var smtpFromEmail: String
+    /// Extra addresses that get a copy of every invoice email (CC). Several can
+    /// be entered, separated by commas, semicolons or new lines.
+    public var smtpCcEmails: String
     /// Implicit TLS (SMTPS). True for port 465; STARTTLS on 587 is not supported.
     public var smtpUseTLS: Bool
     /// Attach the hour sheet (CSV) to the invoice email by default.
@@ -48,6 +51,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         smtpPort: Int = 465,
         smtpUsername: String = "",
         smtpFromEmail: String = "",
+        smtpCcEmails: String = "",
         smtpUseTLS: Bool = true,
         attachHoursCSV: Bool = false
     ) {
@@ -66,9 +70,22 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         self.smtpPort = smtpPort
         self.smtpUsername = smtpUsername
         self.smtpFromEmail = smtpFromEmail
+        self.smtpCcEmails = smtpCcEmails
         self.smtpUseTLS = smtpUseTLS
         self.attachHoursCSV = attachHoursCSV
     }
+
+    /// Splits a free-form list of addresses (commas, semicolons or new lines)
+    /// into clean addresses, keeping the order.
+    public static func parseAddresses(_ text: String) -> [String] {
+        text
+            .split(whereSeparator: { $0 == "," || $0 == ";" || $0 == "\n" || $0 == "\r" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// The CC addresses as a clean list, from the free-form text field.
+    public var ccRecipients: [String] { Self.parseAddresses(smtpCcEmails) }
 
     /// Can an invoice be emailed? Host and a from-address are the minimum; the
     /// password is checked separately in the Keychain.
@@ -102,6 +119,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         smtpPort = try container.decodeIfPresent(Int.self, forKey: .smtpPort) ?? fallback.smtpPort
         smtpUsername = try container.decodeIfPresent(String.self, forKey: .smtpUsername) ?? fallback.smtpUsername
         smtpFromEmail = try container.decodeIfPresent(String.self, forKey: .smtpFromEmail) ?? fallback.smtpFromEmail
+        smtpCcEmails = try container.decodeIfPresent(String.self, forKey: .smtpCcEmails) ?? fallback.smtpCcEmails
         smtpUseTLS = try container.decodeIfPresent(Bool.self, forKey: .smtpUseTLS) ?? fallback.smtpUseTLS
         attachHoursCSV = try container.decodeIfPresent(Bool.self, forKey: .attachHoursCSV) ?? fallback.attachHoursCSV
     }
@@ -304,9 +322,16 @@ public enum InvoiceEmail {
                 name: "hours-\(client)-\(month).csv", mimeType: "text/csv; charset=utf-8", data: csv
             ))
         }
+        // The global CC list plus this client's own, without duplicates.
+        var cc: [String] = []
+        for address in invoice.sender.ccRecipients + InvoiceSettings.parseAddresses(invoice.profile.billingCc ?? "")
+        where !cc.contains(where: { $0.caseInsensitiveCompare(address) == .orderedSame }) {
+            cc.append(address)
+        }
         return EmailMessage(
             from: invoice.sender.smtpFromEmail.isEmpty ? invoice.sender.senderEmail : invoice.sender.smtpFromEmail,
             to: [recipient],
+            cc: cc,
             subject: subject(for: invoice),
             body: body(for: invoice),
             attachments: attachments

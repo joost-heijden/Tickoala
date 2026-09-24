@@ -55,13 +55,15 @@ public struct EmailAttachment: Sendable {
 public struct EmailMessage: Sendable {
     public var from: String
     public var to: [String]
+    public var cc: [String]
     public var subject: String
     public var body: String
     public var attachments: [EmailAttachment]
 
-    public init(from: String, to: [String], subject: String, body: String, attachments: [EmailAttachment] = []) {
+    public init(from: String, to: [String], cc: [String] = [], subject: String, body: String, attachments: [EmailAttachment] = []) {
         self.from = from
         self.to = to
+        self.cc = cc
         self.subject = subject
         self.body = body
         self.attachments = attachments
@@ -73,10 +75,13 @@ public struct EmailMessage: Sendable {
             "From: \(from)",
             "To: \(to.joined(separator: ", "))",
             "Subject: \(Self.encodedSubject(subject))",
+        ]
+        if !cc.isEmpty { headers.append("Cc: \(cc.joined(separator: ", "))") }
+        headers.append(contentsOf: [
             "Date: \(Self.rfc2822Date(Date()))",
             "Message-ID: <\(UUID().uuidString)@tickoala.local>",
             "MIME-Version: 1.0",
-        ]
+        ])
         let boundary = "tickoala-\(UUID().uuidString)"
         headers.append("Content-Type: multipart/mixed; boundary=\"\(boundary)\"")
         var message = headers.joined(separator: "\r\n") + "\r\n\r\n"
@@ -177,7 +182,7 @@ private final class SMTPConnection {
         _ = try command("EHLO \(Self.localHostname())", expecting: 250)
         try authenticate()
         _ = try command("MAIL FROM:<\(configuration.from)>", expecting: 250)
-        for recipient in message.to {
+        for recipient in message.to + message.cc {
             _ = try command("RCPT TO:<\(recipient)>", expecting: 250)
         }
         _ = try command("DATA", expecting: 354)

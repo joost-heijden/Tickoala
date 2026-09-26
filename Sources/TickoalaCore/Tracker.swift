@@ -151,6 +151,14 @@ public final class Tracker {
             }
         }
 
+        let activeProjects = try store.projects(profileId: profile.id, includeInactive: false)
+
+        // Ask which project to work on when configured. Only useful with more than
+        // one active project; otherwise there is nothing to choose.
+        if activeProjects.count > 1, try shouldAskProject(profile: profile, now: now) {
+            return .needsProjectChoice(profileId: profile.id, projectIds: activeProjects.map(\.id))
+        }
+
         if let projectId = state.activeProjectId,
            let project = try store.project(id: projectId),
            project.active {
@@ -168,13 +176,27 @@ public final class Tracker {
             return .started(entryId: entry.id)
         }
 
-        let activeProjects = try store.projects(profileId: profile.id, includeInactive: false)
         if activeProjects.count > 1 {
             return .needsProjectChoice(profileId: profile.id, projectIds: activeProjects.map(\.id))
         }
 
         try setAttention("Choose a project for \(profile.name) first.", on: [profile.id])
         return .needsProject(profileId: profile.id)
+    }
+
+    /// Should this arrival ask which project to work on? "First of the day" only
+    /// asks while nothing was booked on this client yet, so the morning arrival
+    /// asks and the rest of the day starts straight away.
+    private func shouldAskProject(profile: Profile, now: Date) throws -> Bool {
+        switch try store.settings().projectPrompt {
+        case .never:
+            return false
+        case .everyArrival:
+            return true
+        case .firstOfDay:
+            let start = Formatting.calendar.startOfDay(for: now)
+            return try store.entries(from: start, to: now, profileId: profile.id).isEmpty
+        }
     }
 
     private func handleStop(profile: Profile, event: ContextEvent, now: Date) throws -> EventOutcome {

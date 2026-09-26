@@ -65,6 +65,20 @@ private struct WorkdaySettings: View {
                  + "check-ins and departures are rounded to the nearest half hour.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            FormField(label: "Ask for a project") {
+                Picker("", selection: $model.projectPrompt) {
+                    ForEach(ProjectPrompt.allCases, id: \.self) { prompt in
+                        Text(prompt.label).tag(prompt)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 240)
+            }
+            Text("When Tickoala starts at a client — on arrival or after the laptop wakes from sleep — "
+                 + "ask which project to work on. The choice opens as a window and also sits in the menu.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

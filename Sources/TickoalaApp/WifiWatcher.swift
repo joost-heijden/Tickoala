@@ -84,6 +84,17 @@ final class WifiWatcher: NSObject, ObservableObject {
         }
     }
 
+    /// Re-evaluates the current network after the Mac wakes from sleep. If the
+    /// network did not change while asleep, the wake itself counts as the
+    /// arrival, so the project question can still appear.
+    func recheckAfterWake() {
+        let before = lastSeen
+        poll()
+        if lastSeen == before, let context = currentSSID {
+            emit(context, .start)
+        }
+    }
+
     /// Opens the permission prompt, or the system settings if it has already been answered.
     func requestAccess() {
         switch access {

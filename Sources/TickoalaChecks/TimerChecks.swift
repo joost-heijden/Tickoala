@@ -26,6 +26,55 @@ func timerChecks() {
             expect(try fixture.store.state(profileId: fixture.profileA.id).attention != nil, "the user must get a notice")
         }
 
+        test("the first start of the day asks which project to work on") {
+            let fixture = try Fixture()
+            let first = try fixture.project(fixture.profileA)
+            let second = try fixture.store.createProject(
+                profileId: fixture.profileA.id, number: "2402", name: "Support"
+            )
+            try fixture.store.setSetting(key: "project-prompt", value: ProjectPrompt.firstOfDay.rawValue)
+
+            let outcome = try fixture.event("Office A", .start, "2026-09-10 09:00")
+
+            expectEqual(outcome, .needsProjectChoice(profileId: fixture.profileA.id, projectIds: [first.id, second.id]))
+            expect(try fixture.store.runningEntry(profileId: fixture.profileA.id) == nil, "no block until a project is chosen")
+        }
+
+        test("an earlier block that day counts as the first start") {
+            let fixture = try Fixture()
+            let active = try fixture.project(fixture.profileA)
+            _ = try fixture.store.createProject(profileId: fixture.profileA.id, number: "2402", name: "Support")
+            try fixture.store.setSetting(key: "project-prompt", value: ProjectPrompt.firstOfDay.rawValue)
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: active.id,
+                startedAt: at("2026-09-10 08:00"), endedAt: at("2026-09-10 09:00"),
+                status: .completed, source: .manual, note: nil
+            )
+
+            let outcome = try fixture.event("Office A", .start, "2026-09-10 10:00")
+
+            expect(outcome.isStarted, "the question is already answered, so it starts directly, got \(outcome)")
+        }
+
+        test("the every-arrival question fires again after an earlier block") {
+            let fixture = try Fixture()
+            let active = try fixture.project(fixture.profileA)
+            _ = try fixture.store.createProject(profileId: fixture.profileA.id, number: "2402", name: "Support")
+            try fixture.store.setSetting(key: "project-prompt", value: ProjectPrompt.everyArrival.rawValue)
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: active.id,
+                startedAt: at("2026-09-10 08:00"), endedAt: at("2026-09-10 09:00"),
+                status: .completed, source: .manual, note: nil
+            )
+
+            let outcome = try fixture.event("Office A", .start, "2026-09-10 10:00")
+
+            guard case .needsProjectChoice = outcome else {
+                expect(false, "expected a project choice, got \(outcome)")
+                return
+            }
+        }
+
         test("a second start does not make a second block") {
             let fixture = try Fixture()
             try fixture.project(fixture.profileA)

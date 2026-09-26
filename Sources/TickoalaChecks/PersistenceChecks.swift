@@ -46,8 +46,10 @@ func persistenceChecks() {
         test("settings are persisted") {
             let fixture = try Fixture()
             try fixture.store.setSetting(key: "dedupe-window-seconds", value: 120)
+            try fixture.store.setSetting(key: "project-prompt", value: ProjectPrompt.everyArrival.rawValue)
             let again = try Store(path: fixture.path)
             expectEqual(try again.settings().dedupeWindowSeconds, 120)
+            expectEqual(try again.settings().projectPrompt, .everyArrival)
             expectThrows({ try fixture.store.setSetting(key: "junk", value: 1) }, "unknown keys are refused")
         }
 

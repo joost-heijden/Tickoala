@@ -69,6 +69,11 @@ struct TickoalaApp: App {
             InvoiceSettingsWindow(model: appDelegate.model)
         }
         .defaultSize(width: 560, height: 620)
+
+        Window("Choose project", id: "project-prompt") {
+            ProjectPromptWindow(model: appDelegate.model)
+        }
+        .defaultSize(width: 380, height: 300)
     }
 }
 
@@ -110,6 +115,13 @@ private struct MenuBarLabel: View {
             NSApp.activateForUI()
             openWindow(id: "settings")
             model.acknowledgeSettingsWindow()
+        }
+        // A project to choose opens the question window by itself; the same choice
+        // stays available in the menu.
+        .onChange(of: model.pendingWifiProjectSelection) { selection in
+            guard selection != nil else { return }
+            NSApp.activateForUI()
+            openWindow(id: "project-prompt")
         }
     }
 }

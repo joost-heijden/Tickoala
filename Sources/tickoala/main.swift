@@ -748,6 +748,7 @@ func runConfig(_ arguments: Arguments) throws {
         print("max-entry-seconds     \(settings.maxEntrySeconds)   after this a running block becomes 'open'")
         print("workday-end-minutes   \(settings.workdayEndMinutes)   a block with no signal ends at this time (minutes since midnight)")
         print("workday-start-minutes \(settings.workdayStartMinutes)   automatic check-ins near this time snap to it (minutes since midnight)")
+        print("project-prompt        \(settings.projectPrompt.rawValue)   ask for a project on arrival (0 never, 1 first of the day, 2 every arrival)")
     case "set":
         guard let key = arguments.word(2), let raw = arguments.word(3), let value = Int(raw) else {
             throw CLIError.usage("usage: tickoala config set <key> <value>")

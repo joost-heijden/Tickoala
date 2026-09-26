@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import SwiftUI
@@ -56,7 +57,7 @@ final class AppModel: ObservableObject {
     @Published var workdayEndMinutes = TrackerSettings.default.workdayEndMinutes {
         didSet {
             guard workdayEndMinutes != oldValue else { return }
-            persistWorkdaySetting(key: "workday-end-minutes", value: workdayEndMinutes)
+            persistSetting(key: "workday-end-minutes", value: workdayEndMinutes)
         }
     }
 
@@ -65,7 +66,15 @@ final class AppModel: ObservableObject {
     @Published var workdayStartMinutes = TrackerSettings.default.workdayStartMinutes {
         didSet {
             guard workdayStartMinutes != oldValue else { return }
-            persistWorkdaySetting(key: "workday-start-minutes", value: workdayStartMinutes)
+            persistSetting(key: "workday-start-minutes", value: workdayStartMinutes)
+        }
+    }
+
+    /// When an automatic start at a client asks which project to work on.
+    @Published var projectPrompt = TrackerSettings.default.projectPrompt {
+        didSet {
+            guard projectPrompt != oldValue else { return }
+            persistSetting(key: "project-prompt", value: projectPrompt.rawValue)
         }
     }
 
@@ -119,6 +128,7 @@ final class AppModel: ObservableObject {
     private var wifiObserver: AnyCancellable?
     private var updateObserver: AnyCancellable?
     private var loginObserver: AnyCancellable?
+    private var wakeObserver: AnyCancellable?
 
     struct EntryRow: Identifiable {
         var entry: TimeEntry
@@ -183,6 +193,7 @@ final class AppModel: ObservableObject {
         if let settings = try? tracker?.store.settings() {
             workdayEndMinutes = settings.workdayEndMinutes
             workdayStartMinutes = settings.workdayStartMinutes
+            projectPrompt = settings.projectPrompt
         }
         // A coordinate only becomes a signal when it is near a stored location.
         wifi.resolveLocationContext = { [weak self] latitude, longitude in
@@ -206,6 +217,14 @@ final class AppModel: ObservableObject {
         loginObserver = launchAtLogin.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.objectWillChange.send() }
         }
+        // After the Mac wakes from sleep the network often did not change, so the
+        // watcher's poll sees nothing new. Re-evaluate it so a wake at a client
+        // can still ask which project to work on.
+        wakeObserver = NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didWakeNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.handleWake() }
+            }
         wifi.start()
     }
 
@@ -224,14 +243,22 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Stores a workday setting in the database, so the tracker reads the same value.
-    private func persistWorkdaySetting(key: String, value: Int) {
+    /// Stores a setting in the database, so the tracker reads the same value.
+    private func persistSetting(key: String, value: Int) {
         guard let tracker else { return }
         do {
             try tracker.store.setSetting(key: key, value: value)
         } catch {
             errorMessage = "\(error)"
         }
+    }
+
+    /// After the Mac wakes from sleep: re-check the network. Only relevant when
+    /// Tickoala is set to ask for a project; otherwise waking must not restart
+    /// tracking by itself.
+    private func handleWake() {
+        guard projectPrompt != .never else { return }
+        wifi.recheckAfterWake()
     }
 
     /// Processes a network signal. A start on another network while a block runs

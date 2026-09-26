@@ -34,49 +34,60 @@ private struct GeneralSettings: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Form {
-            Section("Start automatically") {
-                Toggle("Start Tickoala automatically at login", isOn: Binding(
-                    get: { model.launchAtLogin.isEnabled },
-                    set: { model.launchAtLogin.setEnabled($0) }
-                ))
-                Text("Tickoala can only watch Wi-Fi while it runs. "
-                     + "Turn this on to start it after every restart.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if let error = model.launchAtLogin.errorMessage {
-                    Text(error)
-                        .foregroundStyle(.orange)
-                    Button("Open Login Items") {
-                        model.launchAtLogin.openLoginItemsSettings()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                FormSection(title: "Start automatically") {
+                    Toggle(isOn: Binding(
+                        get: { model.launchAtLogin.isEnabled },
+                        set: { model.launchAtLogin.setEnabled($0) }
+                    )) {
+                        Text("Start Tickoala automatically at login")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Text("Tickoala can only watch Wi-Fi while it runs. "
+                         + "Turn this on to start it after every restart.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let error = model.launchAtLogin.errorMessage {
+                        Text(error)
+                            .foregroundStyle(.orange)
+                        Button("Open Login Items") {
+                            model.launchAtLogin.openLoginItemsSettings()
+                        }
+                    }
+                }
+
+                FormSection(title: "Month revenue") {
+                    Toggle(isOn: $model.showEarningsInIcon) {
+                        Text("Show this month's revenue next to the menu bar icon")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Toggle(isOn: $model.showEarningsInMenu) {
+                        Text("Show this month's revenue per customer in the menu")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Text("The amount counts up every second while you work. Both are off by default.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                FormSection(title: "About") {
+                    LabeledContent("Version", value: model.updateChecker.currentVersion)
+                    HStack {
+                        Button("Show welcome screen") {
+                            NSApp.activateForUI()
+                            openWindow(id: "welcome")
+                        }
+                        Button("View on GitHub") {
+                            NSWorkspace.shared.open(UpdateChecker.repositoryURL)
+                        }
+                        Spacer()
                     }
                 }
             }
-
-            Section("Month revenue") {
-                Toggle("Show this month's revenue next to the menu bar icon", isOn: $model.showEarningsInIcon)
-                Toggle("Show this month's revenue per customer in the menu", isOn: $model.showEarningsInMenu)
-                Text("The amount counts up every second while you work. Both are off by default.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Onboarding") {
-                Button("Show welcome screen") {
-                    NSApp.activateForUI()
-                    openWindow(id: "welcome")
-                }
-            }
-
-            Section("About") {
-                LabeledContent("Version", value: model.updateChecker.currentVersion)
-                Button("View on GitHub") {
-                    NSWorkspace.shared.open(UpdateChecker.repositoryURL)
-                }
-            }
+            .padding(16)
+            .toggleStyle(.switch)
         }
-        .formStyle(.grouped)
-        .padding(6)
     }
 }
 

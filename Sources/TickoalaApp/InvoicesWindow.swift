@@ -84,19 +84,28 @@ struct InvoicesWindow: View {
                         Image(systemName: "chevron.left")
                     }
                     .buttonStyle(.borderless)
-                    .help("Previous month")
+                    .help("Previous period")
                     Text(periodLabel).font(.headline).monospacedDigit()
                     Button { model.shiftInvoicePeriod(1) } label: {
                         Image(systemName: "chevron.right")
                     }
                     .buttonStyle(.borderless)
-                    .help("Next month")
+                    .help("Next period")
                 }
                 Text(periodCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            Picker("", selection: periodKindBinding) {
+                ForEach(InvoicePeriodKind.allCases, id: \.self) { kind in
+                    Text(kind.label).tag(kind)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .help("How much time one invoice covers")
             if let status {
                 Text(status)
                     .font(.callout)
@@ -143,12 +152,12 @@ struct InvoicesWindow: View {
                     ForEach(invoices) { invoice in
                         HStack(spacing: 8) {
                             Button {
-                                model.showInvoiceMonth(invoice.periodStart)
+                                model.showInvoicePeriod(DateRange(start: invoice.periodStart, end: invoice.periodEnd))
                             } label: {
                                 HStack(spacing: 10) {
-                                    Text(String(Formatting.day(invoice.periodStart).prefix(7)))
+                                    Text(historyLabel(invoice))
                                         .monospacedDigit()
-                                        .frame(width: 64, alignment: .leading)
+                                        .frame(width: 150, alignment: .leading)
                                     Text(invoice.profileName).lineLimit(1)
                                     Spacer(minLength: 8)
                                     Text("Invoice \(invoice.number)")
@@ -164,7 +173,7 @@ struct InvoicesWindow: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .help("Show the month of this invoice")
+                            .help("Show the period of this invoice")
 
                             if sendingId == invoice.profileId {
                                 ProgressView().controlSize(.small)
@@ -234,19 +243,33 @@ struct InvoicesWindow: View {
         }
     }
 
+    private var periodKindBinding: Binding<InvoicePeriodKind> {
+        Binding(
+            get: { model.invoicePeriodKind },
+            set: { model.setInvoicePeriodKind($0) }
+        )
+    }
+
     private var periodLabel: String {
-        String(Formatting.day(model.invoicePeriod.start).prefix(7))
+        let range = model.invoicePeriod
+        switch model.invoicePeriodKind {
+        case .month:
+            return String(Formatting.day(range.start).prefix(7))
+        case .week, .twoWeeks:
+            let last = Formatting.calendar.date(byAdding: .day, value: -1, to: range.end) ?? range.end
+            return "\(Formatting.day(range.start)) – \(Formatting.day(last))"
+        }
     }
 
     private var periodCaption: String {
-        let start = model.invoicePeriod.start
-        if start == Invoicing.previousMonthRange(containing: Date()).start {
-            return "The previous month, ready to send."
+        let kind = model.invoicePeriodKind
+        if model.invoicePeriod.start == kind.shifted(-1, from: Date()).start {
+            return "The previous \(kind.noun), ready to send."
         }
-        if start == Reporting.range(.month, containing: Date()).start {
-            return "This month so far, ready to send."
+        if model.invoicePeriod.start == kind.range(containing: Date()).start {
+            return "This \(kind.noun) so far, ready to send."
         }
-        return "Manually chosen month, ready to send."
+        return "Manually chosen \(kind.noun), ready to send."
     }
 
     private func summary(_ candidate: AppModel.InvoiceCandidate) -> String {
@@ -325,7 +348,22 @@ struct InvoicesWindow: View {
     }
 
     private func historyPeriod(_ invoice: Store.IssuedInvoice) -> DateRange {
-        Reporting.range(.month, containing: invoice.periodStart)
+        DateRange(start: invoice.periodStart, end: invoice.periodEnd)
+    }
+
+    /// How a stored invoice's period reads in the history list.
+    private func historyLabel(_ invoice: Store.IssuedInvoice) -> String {
+        let range = historyPeriod(invoice)
+        guard InvoicePeriodKind.matching(start: range.start, end: range.end) == .month else {
+            let last = Formatting.calendar.date(byAdding: .day, value: -1, to: range.end) ?? range.end
+            return "\(Formatting.day(range.start)) – \(Formatting.day(last))"
+        }
+        return String(Formatting.day(range.start).prefix(7))
+    }
+
+    /// A short, file-name-safe tag for a stored invoice's period.
+    private func fileLabel(_ invoice: Store.IssuedInvoice) -> String {
+        Invoicing.periodTag(start: invoice.periodStart, end: invoice.periodEnd)
     }
 
     private func saveHistoryPDF(_ item: Store.IssuedInvoice) {
@@ -346,11 +384,11 @@ struct InvoicesWindow: View {
     }
 
     private func exportHistoryCSV(_ item: Store.IssuedInvoice) {
-        let month = String(Formatting.day(item.periodStart).prefix(7))
+        let label = fileLabel(item)
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
-        panel.nameFieldStringValue = "hours-\(safeName(item.profileName))-\(month).csv"
-        panel.message = "Export the hours of \(item.profileName) for \(month)"
+        panel.nameFieldStringValue = "hours-\(safeName(item.profileName))-\(label).csv"
+        panel.message = "Export the hours of \(item.profileName) for \(label)"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         if model.exportMonthlyCSV(profileId: item.profileId, period: historyPeriod(item), to: url) {
             status = "CSV saved."
@@ -358,7 +396,7 @@ struct InvoicesWindow: View {
     }
 
     private func resendHistory(_ item: Store.IssuedInvoice) {
-        model.showInvoiceMonth(item.periodStart)
+        model.showInvoicePeriod(historyPeriod(item))
         if let candidate = model.invoiceCandidates().first(where: { $0.id == item.profileId }) {
             sendTarget = candidate
         } else {

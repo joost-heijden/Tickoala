@@ -174,6 +174,68 @@ public struct Invoice: Equatable, Sendable {
     public var currency: Currency
 }
 
+/// How much time one invoice covers. The month is the default; a week or two
+/// weeks suit clients who are billed more often.
+public enum InvoicePeriodKind: String, CaseIterable, Sendable {
+    case month
+    case week
+    case twoWeeks
+
+    public var label: String {
+        switch self {
+        case .month: return "Month"
+        case .week: return "Week"
+        case .twoWeeks: return "2 weeks"
+        }
+    }
+
+    /// The word used in a sentence, such as "the previous period".
+    public var noun: String {
+        switch self {
+        case .month: return "month"
+        case .week: return "week"
+        case .twoWeeks: return "two-week period"
+        }
+    }
+
+    /// The calendar window around `date` for this length, Monday-based.
+    public func range(containing date: Date, calendar: Calendar = Formatting.calendar) -> DateRange {
+        switch self {
+        case .month:
+            return Reporting.range(.month, containing: date, calendar: calendar)
+        case .week:
+            return Reporting.range(.week, containing: date, calendar: calendar)
+        case .twoWeeks:
+            let week = Reporting.range(.week, containing: date, calendar: calendar)
+            let end = calendar.date(byAdding: .day, value: 14, to: week.start) ?? week.end
+            return DateRange(start: week.start, end: end)
+        }
+    }
+
+    /// The window one step forward (`direction` 1) or back (-1) from `date`.
+    public func shifted(_ direction: Int, from date: Date, calendar: Calendar = Formatting.calendar) -> DateRange {
+        let start = range(containing: date, calendar: calendar).start
+        let moved: Date
+        switch self {
+        case .month:
+            moved = calendar.date(byAdding: .month, value: direction, to: start) ?? start
+        case .week:
+            moved = calendar.date(byAdding: .day, value: 7 * direction, to: start) ?? start
+        case .twoWeeks:
+            moved = calendar.date(byAdding: .day, value: 14 * direction, to: start) ?? start
+        }
+        return range(containing: moved, calendar: calendar)
+    }
+
+    /// The length a stored window corresponds to, so the history can jump to it.
+    public static func matching(start: Date, end: Date, calendar: Calendar = Formatting.calendar) -> InvoicePeriodKind {
+        let days = calendar.dateComponents([.day], from: start, to: end).day ?? 0
+        if days <= 7 { return .week }
+        if days <= 14 { return .twoWeeks }
+        return .month
+    }
+}
+
 public enum Invoicing {
     /// The day the reminder appears: the first weekday of the month. If the 1st
     /// is on a Saturday or Sunday, it slides to the Monday after.
@@ -209,6 +271,22 @@ public enum Invoicing {
         return Reporting.range(.month, containing: previous, calendar: calendar)
     }
 
+    /// How the invoice period reads in text and email: a month name for a monthly
+    /// invoice, a date range for a shorter period.
+    public static func periodText(start: Date, end: Date, calendar: Calendar = Formatting.calendar) -> String {
+        let days = calendar.dateComponents([.day], from: start, to: end).day ?? 0
+        guard days <= 14 else { return Formatting.monthName(start) }
+        let last = calendar.date(byAdding: .day, value: -1, to: end) ?? end
+        return "\(Formatting.day(start)) – \(Formatting.day(last))"
+    }
+
+    /// A short, file-name-safe tag for an invoice period: `2026-09` for a month,
+    /// the start day for a shorter period.
+    public static func periodTag(start: Date, end: Date, calendar: Calendar = Formatting.calendar) -> String {
+        let days = calendar.dateComponents([.day], from: start, to: end).day ?? 0
+        return days <= 14 ? Formatting.day(start) : String(Formatting.day(start).prefix(7))
+    }
+
     /// Builds the invoice for one client and one month. The number is allocated
     /// on first generation and reused afterwards, so the same month can never
     /// produce a duplicate.
@@ -226,8 +304,7 @@ public enum Invoicing {
         }
         let report = try Reporting.report(
             store: store,
-            period: .month,
-            containing: period.start,
+            range: period,
             profileId: profileId,
             now: now,
             calendar: calendar
@@ -310,7 +387,7 @@ public enum InvoiceEmail {
         var lines = [
             "Dear \(invoice.profile.name),",
             "",
-            "Here is invoice \(invoice.number) for \(Formatting.monthName(invoice.periodStart)).",
+            "Here is invoice \(invoice.number) for \(Invoicing.periodText(start: invoice.periodStart, end: invoice.periodEnd)).",
         ]
         if let po = invoice.poNumber, !po.isEmpty {
             lines.append("Purchase order: \(po)")
@@ -335,9 +412,9 @@ public enum InvoiceEmail {
             let client = invoice.profile.name
                 .replacingOccurrences(of: "/", with: "-")
                 .replacingOccurrences(of: ":", with: "-")
-            let month = String(Formatting.day(invoice.periodStart).prefix(7))
+            let tag = Invoicing.periodTag(start: invoice.periodStart, end: invoice.periodEnd)
             attachments.append(EmailAttachment(
-                name: "hours-\(client)-\(month).csv", mimeType: "text/csv; charset=utf-8", data: csv
+                name: "hours-\(client)-\(tag).csv", mimeType: "text/csv; charset=utf-8", data: csv
             ))
         }
         // The global CC list plus this client's own, without duplicates.
@@ -463,6 +540,7 @@ extension Store {
         public var profileId: Int64
         public var profileName: String
         public var periodStart: Date
+        public var periodEnd: Date
         public var issuedAt: Date
         public var totalCents: Int
         public var currency: Currency
@@ -474,7 +552,7 @@ extension Store {
         try database.query(
             """
             SELECT i.number, i.profile_id, p.name AS profile_name, i.period_start,
-                   i.issued_at, i.total_cents, i.currency, i.po_number
+                   i.period_end, i.issued_at, i.total_cents, i.currency, i.po_number
             FROM invoices i JOIN profiles p ON p.id = i.profile_id
             ORDER BY i.period_start DESC, p.name COLLATE NOCASE ASC;
             """
@@ -488,6 +566,7 @@ extension Store {
                 profileId: profileId,
                 profileName: row.string("profile_name") ?? "",
                 periodStart: periodStart,
+                periodEnd: row.date("period_end") ?? periodStart,
                 issuedAt: issuedAt,
                 totalCents: row.int("total_cents").map(Int.init) ?? 0,
                 currency: row.string("currency").flatMap(Currency.init(rawValue:)) ?? .eur,

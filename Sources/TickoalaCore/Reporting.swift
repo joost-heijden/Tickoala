@@ -117,7 +117,24 @@ public enum Reporting {
         now: Date = Date(),
         calendar: Calendar = Formatting.calendar
     ) throws -> Report {
-        let range = range(period, containing: date, calendar: calendar)
+        try report(
+            store: store,
+            range: range(period, containing: date, calendar: calendar),
+            profileId: profileId,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    /// The same over an explicit half-open window, for a period that is not one
+    /// of the day/week/month shapes (such as a two-week invoice).
+    public static func report(
+        store: Store,
+        range: DateRange,
+        profileId: Int64? = nil,
+        now: Date = Date(),
+        calendar: Calendar = Formatting.calendar
+    ) throws -> Report {
         let entries = try store.entries(from: range.start, to: range.end, profileId: profileId)
 
         var perProject: [Int64?: TimeInterval] = [:]

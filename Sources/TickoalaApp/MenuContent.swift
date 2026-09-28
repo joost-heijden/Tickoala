@@ -112,7 +112,7 @@ struct MenuContent: View {
 
         Button("Invoices") {
             NSApp.activateForUI()
-            model.showCurrentInvoiceMonth()
+            model.showCurrentInvoicePeriod()
             openWindow(id: "invoices")
         }
         .keyboardShortcut("i")

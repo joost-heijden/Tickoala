@@ -1132,22 +1132,31 @@ final class AppModel: ObservableObject {
     /// invoice by hand; the reminder and the menu set the starting month.
     @Published var invoicePeriod: DateRange = Invoicing.previousMonthRange(containing: Date())
 
-    /// Moves the invoices window to another month, any month.
-    func shiftInvoicePeriod(_ months: Int) {
-        let moved = Formatting.calendar.date(byAdding: .month, value: months, to: invoicePeriod.start)
-            ?? invoicePeriod.start
-        invoicePeriod = Reporting.range(.month, containing: moved)
+    /// Whether one invoice covers a month, a week or two weeks.
+    @Published var invoicePeriodKind: InvoicePeriodKind = .month
+
+    /// Moves the invoices window one period forward or back.
+    func shiftInvoicePeriod(_ direction: Int) {
+        invoicePeriod = invoicePeriodKind.shifted(direction, from: invoicePeriod.start)
+    }
+
+    /// Switches the invoice length, keeping the same starting day.
+    func setInvoicePeriodKind(_ kind: InvoicePeriodKind) {
+        invoicePeriodKind = kind
+        invoicePeriod = kind.range(containing: invoicePeriod.start)
     }
 
     /// The month that just ended: what the automatic reminder opens.
     func showPreviousInvoiceMonth() {
+        invoicePeriodKind = .month
         invoicePeriod = Invoicing.previousMonthRange(containing: Date())
     }
 
-    /// The month we are in now: the starting point when the window is opened by
-    /// hand, so the hours booked so far this month can be invoiced right away.
-    func showCurrentInvoiceMonth() {
-        invoicePeriod = Reporting.range(.month, containing: Date())
+    /// The period we are in now: the starting point when the window is opened by
+    /// hand, so the hours booked so far can be invoiced right away. Keeps the
+    /// chosen length (month, week or two weeks).
+    func showCurrentInvoicePeriod() {
+        invoicePeriod = invoicePeriodKind.range(containing: Date())
     }
 
     struct InvoiceCandidate: Identifiable {
@@ -1159,7 +1168,7 @@ final class AppModel: ObservableObject {
         var id: Int64 { profile.id }
     }
 
-    /// Every customer with hours in the invoiced month, or with an already issued
+    /// Every customer with hours in the invoiced period, or with an already issued
     /// invoice for it. The window lists these.
     func invoiceCandidates() -> [InvoiceCandidate] {
         guard let tracker else { return [] }
@@ -1167,7 +1176,7 @@ final class AppModel: ObservableObject {
         var result: [InvoiceCandidate] = []
         for profile in (try? tracker.store.profiles()) ?? [] {
             let report = try? Reporting.report(
-                store: tracker.store, period: .month, containing: period.start, profileId: profile.id
+                store: tracker.store, range: period, profileId: profile.id
             )
             let number = try? tracker.store.issuedInvoiceNumber(profileId: profile.id, periodStart: period.start)
             let gross = report?.total ?? 0
@@ -1189,9 +1198,10 @@ final class AppModel: ObservableObject {
         (try? tracker?.store.issuedInvoices()) ?? []
     }
 
-    /// Jumps the invoices window to the month the given date falls in.
-    func showInvoiceMonth(_ date: Date) {
-        invoicePeriod = Reporting.range(.month, containing: date)
+    /// Jumps the invoices window to the period a stored invoice covers.
+    func showInvoicePeriod(_ range: DateRange) {
+        invoicePeriodKind = InvoicePeriodKind.matching(start: range.start, end: range.end)
+        invoicePeriod = range
     }
 
     /// Removes one invoice from the history. The hours remain.

@@ -84,7 +84,7 @@ struct MainWindow: View {
             Button("Overview") { open("overview") }
             Button("Invoices") {
                 NSApp.activateForUI()
-                model.showCurrentInvoiceMonth()
+                model.showCurrentInvoicePeriod()
                 openWindow(id: "invoices")
             }
             Button("Projects") { open("projects") }

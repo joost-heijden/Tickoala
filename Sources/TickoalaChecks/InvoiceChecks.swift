@@ -216,5 +216,60 @@ func invoiceChecks() {
                 "its number is no longer allocated"
             )
         }
+
+        test("a week and two weeks map to Monday-based windows") {
+            let week = InvoicePeriodKind.week.range(containing: at("2026-09-09 12:00"))
+            expectEqual(Formatting.day(week.start), "2026-09-07", "Monday")
+            expectEqual(Formatting.day(week.end), "2026-09-14", "next Monday")
+
+            let next = InvoicePeriodKind.week.shifted(1, from: at("2026-09-09 12:00"))
+            expectEqual(Formatting.day(next.start), "2026-09-14")
+
+            let fortnight = InvoicePeriodKind.twoWeeks.range(containing: at("2026-09-09 12:00"))
+            expectEqual(Formatting.day(fortnight.start), "2026-09-07")
+            expectEqual(Formatting.day(fortnight.end), "2026-09-21")
+            expectEqual(InvoicePeriodKind.matching(start: week.start, end: week.end), .week)
+            expectEqual(InvoicePeriodKind.matching(start: fortnight.start, end: fortnight.end), .twoWeeks)
+        }
+
+        test("a weekly invoice only counts that week and keeps its own number") {
+            let fixture = try Fixture()
+            try fixture.store.updateProfile(id: fixture.profileA.id, hourlyRateCents: 10000)
+            // One 8-hour day in the first week, one in the next.
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: nil,
+                startedAt: at("2026-09-07 09:00"), endedAt: at("2026-09-07 17:00"),
+                status: .completed, source: .manual, note: nil
+            )
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: nil,
+                startedAt: at("2026-09-14 09:00"), endedAt: at("2026-09-14 17:00"),
+                status: .completed, source: .manual, note: nil
+            )
+
+            let week = InvoicePeriodKind.week.range(containing: at("2026-09-09"))
+            let invoice = try Invoicing.invoice(
+                store: fixture.store, profileId: fixture.profileA.id, period: week,
+                issuedAt: at("2026-09-14 09:00")
+            )
+            expectEqual(invoice.lines.first?.amountCents, 80000, "only the 8 hours in the invoiced week")
+            expectEqual(Formatting.day(invoice.periodStart), "2026-09-07")
+            expectEqual(Formatting.day(invoice.periodEnd), "2026-09-14")
+            expectEqual(
+                Invoicing.periodText(start: invoice.periodStart, end: invoice.periodEnd),
+                "2026-09-07 – 2026-09-13"
+            )
+
+            let nextWeek = InvoicePeriodKind.week.shifted(1, from: at("2026-09-09"))
+            let second = try Invoicing.invoice(
+                store: fixture.store, profileId: fixture.profileA.id, period: nextWeek,
+                issuedAt: at("2026-09-21 09:00")
+            )
+            expectEqual(second.number, "0002", "a different week gets its own number")
+            expectEqual(second.lines.first?.amountCents, 80000)
+
+            let history = try fixture.store.issuedInvoices()
+            expectEqual(Formatting.day(history.first?.periodEnd ?? Date()), "2026-09-21")
+        }
     }
 }

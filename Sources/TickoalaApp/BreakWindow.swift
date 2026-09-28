@@ -123,7 +123,7 @@ private struct BreakRuleForm: View {
                             .monospacedDigit()
                     }
                     .onChange(of: minutes) { _ in save() }
-                    .frame(width: 190)
+                    .frame(width: 240, alignment: .trailing)
                 }
                 .disabled(!enabled)
 
@@ -140,14 +140,14 @@ private struct BreakRuleForm: View {
                             .monospacedDigit()
                     }
                     .onChange(of: thresholdHours) { _ in save() }
-                    .frame(width: 120)
+                    .frame(width: 120, alignment: .trailing)
 
                     Stepper(value: $thresholdMinutes, in: 0...55, step: 5) {
                         Text("\(thresholdMinutes) min")
                             .monospacedDigit()
                     }
                     .onChange(of: thresholdMinutes) { _ in save() }
-                    .frame(width: 120)
+                    .frame(width: 120, alignment: .trailing)
                 }
                 .disabled(!enabled)
 

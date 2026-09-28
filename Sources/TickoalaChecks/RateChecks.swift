@@ -71,7 +71,7 @@ func rateChecks() {
             expectEqual(report.byProfile.first?.amountCents, 0)
         }
 
-        test("the export has rate and amount columns and a negative break row") {
+        test("the export has rate and amount columns and a negative break column") {
             let fixture = try Fixture()
             try fixture.store.updateProfile(id: fixture.profileA.id, hourlyRateCents: 10000)
             try fixture.store.updateBreakRule(
@@ -86,10 +86,9 @@ func rateChecks() {
 
             let csv = try CSVExport.export(store: fixture.store, from: at("2026-09-10"), to: at("2026-09-11"), now: at("2026-09-10 18:00"))
             let rows = csv.split(separator: "\n").map(String.init)
-            expect(rows[0].contains("duration_minutes,hourly_rate,amount,currency,status"), "header row: \(rows[0])")
-            expect(rows[1].contains(",8.00,480,100.00,800.00,EUR,completed"), "block row: \(rows[1])")
-            expect(rows.last?.contains("break") == true, "the last row is the break: \(rows.last ?? "")")
-            expect(rows.last?.contains("100.00,-50.00,EUR") == true, "break deduction: \(rows.last ?? "")")
+            expectEqual(rows.count, 2, "header row and the block, no separate break row")
+            expect(rows[0].contains("end,break,duration_hours,hourly_rate,currency,note"), "header row: \(rows[0])")
+            expect(rows[1].contains("09:00,17:00,-0.50,8.00,100.00,EUR,"), "break in the block row: \(rows[1])")
         }
 
         test("the currency is per customer and can be changed") {
@@ -113,7 +112,7 @@ func rateChecks() {
             )
 
             let csv = try CSVExport.export(store: fixture.store, from: at("2026-09-10"), to: at("2026-09-11"), now: at("2026-09-10 18:00"))
-            expect(csv.contains("800.00,USD,completed"), "currency column: \(csv)")
+            expect(csv.contains("100.00,USD,"), "currency column: \(csv)")
         }
     }
 }

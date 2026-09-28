@@ -123,7 +123,7 @@ func adapterChecks() {
             expectEqual(result.status, 0, "output: \(result.output)")
 
             let csv = try String(contentsOfFile: csvPath, encoding: .utf8)
-            expect(csv.contains("2401,Migration,2026-09-10,09:00,17:00,8.00,480,0.00,0.00,EUR,completed,manual,manual block"), "content: \(csv)")
+            expect(csv.contains("Organization A,Migration,2026-09-10,09:00,17:00,,8.00,0.00,EUR,manual block"), "content: \(csv)")
         }
 
         test("updating a block via the command line corrects the duration") {

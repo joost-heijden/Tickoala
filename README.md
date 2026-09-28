@@ -370,9 +370,10 @@ tickoala rate list
 
 The overview shows the amount for the selected period and the selected client
 (net hours × rate, so the automatic break deduction is already applied). The CSV
-export gains three columns, `hourly_rate`, `amount` and `currency`, next to every
-block; the break row carries a negative amount so the `amount` column adds up to
-the net total. Clients without a rate simply produce no amounts.
+export carries `hourly_rate` and `currency` next to every block and a `break`
+column next to `end` with the negative break deduction for that client on that
+day (on the last block row of the day). Clients without a rate simply produce no
+rate.
 
 If you like to watch it grow, turn on the running month revenue under
 **Settings → General**: the same amount for the current month then sits next to
@@ -409,7 +410,9 @@ reverse charge), a default PO number and the invoice email address.
 
 Invoice numbers are handed out once per customer per month and never repeat:
 reopening the same month keeps its number, and the counter skips any number that
-already exists after a manual edit.
+already exists after a manual edit. A four-digit year in the prefix follows the
+calendar, so `2026-` becomes `2027-` on its own; a prefix without a year is left
+alone.
 
 Below the customer list, **Invoice history** shows every invoice ever issued
 with its month, customer, number, total and issue date. Click a row to jump the

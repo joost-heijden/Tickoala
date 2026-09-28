@@ -86,8 +86,8 @@ func reportChecks() {
             let rows = csv.split(separator: "\n").map(String.init)
 
             expectEqual(rows.count, 3, "header row plus two blocks")
-            expect(rows[0].hasPrefix("id,profile,context,project_number,project_name,date,start,end"), "header row: \(rows[0])")
-            expect(rows[1].contains("2401,Migration,2026-09-10,09:00,12:00,3.00,180,0.00,0.00,EUR"), "block row: \(rows[1])")
+            expect(rows[0].hasPrefix("profile,project_name,date,start,end,break,duration_hours,hourly_rate,currency,note"), "header row: \(rows[0])")
+            expect(rows[1].contains("Organization A,Migration,2026-09-10,09:00,12:00,,3.00,0.00,EUR"), "block row: \(rows[1])")
             expect(rows[2].contains("\"correction, comma and \"\"quotes\"\"\""), "commas and quotes are escaped: \(rows[2])")
         }
 
@@ -104,7 +104,7 @@ func reportChecks() {
             let row = csv.split(separator: "\n").map(String.init)[1]
 
             expect(row.contains(",07:00,,"), "no end time: \(row)")
-            expect(row.hasSuffix("open,controlplane,"), "status and source are named: \(row)")
+            expect(row.hasSuffix("EUR,"), "the currency is named and the note stays empty: \(row)")
         }
 
         test("a reversed time window is refused") {

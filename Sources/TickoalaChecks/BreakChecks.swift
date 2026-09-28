@@ -204,7 +204,7 @@ func breakChecks() {
             expectEqual(row.todayTotal + row.todayBreak, 8 * 3600, "gross stays retrievable")
         }
 
-        test("export puts the break as a separate row with a negative duration") {
+        test("export puts the break in the break column of the block row") {
             let fixture = try Fixture()
             try fixture.store.updateBreakRule(
                 profileId: fixture.profileA.id,
@@ -216,15 +216,16 @@ func breakChecks() {
                 store: fixture.store, from: at("2026-09-10"), to: at("2026-09-11"), now: at("2026-09-10 23:00")
             )
             let rows = csv.split(separator: "\n").map(String.init)
-            expectEqual(rows.count, 3, "header row, the block and the break row")
-            expect(rows[2].contains("-0.50"), "negative duration: \(rows[2])")
-            expect(rows[2].contains("break,rule"), "status and source: \(rows[2])")
+            expectEqual(rows.count, 2, "header row and the block, no separate break row")
+            expect(rows[1].contains(",-0.50,"), "negative break next to end: \(rows[1])")
 
             let gross = try CSVExport.export(
                 store: fixture.store, from: at("2026-09-10"), to: at("2026-09-11"),
                 now: at("2026-09-10 23:00"), includeBreaks: false
             )
-            expectEqual(gross.split(separator: "\n").count, 2, "with gross only the blocks remain")
+            let grossRows = gross.split(separator: "\n").map(String.init)
+            expectEqual(grossRows.count, 2, "with gross only the blocks remain")
+            expect(!grossRows[1].contains("-0.50"), "no break with includeBreaks off: \(grossRows[1])")
         }
     }
 }

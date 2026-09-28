@@ -105,19 +105,5 @@ func multiContextChecks() {
             let entry = try expectNotNil(try fixture.store.entry(id: 1))
             expectEqual(entry.status, .running, "the block keeps running")
         }
-
-        test("CSV export shows all linked contexts of the profile") {
-            let fixture = try Fixture()
-            let profile = try fixture.store.createProfile(name: "Acme", contexts: ["Acme-Guest", "Acme-Staff"])
-            let project = try fixture.store.createProject(profileId: profile.id, number: "1", name: "Maintenance")
-            _ = try fixture.store.createEntry(
-                profileId: profile.id, projectId: project.id,
-                startedAt: at("2026-09-10 09:00"), endedAt: at("2026-09-10 12:00"),
-                status: .completed, source: .controlplane, note: nil
-            )
-
-            let csv = try CSVExport.export(store: fixture.store, from: at("2026-09-10"), to: at("2026-09-11"))
-            expect(csv.contains("Acme-Guest; Acme-Staff"), "both contexts are in the export row: \(csv)")
-        }
     }
 }

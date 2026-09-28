@@ -399,6 +399,8 @@ private struct AddCustomerSheet: View {
     @State private var contexts = ""
     @State private var rateText = ""
     @State private var currency: Currency = .eur
+    @State private var billingAddress = ""
+    @State private var vatNumber = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -435,6 +437,20 @@ private struct AddCustomerSheet: View {
                 }
             }
 
+            FormSection(title: "Invoice details") {
+                FormFieldStacked(label: "Billing address") {
+                    TextField("", text: $billingAddress, prompt: Text("Street, postal code, city"), axis: .vertical)
+                        .lineLimit(2...4)
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
+                }
+                FormField(label: "VAT number") {
+                    TextField("", text: $vatNumber, prompt: Text("client's VAT number, optional"))
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+
             if let error = model.errorMessage {
                 Text(error).foregroundStyle(.red)
             }
@@ -451,7 +467,10 @@ private struct AddCustomerSheet: View {
                     let list = contexts
                         .split(separator: ",")
                         .map { $0.trimmingCharacters(in: .whitespaces) }
-                    if model.addCustomer(name: name, contexts: list, hourlyRateCents: cents, currency: currency) {
+                    if model.addCustomer(
+                        name: name, contexts: list, hourlyRateCents: cents, currency: currency,
+                        billingAddress: billingAddress, vatNumber: vatNumber
+                    ) {
                         onClose()
                     }
                 }

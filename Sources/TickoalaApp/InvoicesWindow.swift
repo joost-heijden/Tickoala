@@ -218,6 +218,13 @@ struct InvoicesWindow: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
+                let missing = missingFields(candidate)
+                if !missing.isEmpty {
+                    Text("⚠︎ Not ready to invoice: fill in \(missing.joined(separator: ", ")).")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                }
+
                 HStack(spacing: 8) {
                     TextField("PO number", text: poBinding(candidate), prompt: Text("Purchase order, optional"))
                         .frame(maxWidth: 200)
@@ -227,6 +234,7 @@ struct InvoicesWindow: View {
 
                 HStack(spacing: 8) {
                     Button("Create PDF…") { createPDF(candidate) }
+                        .disabled(!missing.isEmpty)
                     Button("Export CSV…") { exportCSV(candidate) }
                     Spacer()
                     Toggle("Include hours CSV", isOn: csvBinding(candidate))
@@ -236,7 +244,7 @@ struct InvoicesWindow: View {
                     }
                     Button("Approve & send") { sendTarget = candidate }
                         .keyboardShortcut(.defaultAction)
-                        .disabled(!canSend(candidate) || sendingId != nil)
+                        .disabled(!missing.isEmpty || !canSend(candidate) || sendingId != nil)
                 }
             }
             .padding(6)
@@ -315,6 +323,12 @@ struct InvoicesWindow: View {
         model.invoiceSettings().canSendEmail && !email(candidate).isEmpty
     }
 
+    /// Invoice details the Belastingdienst requires that are still blank for this
+    /// customer, so it is clear why a PDF is refused.
+    private func missingFields(_ candidate: AppModel.InvoiceCandidate) -> [String] {
+        Invoicing.missingRequiredFields(profile: candidate.profile, sender: model.invoiceSettings())
+    }
+
     private func loadFields() {
         for candidate in model.invoiceCandidates() {
             if poNumbers[candidate.id] == nil { poNumbers[candidate.id] = candidate.profile.poNumber ?? "" }
@@ -328,7 +342,10 @@ struct InvoicesWindow: View {
         panel.nameFieldStringValue = pdfName(candidate)
         panel.message = "Save the invoice for \(candidate.profile.name)"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let invoice = model.makeInvoice(profileId: candidate.profile.id, poNumber: po(candidate)) else { return }
+        guard let invoice = model.makeInvoice(profileId: candidate.profile.id, poNumber: po(candidate)) else {
+            status = model.errorMessage ?? "Could not build the invoice."
+            return
+        }
         if model.write(invoice, to: url) {
             status = "Invoice \(invoice.number) saved."
         }
@@ -369,7 +386,10 @@ struct InvoicesWindow: View {
     private func saveHistoryPDF(_ item: Store.IssuedInvoice) {
         guard let invoice = model.makeInvoice(
             profileId: item.profileId, period: historyPeriod(item), poNumber: item.poNumber
-        ) else { return }
+        ) else {
+            status = model.errorMessage ?? "Could not rebuild the invoice."
+            return
+        }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
         panel.nameFieldStringValue = "invoice-\(item.number)-\(safeName(item.profileName)).pdf"
@@ -410,7 +430,10 @@ struct InvoicesWindow: View {
             status = "No email address for \(candidate.profile.name)."
             return
         }
-        guard let invoice = model.makeInvoice(profileId: candidate.profile.id, poNumber: po(candidate)) else { return }
+        guard let invoice = model.makeInvoice(profileId: candidate.profile.id, poNumber: po(candidate)) else {
+            status = model.errorMessage ?? "Could not build the invoice."
+            return
+        }
         sendingId = candidate.id
         status = "Sending invoice \(invoice.number)…"
         let csv = includeCSV(candidate)

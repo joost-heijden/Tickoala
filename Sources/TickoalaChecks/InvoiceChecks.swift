@@ -138,6 +138,22 @@ func invoiceChecks() {
             expectEqual(profile?.poNumber, nil)
         }
 
+        test("an invoice without the customer address is refused") {
+            let fixture = try Fixture()
+            try fixture.store.updateProfileInvoicing(
+                id: fixture.profileA.id, billingAddress: "", vatNumber: "", vatRatePercent: 21, poNumber: ""
+            )
+            let period = Invoicing.previousMonthRange(containing: at("2026-09-01"))
+            expectThrows { _ = try Invoicing.invoice(store: fixture.store, profileId: fixture.profileA.id, period: period) }
+            expectEqual(
+                Invoicing.missingRequiredFields(
+                    profile: try fixture.store.profile(id: fixture.profileA.id) ?? fixture.profileA,
+                    sender: try fixture.store.invoiceSettings()
+                ),
+                ["the customer address"]
+            )
+        }
+
         test("the invoice email copies the global and the client CC addresses") {
             let fixture = try Fixture()
             var settings = try fixture.store.invoiceSettings()
@@ -145,7 +161,8 @@ func invoiceChecks() {
             settings.smtpCcEmails = "books@example.com, books@example.com; second@example.com"
             try fixture.store.updateInvoiceSettings(settings)
             try fixture.store.updateProfileInvoicing(
-                id: fixture.profileA.id, billingAddress: "", vatNumber: "", vatRatePercent: 21,
+                id: fixture.profileA.id, billingAddress: "Client Street 1\n1234 AB City",
+                vatNumber: "", vatRatePercent: 21,
                 poNumber: "", billingEmail: "client@example.com", billingCc: "client-books@example.com"
             )
             expectEqual(try fixture.store.profile(id: fixture.profileA.id)?.billingCc, "client-books@example.com")

@@ -15,6 +15,19 @@ final class Fixture {
         tracker = Tracker(store: store)
         profileA = try store.createProfile(name: "Organization A", contexts: ["Office A"])
         profileB = try store.createProfile(name: "Organization B", contexts: ["Office B"])
+        // A complete invoice needs sender details and a client address.
+        var settings = try store.invoiceSettings()
+        settings.senderName = "Studio Koala"
+        settings.senderAddress = "Keizersgracht 1, 1015 CJ Amsterdam"
+        try store.updateInvoiceSettings(settings)
+        try store.updateProfileInvoicing(
+            id: profileA.id, billingAddress: "Client Street 1\n1234 AB City",
+            vatNumber: "NL000000001B01", vatRatePercent: 21, poNumber: ""
+        )
+        try store.updateProfileInvoicing(
+            id: profileB.id, billingAddress: "Client Street 2\n5678 CD City",
+            vatNumber: "NL000000002B01", vatRatePercent: 21, poNumber: ""
+        )
     }
 
     deinit {

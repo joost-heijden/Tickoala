@@ -519,7 +519,14 @@ final class AppModel: ObservableObject {
     /// Adds a customer with at least one Wi-Fi network. Returns `false` for
     /// invalid input or a network that already belongs to another customer.
     @discardableResult
-    func addCustomer(name: String, contexts: [String], hourlyRateCents: Int, currency: Currency) -> Bool {
+    func addCustomer(
+        name: String,
+        contexts: [String],
+        hourlyRateCents: Int,
+        currency: Currency,
+        billingAddress: String = "",
+        vatNumber: String = ""
+    ) -> Bool {
         guard let tracker else { return false }
         let name = name.trimmingCharacters(in: .whitespaces)
         let cleaned = contexts
@@ -537,6 +544,10 @@ final class AppModel: ObservableObject {
             let profile = try tracker.store.createProfile(
                 name: name, contexts: cleaned, hourlyRateCents: hourlyRateCents, currency: currency,
                 vatRatePercent: invoiceSettings().defaultVatRatePercent
+            )
+            try tracker.store.updateProfileInvoicing(
+                id: profile.id, billingAddress: billingAddress, vatNumber: vatNumber,
+                vatRatePercent: invoiceSettings().defaultVatRatePercent, poNumber: ""
             )
             selectedCustomerId = profile.id
             refresh()

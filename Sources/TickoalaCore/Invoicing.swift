@@ -287,6 +287,22 @@ public enum Invoicing {
         return days <= 14 ? Formatting.day(start) : String(Formatting.day(start).prefix(7))
     }
 
+    /// The details a full invoice may not go without. Empty means it is complete.
+    /// Only the fields that are both legally required and can still be blank in
+    /// practice; the sender's btw-id and KvK are optional here because a
+    /// KOR-ondernemer does not charge VAT.
+    public static func missingRequiredFields(profile: Profile, sender: InvoiceSettings) -> [String] {
+        func blank(_ text: String?) -> Bool {
+            (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        var missing: [String] = []
+        if blank(sender.senderName) { missing.append("your name") }
+        if blank(sender.senderAddress) { missing.append("your address") }
+        if blank(profile.name) { missing.append("the customer name") }
+        if blank(profile.billingAddress) { missing.append("the customer address") }
+        return missing
+    }
+
     /// Builds the invoice for one client and one month. The number is allocated
     /// on first generation and reused afterwards, so the same month can never
     /// produce a duplicate.
@@ -301,6 +317,12 @@ public enum Invoicing {
     ) throws -> Invoice {
         guard let profile = try store.profile(id: profileId) else {
             throw TrackerError.unknownProfile(String(profileId))
+        }
+        let missing = missingRequiredFields(profile: profile, sender: try store.invoiceSettings())
+        guard missing.isEmpty else {
+            throw TrackerError.invalidRange(
+                "cannot issue an invoice: fill in \(missing.joined(separator: ", ")) first"
+            )
         }
         let report = try Reporting.report(
             store: store,

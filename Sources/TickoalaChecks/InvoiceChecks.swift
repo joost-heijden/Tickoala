@@ -100,9 +100,8 @@ func invoiceChecks() {
                 poNumber: "PO-42", issuedAt: at("2026-09-01 09:00")
             )
 
-            expectEqual(invoice.lines.count, 2, "one work line and one break line")
-            expectEqual(invoice.lines.first?.amountCents, 80000, "8 hours x €100")
-            expectEqual(invoice.lines.last?.amountCents, -5000, "30 minutes break")
+            expectEqual(invoice.lines.count, 1, "the break is folded into the one work line")
+            expectEqual(invoice.lines.first?.amountCents, 75000, "8 hours minus 30 minutes break at €100")
             expectEqual(invoice.subtotalCents, 75000)
             expectEqual(invoice.vatRatePercent, 21)
             expectEqual(invoice.vatCents, 15750)

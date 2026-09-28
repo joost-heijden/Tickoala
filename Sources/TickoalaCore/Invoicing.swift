@@ -338,22 +338,18 @@ public enum Invoicing {
             return Int((seconds / 3600 * Double(rate)).rounded())
         }
 
-        var lines = report.byProject.map { item in
-            InvoiceLine(
-                label: item.label,
-                seconds: item.total,
-                hourlyRateCents: rate,
-                amountCents: amount(item.total)
-            )
-        }
-        if report.breakDeduction > 0 {
-            lines.append(InvoiceLine(
-                label: "Automatic break deduction",
-                seconds: -report.breakDeduction,
-                hourlyRateCents: rate,
-                amountCents: amount(-report.breakDeduction)
-            ))
-        }
+        // The automatic break deduction is already folded into these net hours;
+        // the invoice never shows it as its own line.
+        var lines = report.byProjectNet
+            .filter { $0.total > 0 }
+            .map { item in
+                InvoiceLine(
+                    label: item.label,
+                    seconds: item.total,
+                    hourlyRateCents: rate,
+                    amountCents: amount(item.total)
+                )
+            }
         if lines.isEmpty {
             lines.append(InvoiceLine(
                 label: "No hours recorded in this period",

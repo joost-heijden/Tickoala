@@ -67,6 +67,9 @@ public struct Report: Sendable {
     /// The per-project distribution stays gross of the automatic deduction: that
     /// break belongs to a day, not to a project.
     public var byProject: [ProjectTotal]
+    /// The same distribution after the automatic break deduction: what the
+    /// invoice shows, net hours per project without a separate deduction line.
+    public var byProjectNet: [ProjectTotal]
     public var byDay: [DayTotal]
     /// The distribution per client, including break deduction and the amount at the rate.
     public var byProfile: [ProfileTotal]
@@ -138,6 +141,9 @@ public enum Reporting {
         let entries = try store.entries(from: range.start, to: range.end, profileId: profileId)
 
         var perProject: [Int64?: TimeInterval] = [:]
+        // Per day and project, so the automatic break can be charged against the
+        // project actually worked that day.
+        var perProjectDay: [ProfileDay: [Int64?: TimeInterval]] = [:]
         var perDay: [Date: TimeInterval] = [:]
         // A break is determined per client and per day: every client has its own rule.
         var perProfileDay: [ProfileDay: TimeInterval] = [:]
@@ -152,6 +158,7 @@ public enum Reporting {
             let day = calendar.startOfDay(for: entry.startedAt)
             total += duration
             perProject[entry.projectId, default: 0] += duration
+            perProjectDay[ProfileDay(profileId: entry.profileId, day: day), default: [:]][entry.projectId, default: 0] += duration
             perDay[day, default: 0] += duration
             perProfileDay[ProfileDay(profileId: entry.profileId, day: day), default: 0] += duration
             perProfileGross[entry.profileId, default: 0] += duration
@@ -180,6 +187,20 @@ public enum Reporting {
         }
         let breakTotal = breakPerProfileDay.values.reduce(0, +)
 
+        // Charge each day's automatic break against that day's projects, so an
+        // invoice can show net hours per project without a deduction line.
+        // ponytail: a day spread over several projects splits the break in
+        // proportion to that day's hours per project.
+        var netPerProject: [Int64?: TimeInterval] = [:]
+        for (key, projects) in perProjectDay {
+            let dayTotal = projects.values.reduce(0, +)
+            let deducted = min(breakPerProfileDay[key] ?? 0, dayTotal)
+            let share = dayTotal > 0 ? (dayTotal - deducted) / dayTotal : 1
+            for (projectId, seconds) in projects {
+                netPerProject[projectId, default: 0] += seconds * share
+            }
+        }
+
         var byProfile: [ProfileTotal] = []
         for (profileId, gross) in perProfileGross {
             let profile = try loadProfile(profileId)
@@ -197,17 +218,22 @@ public enum Reporting {
         }
         byProfile.sort { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
 
-        var byProject: [ProjectTotal] = []
-        for (projectId, seconds) in perProject {
-            let label: String
-            if let projectId, let project = try store.project(id: projectId) {
-                label = project.label
-            } else {
-                label = "(no project)"
+        func projectTotals(_ seconds: [Int64?: TimeInterval]) throws -> [ProjectTotal] {
+            var totals: [ProjectTotal] = []
+            for (projectId, value) in seconds {
+                let label: String
+                if let projectId, let project = try store.project(id: projectId) {
+                    label = project.label
+                } else {
+                    label = "(no project)"
+                }
+                totals.append(ProjectTotal(label: label, total: value))
             }
-            byProject.append(ProjectTotal(label: label, total: seconds))
+            totals.sort { ($0.total, $1.label) > ($1.total, $0.label) }
+            return totals
         }
-        byProject.sort { ($0.total, $1.label) > ($1.total, $0.label) }
+        let byProject = try projectTotals(perProject)
+        let byProjectNet = try projectTotals(netPerProject)
 
         let byDay = perDay
             .map { DayTotal(day: $0.key, total: $0.value, breakDeduction: breakPerDay[$0.key] ?? 0) }
@@ -219,6 +245,7 @@ public enum Reporting {
             breakDeduction: breakTotal,
             breakByProfileDay: breakPerProfileDay,
             byProject: byProject,
+            byProjectNet: byProjectNet,
             byDay: byDay,
             byProfile: byProfile,
             openCount: entries.filter { $0.status == .open }.count,

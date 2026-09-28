@@ -30,7 +30,7 @@ func invoiceChecks() {
         test("invoice settings survive a round trip and the number is padded") {
             let fixture = try Fixture()
             var settings = try fixture.store.invoiceSettings()
-            expectEqual(settings.nextNumberText, "0001")
+            expectEqual(settings.nextNumberText(on: at("2026-09-01")), "0001")
 
             settings.senderName = "Studio Koala"
             settings.senderIban = "NL00 TEST 0000 0000 00"
@@ -41,7 +41,11 @@ func invoiceChecks() {
 
             let loaded = try fixture.store.invoiceSettings()
             expectEqual(loaded, settings)
-            expectEqual(loaded.nextNumberText, "2026-0007")
+            expectEqual(loaded.nextNumberText(on: at("2026-09-01")), "2026-0007")
+            // The year in the prefix rolls over on its own; a prefix without a
+            // year is left untouched.
+            expectEqual(loaded.nextNumberText(on: at("2027-01-05")), "2027-0007")
+            expectEqual(InvoiceSettings.prefix("INV-", forYear: 2027), "INV-")
         }
 
         test("a new customer starts with the default VAT rate from settings") {

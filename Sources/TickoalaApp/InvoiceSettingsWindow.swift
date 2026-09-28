@@ -51,7 +51,7 @@ struct InvoiceSettingsWindow: View {
                         FormTextField(text: binding(\.invoiceNumberPrefix), prompt: "e.g. 2026-")
                     }
                     Stepper(value: binding(\.nextInvoiceNumber), in: 1...100000) {
-                        Text("Next number: \(settings.nextNumberText)")
+                        Text("Next number: \(settings.nextNumberText())")
                             .monospacedDigit()
                     }
                     Text("Each customer and month gets one number. Reopening the same month keeps its number.")
@@ -155,6 +155,13 @@ struct InvoiceSettingsWindow: View {
         settings = model.invoiceSettings()
         password = Keychain.smtpPassword()
         loaded = true
+        // Move a year in the prefix to the current one, so nobody has to
+        // remember to bump `2026-` to `2027-` in January.
+        let current = settings.currentPrefix
+        if current != settings.invoiceNumberPrefix {
+            settings.invoiceNumberPrefix = current
+            save()
+        }
     }
 
     private func save() {

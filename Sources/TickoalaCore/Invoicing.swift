@@ -94,9 +94,27 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
             && !smtpFromEmail.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    /// The number that `nextInvoiceNumber` will produce.
-    public var nextNumberText: String {
-        String(format: "%@%04d", invoiceNumberPrefix, max(1, nextInvoiceNumber))
+    /// The prefix with any four-digit year in it moved to `year`, so `2026-`
+    /// reads `2027-` once the year turns over. A prefix without a year (for
+    /// example `INV-`) is left alone.
+    public static func prefix(_ prefix: String, forYear year: Int) -> String {
+        prefix.replacingOccurrences(
+            of: #"(?:19|20)\d{2}"#,
+            with: String(year),
+            options: .regularExpression
+        )
+    }
+
+    /// The prefix with its year moved to the current one, for display.
+    public var currentPrefix: String {
+        Self.prefix(invoiceNumberPrefix, forYear: Formatting.calendar.component(.year, from: Date()))
+    }
+
+    /// The number that `nextInvoiceNumber` will produce, with the year in the
+    /// prefix set to the year of `date`.
+    public func nextNumberText(on date: Date = Date()) -> String {
+        let year = Formatting.calendar.component(.year, from: date)
+        return String(format: "%@%04d", Self.prefix(invoiceNumberPrefix, forYear: year), max(1, nextInvoiceNumber))
     }
 
     /// Tolerant decoding: missing keys fall back to the default, so a settings
@@ -408,11 +426,13 @@ extension Store {
             return StoredInvoice(number: number, poNumber: effectivePO, sender: try invoiceSettings())
         }
 
+        // The year in the prefix follows the system clock, not the invoice's
+        // issue date, so rebuilding an old invoice never rewinds the year.
         var settings = try invoiceSettings()
-        var number = settings.nextNumberText
+        var number = settings.nextNumberText()
         while try invoiceNumberExists(number) {
             settings.nextInvoiceNumber += 1
-            number = settings.nextNumberText
+            number = settings.nextNumberText()
         }
         settings.nextInvoiceNumber += 1
         try updateInvoiceSettings(settings)

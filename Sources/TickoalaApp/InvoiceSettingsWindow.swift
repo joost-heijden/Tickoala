@@ -127,6 +127,22 @@ struct InvoiceSettingsWindow: View {
                     }
                 }
 
+                FormSection(title: "Appearance") {
+                    FormField(label: "Accent colour") {
+                        ColorPicker("", selection: accentBinding, supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                    Text("Colours the title, the header rule and the total line. Leave it untouched for plain greyscale.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if settings.accentColorHex != nil {
+                        Button("Reset to greyscale") {
+                            settings.accentColorHex = nil
+                            save()
+                        }
+                    }
+                }
+
                 if let error = model.errorMessage {
                     Text(error).foregroundStyle(.red)
                 }
@@ -140,6 +156,18 @@ struct InvoiceSettingsWindow: View {
         // Also store the password when the window closes, in case Return was
         // never pressed.
         .onDisappear { Keychain.setSMTPPassword(password) }
+    }
+
+    /// The invoice accent as a SwiftUI colour. With nothing stored the picker
+    /// shows the default near-black, so it looks greyscale until changed.
+    private var accentBinding: Binding<Color> {
+        Binding(
+            get: { Color(nsColor: InvoiceAccent.color(hex: settings.accentColorHex) ?? NSColor(white: 0.13, alpha: 1)) },
+            set: { newValue in
+                settings.accentColorHex = InvoiceAccent.hex(from: NSColor(newValue))
+                save()
+            }
+        )
     }
 
     /// Writes on every change, like the other windows.

@@ -37,6 +37,7 @@ func invoiceChecks() {
             settings.invoiceNumberPrefix = "2026-"
             settings.nextInvoiceNumber = 7
             settings.logoFileName = "logo.png"
+            settings.accentColorHex = "#33405A"
             try fixture.store.updateInvoiceSettings(settings)
 
             let loaded = try fixture.store.invoiceSettings()
@@ -46,6 +47,14 @@ func invoiceChecks() {
             // year is left untouched.
             expectEqual(loaded.nextNumberText(on: at("2027-01-05")), "2027-0007")
             expectEqual(InvoiceSettings.prefix("INV-", forYear: 2027), "INV-")
+        }
+
+        test("the invoice accent reads and writes hex, greyscale when blank") {
+            expectEqual(InvoiceAccent.hex(from: InvoiceAccent.color(hex: "#33405A")!), "#33405A")
+            expectEqual(InvoiceAccent.hex(from: InvoiceAccent.color(hex: "33405a")!), "#33405A", "hash and case are tolerated")
+            expect(InvoiceAccent.color(hex: nil) == nil, "no accent means greyscale")
+            expect(InvoiceAccent.color(hex: "") == nil, "empty means greyscale")
+            expect(InvoiceAccent.color(hex: "nonsense") == nil, "unreadable means greyscale")
         }
 
         test("a new customer starts with the default VAT rate from settings") {

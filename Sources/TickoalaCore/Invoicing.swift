@@ -19,6 +19,9 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
     public var nextInvoiceNumber: Int
     /// File name of a logo in Tickoala's support folder, shown on the invoice.
     public var logoFileName: String?
+    /// Accent colour for the invoice, as `#RRGGBB`. `nil` or empty means the
+    /// default greyscale look; see `InvoiceAccent`.
+    public var accentColorHex: String?
     /// SMTP server for sending the invoice straight from the app. The password
     /// is deliberately not here: it lives in the macOS Keychain.
     public var smtpHost: String
@@ -47,6 +50,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         invoiceNumberPrefix: String = "",
         nextInvoiceNumber: Int = 1,
         logoFileName: String? = nil,
+        accentColorHex: String? = nil,
         smtpHost: String = "",
         smtpPort: Int = 465,
         smtpUsername: String = "",
@@ -66,6 +70,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         self.invoiceNumberPrefix = invoiceNumberPrefix
         self.nextInvoiceNumber = nextInvoiceNumber
         self.logoFileName = logoFileName
+        self.accentColorHex = accentColorHex
         self.smtpHost = smtpHost
         self.smtpPort = smtpPort
         self.smtpUsername = smtpUsername
@@ -133,6 +138,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         invoiceNumberPrefix = try container.decodeIfPresent(String.self, forKey: .invoiceNumberPrefix) ?? fallback.invoiceNumberPrefix
         nextInvoiceNumber = try container.decodeIfPresent(Int.self, forKey: .nextInvoiceNumber) ?? fallback.nextInvoiceNumber
         logoFileName = try container.decodeIfPresent(String.self, forKey: .logoFileName) ?? fallback.logoFileName
+        accentColorHex = try container.decodeIfPresent(String.self, forKey: .accentColorHex) ?? fallback.accentColorHex
         smtpHost = try container.decodeIfPresent(String.self, forKey: .smtpHost) ?? fallback.smtpHost
         smtpPort = try container.decodeIfPresent(Int.self, forKey: .smtpPort) ?? fallback.smtpPort
         smtpUsername = try container.decodeIfPresent(String.self, forKey: .smtpUsername) ?? fallback.smtpUsername

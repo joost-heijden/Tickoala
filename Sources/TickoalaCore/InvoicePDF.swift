@@ -29,15 +29,55 @@ public enum InvoicePDF {
     }
 }
 
+/// Reads and writes the stored accent as `#RRGGBB`. `nil` for an empty or
+/// unreadable string, so the caller falls back to the greyscale default. Shared
+/// with the settings UI, which is why it is public.
+public enum InvoiceAccent {
+    public static func color(hex: String?) -> NSColor? {
+        let text = (hex ?? "").trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "")
+        guard text.count == 6, let value = Int(text, radix: 16) else { return nil }
+        return NSColor(
+            srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+
+    public static func hex(from color: NSColor) -> String {
+        let srgb = color.usingColorSpace(.sRGB) ?? color
+        func channel(_ value: CGFloat) -> Int { Int((min(max(value, 0), 1) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", channel(srgb.redComponent), channel(srgb.greenComponent), channel(srgb.blueComponent))
+    }
+}
+
+/// The invoice palette. Body text, panels and hairlines are neutral greys;
+/// `accent` colours the title, the header rule, the table header and the total
+/// line. With no accent configured it falls back to near-black — the plain
+/// greyscale look.
+private struct InvoicePalette {
+    let accent: NSColor
+    static let ink = NSColor(white: 0.13, alpha: 1)
+    static let muted = NSColor(white: 0.42, alpha: 1)
+    static let panel = NSColor(white: 0.945, alpha: 1)
+    static let hairline = NSColor(white: 0.84, alpha: 1)
+
+    init(accentHex: String?) {
+        accent = InvoiceAccent.color(hex: accentHex) ?? InvoicePalette.ink
+    }
+}
+
 private final class InvoicePageView: NSView {
     private let invoice: Invoice
     private let logo: NSImage?
+    private let palette: InvoicePalette
 
     private let margin: CGFloat = 50
 
     init(invoice: Invoice, logo: NSImage?) {
         self.invoice = invoice
         self.logo = logo
+        self.palette = InvoicePalette(accentHex: invoice.sender.accentColorHex)
         super.init(frame: .zero)
     }
 
@@ -52,7 +92,11 @@ private final class InvoicePageView: NSView {
         NSColor.white.setFill()
         bounds.fill()
 
-        var y = margin
+        // A single accent rule along the top edge, for structure.
+        palette.accent.setFill()
+        NSRect(x: 0, y: 0, width: bounds.width, height: 4).fill()
+
+        var y = margin + 6
         y = drawHeader(at: y)
         y += 18
         y = drawBillTo(at: y)
@@ -76,20 +120,21 @@ private final class InvoicePageView: NSView {
             leftY += size.height + 12
         }
 
-        var senderLines = [invoice.sender.senderName]
-        senderLines.append(contentsOf: nonEmptyLines(invoice.sender.senderAddress))
+        leftY += draw(invoice.sender.senderName, x: margin, y: leftY, width: 280, font: .boldSystemFont(ofSize: 10), color: InvoicePalette.ink)
+
+        var senderLines = nonEmptyLines(invoice.sender.senderAddress)
         if !invoice.sender.senderKvk.isEmpty { senderLines.append("KvK \(invoice.sender.senderKvk)") }
         if !invoice.sender.senderVatNumber.isEmpty { senderLines.append("VAT \(invoice.sender.senderVatNumber)") }
         if !invoice.sender.senderEmail.isEmpty { senderLines.append(invoice.sender.senderEmail) }
         if !invoice.sender.senderIban.isEmpty { senderLines.append("IBAN \(invoice.sender.senderIban)") }
 
         for line in senderLines where !line.isEmpty {
-            leftY += draw(line, x: margin, y: leftY, width: 280, font: .systemFont(ofSize: 9), color: .darkGray)
+            leftY += draw(line, x: margin, y: leftY, width: 280, font: .systemFont(ofSize: 9), color: InvoicePalette.muted)
         }
 
         var rightY = top
-        rightY += draw("INVOICE", x: rightX - 240, y: rightY, width: 240, font: .boldSystemFont(ofSize: 24), alignment: .right)
-        rightY += 6
+        rightY += draw("INVOICE", x: rightX - 240, y: rightY, width: 240, font: .boldSystemFont(ofSize: 22), color: palette.accent, alignment: .right, kern: 3)
+        rightY += 8
 
         let meta: [(String, String)] = [
             ("Invoice number", invoice.number),
@@ -99,32 +144,30 @@ private final class InvoicePageView: NSView {
         ] + (invoice.poNumber.map { [("PO number", $0)] } ?? [])
 
         for (label, value) in meta {
-            let line = "\(label):  \(value)"
-            rightY += draw(line, x: rightX - 240, y: rightY, width: 240, font: .systemFont(ofSize: 9), alignment: .right)
+            let height = max(
+                draw(label, x: rightX - 240, y: rightY, width: 240, font: .systemFont(ofSize: 9), color: InvoicePalette.muted, alignment: .left),
+                draw(value, x: rightX - 240, y: rightY, width: 240, font: .boldSystemFont(ofSize: 9), color: InvoicePalette.ink, alignment: .right)
+            )
+            rightY += height
         }
 
         let bottom = max(leftY, rightY)
-        let rule = NSBezierPath()
-        rule.move(to: NSPoint(x: margin, y: bottom + 8))
-        rule.line(to: NSPoint(x: rightX, y: bottom + 8))
-        NSColor(white: 0.75, alpha: 1).setStroke()
-        rule.lineWidth = 1
-        rule.stroke()
-        return bottom + 8
+        rule(from: NSPoint(x: margin, y: bottom + 10), to: NSPoint(x: rightX, y: bottom + 10), color: palette.accent, width: 2)
+        return bottom + 10
     }
 
     // MARK: - Bill to
 
     private func drawBillTo(at top: CGFloat) -> CGFloat {
         var y = top
-        y += draw("Bill to", x: margin, y: y, width: 300, font: .boldSystemFont(ofSize: 9), color: .darkGray)
-        y += 2
-        y += draw(invoice.profile.name, x: margin, y: y, width: 300, font: .boldSystemFont(ofSize: 11))
+        y += draw("BILL TO", x: margin, y: y, width: 300, font: .boldSystemFont(ofSize: 8), color: palette.accent, kern: 1.5)
+        y += 4
+        y += draw(invoice.profile.name, x: margin, y: y, width: 300, font: .boldSystemFont(ofSize: 12), color: InvoicePalette.ink)
         for line in nonEmptyLines(invoice.profile.billingAddress) {
-            y += draw(line, x: margin, y: y, width: 300, font: .systemFont(ofSize: 10))
+            y += draw(line, x: margin, y: y, width: 300, font: .systemFont(ofSize: 10), color: InvoicePalette.ink)
         }
         if let vat = invoice.profile.vatNumber, !vat.isEmpty {
-            y += draw("VAT \(vat)", x: margin, y: y, width: 300, font: .systemFont(ofSize: 10), color: .darkGray)
+            y += draw("VAT \(vat)", x: margin, y: y, width: 300, font: .systemFont(ofSize: 10), color: InvoicePalette.muted)
         }
         return y
     }
@@ -143,12 +186,12 @@ private final class InvoicePageView: NSView {
         var y = top
 
         let headerFont = NSFont.boldSystemFont(ofSize: 9)
-        NSColor(white: 0.93, alpha: 1).setFill()
-        NSRect(x: margin, y: y - 3, width: bounds.width - 2 * margin, height: 17).fill()
-        _ = draw("Description", x: descX, y: y, width: hoursX - descX - 8, font: headerFont)
-        _ = draw("Hours", x: hoursX, y: y, width: hoursWidth, font: headerFont, alignment: .right)
-        _ = draw("Rate", x: rateX, y: y, width: rateWidth, font: headerFont, alignment: .right)
-        _ = draw("Amount", x: amountX, y: y, width: colWidth, font: headerFont, alignment: .right)
+        InvoicePalette.panel.setFill()
+        NSRect(x: margin, y: y - 5, width: bounds.width - 2 * margin, height: 19).fill()
+        _ = draw("Description", x: descX, y: y, width: hoursX - descX - 8, font: headerFont, color: palette.accent)
+        _ = draw("Hours", x: hoursX, y: y, width: hoursWidth, font: headerFont, color: palette.accent, alignment: .right)
+        _ = draw("Rate", x: rateX, y: y, width: rateWidth, font: headerFont, color: palette.accent, alignment: .right)
+        _ = draw("Amount", x: amountX, y: y, width: colWidth, font: headerFont, color: palette.accent, alignment: .right)
         y += 24
 
         for line in invoice.lines {
@@ -158,24 +201,19 @@ private final class InvoicePageView: NSView {
                 measured(line.label, width: hoursX - descX - 8, font: bodyFont),
                 measured(amount, width: colWidth, font: bodyFont)
             )
-            _ = draw(line.label, x: descX, y: y, width: hoursX - descX - 8, font: bodyFont)
+            _ = draw(line.label, x: descX, y: y, width: hoursX - descX - 8, font: bodyFont, color: InvoicePalette.ink)
             let hours = line.seconds < 0
                 ? "-" + Formatting.decimalHours(-line.seconds)
                 : Formatting.decimalHours(line.seconds)
-            _ = draw(hours, x: hoursX, y: y, width: hoursWidth, font: bodyFont, alignment: .right)
+            _ = draw(hours, x: hoursX, y: y, width: hoursWidth, font: bodyFont, color: InvoicePalette.ink, alignment: .right)
             if line.hourlyRateCents > 0 {
-                _ = draw(Formatting.money(cents: line.hourlyRateCents, currency: invoice.currency), x: rateX, y: y, width: rateWidth, font: bodyFont, alignment: .right)
+                _ = draw(Formatting.money(cents: line.hourlyRateCents, currency: invoice.currency), x: rateX, y: y, width: rateWidth, font: bodyFont, color: InvoicePalette.ink, alignment: .right)
             }
-            _ = draw(amount, x: amountX, y: y, width: colWidth, font: bodyFont, alignment: .right)
+            _ = draw(amount, x: amountX, y: y, width: colWidth, font: bodyFont, color: InvoicePalette.ink, alignment: .right)
             y += rowHeight + 6
         }
 
-        let rule = NSBezierPath()
-        rule.move(to: NSPoint(x: margin, y: y))
-        rule.line(to: NSPoint(x: bounds.width - margin, y: y))
-        NSColor(white: 0.85, alpha: 1).setStroke()
-        rule.lineWidth = 1
-        rule.stroke()
+        rule(from: NSPoint(x: margin, y: y), to: NSPoint(x: bounds.width - margin, y: y), color: InvoicePalette.hairline, width: 1)
         return y + 6
     }
 
@@ -185,17 +223,22 @@ private final class InvoicePageView: NSView {
         var y = top
         let labelX: CGFloat = 305
         let labelWidth: CGFloat = 130
+        let rightX = bounds.width - margin
 
-        func row(_ label: String, _ value: String, font: NSFont) -> CGFloat {
+        func row(_ label: String, _ value: String, font: NSFont, color: NSColor) -> CGFloat {
             let height = max(measured(label, width: labelWidth, font: font), measured(value, width: colWidth, font: font))
-            _ = draw(label, x: labelX, y: y, width: labelWidth, font: font, alignment: .right)
-            _ = draw(value, x: amountX, y: y, width: colWidth, font: font, alignment: .right)
+            _ = draw(label, x: labelX, y: y, width: labelWidth, font: font, color: color, alignment: .right)
+            _ = draw(value, x: amountX, y: y, width: colWidth, font: font, color: color, alignment: .right)
             return height
         }
 
-        y += row("Subtotal", Formatting.money(cents: invoice.subtotalCents, currency: invoice.currency), font: .systemFont(ofSize: 10)) + 6
-        y += row("VAT \(invoice.vatRatePercent)%", Formatting.money(cents: invoice.vatCents, currency: invoice.currency), font: .systemFont(ofSize: 10)) + 6
-        y += row("Total", Formatting.money(cents: invoice.totalCents, currency: invoice.currency), font: .boldSystemFont(ofSize: 12)) + 4
+        rule(from: NSPoint(x: labelX, y: y - 8), to: NSPoint(x: rightX, y: y - 8), color: InvoicePalette.hairline, width: 1)
+        y += row("Subtotal", Formatting.money(cents: invoice.subtotalCents, currency: invoice.currency), font: .systemFont(ofSize: 10), color: InvoicePalette.muted) + 6
+        y += row("VAT \(invoice.vatRatePercent)%", Formatting.money(cents: invoice.vatCents, currency: invoice.currency), font: .systemFont(ofSize: 10), color: InvoicePalette.muted) + 6
+
+        rule(from: NSPoint(x: labelX, y: y), to: NSPoint(x: rightX, y: y), color: palette.accent, width: 2)
+        y += 6
+        y += row("Total", Formatting.money(cents: invoice.totalCents, currency: invoice.currency), font: .boldSystemFont(ofSize: 13), color: palette.accent) + 4
         return y
     }
 
@@ -208,7 +251,7 @@ private final class InvoicePageView: NSView {
         }
         var y = top
         for line in lines {
-            y += draw(line, x: margin, y: y, width: bounds.width - 2 * margin, font: .systemFont(ofSize: 9), color: .darkGray)
+            y += draw(line, x: margin, y: y, width: bounds.width - 2 * margin, font: .systemFont(ofSize: 9), color: InvoicePalette.muted)
         }
     }
 
@@ -221,19 +264,31 @@ private final class InvoicePageView: NSView {
         y: CGFloat,
         width: CGFloat,
         font: NSFont,
-        color: NSColor = .black,
-        alignment: NSTextAlignment = .left
+        color: NSColor = InvoicePalette.ink,
+        alignment: NSTextAlignment = .left,
+        kern: CGFloat = 0
     ) -> CGFloat {
         let style = NSMutableParagraphStyle()
         style.alignment = alignment
-        let attributed = NSAttributedString(string: text, attributes: [
+        var attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: color,
             .paragraphStyle: style,
-        ])
+        ]
+        if kern != 0 { attributes[.kern] = kern }
+        let attributed = NSAttributedString(string: text, attributes: attributes)
         let height = measured(text, width: width, font: font)
         attributed.draw(with: NSRect(x: x, y: y, width: width, height: height), options: [.usesLineFragmentOrigin, .usesFontLeading])
         return height
+    }
+
+    private func rule(from start: NSPoint, to end: NSPoint, color: NSColor, width: CGFloat) {
+        let path = NSBezierPath()
+        path.move(to: start)
+        path.line(to: end)
+        color.setStroke()
+        path.lineWidth = width
+        path.stroke()
     }
 
     private func measured(_ text: String, width: CGFloat, font: NSFont) -> CGFloat {

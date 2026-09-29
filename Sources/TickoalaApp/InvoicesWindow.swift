@@ -204,7 +204,7 @@ struct InvoicesWindow: View {
     }
 
     private func candidateBox(_ candidate: AppModel.InvoiceCandidate) -> some View {
-        GroupBox {
+        FormSection {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(candidate.profile.name).font(.headline)
@@ -251,7 +251,6 @@ struct InvoicesWindow: View {
                         .disabled(!missing.isEmpty || !canSend(candidate) || sendingId != nil)
                 }
             }
-            .padding(6)
         }
     }
 

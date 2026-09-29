@@ -172,53 +172,50 @@ private struct BreakRuleForm: View {
     @State private var loaded = false
 
     var body: some View {
-        GroupBox(profile.name) {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle("Automatically deduct break", isOn: $enabled)
-                    .onChange(of: enabled) { _ in save() }
+        FormSection(title: profile.name) {
+            Toggle("Automatically deduct break", isOn: $enabled)
+                .onChange(of: enabled) { _ in save() }
 
-                HStack {
-                    Text("Break duration")
-                    Spacer()
-                    Stepper(value: $minutes, in: 0...240, step: 5) {
-                        Text("\(minutes) minutes")
-                            .monospacedDigit()
-                    }
-                    .onChange(of: minutes) { _ in save() }
-                    .frame(width: 240, alignment: .trailing)
+            HStack {
+                Text("Break duration")
+                Spacer()
+                Stepper(value: $minutes, in: 0...240, step: 5) {
+                    Text("\(minutes) minutes")
+                        .monospacedDigit()
                 }
-                .disabled(!enabled)
-
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Deduct from")
-                        Text("If you work less that day, nothing is deducted.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Stepper(value: $thresholdHours, in: 0...24) {
-                        Text("\(thresholdHours) hours")
-                            .monospacedDigit()
-                    }
-                    .onChange(of: thresholdHours) { _ in save() }
-                    .frame(width: 120, alignment: .trailing)
-
-                    Stepper(value: $thresholdMinutes, in: 0...55, step: 5) {
-                        Text("\(thresholdMinutes) min")
-                            .monospacedDigit()
-                    }
-                    .onChange(of: thresholdMinutes) { _ in save() }
-                    .frame(width: 120, alignment: .trailing)
-                }
-                .disabled(!enabled)
-
-                Divider()
-                Text(explanation)
-                    .font(.callout)
-                    .foregroundStyle(enabled ? .primary : .secondary)
+                .onChange(of: minutes) { _ in save() }
+                .frame(width: 240, alignment: .trailing)
             }
-            .padding(6)
+            .disabled(!enabled)
+
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Deduct from")
+                    Text("If you work less that day, nothing is deducted.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Stepper(value: $thresholdHours, in: 0...24) {
+                    Text("\(thresholdHours) hours")
+                        .monospacedDigit()
+                }
+                .onChange(of: thresholdHours) { _ in save() }
+                .frame(width: 120, alignment: .trailing)
+
+                Stepper(value: $thresholdMinutes, in: 0...55, step: 5) {
+                    Text("\(thresholdMinutes) min")
+                        .monospacedDigit()
+                }
+                .onChange(of: thresholdMinutes) { _ in save() }
+                .frame(width: 120, alignment: .trailing)
+            }
+            .disabled(!enabled)
+
+            Divider()
+            Text(explanation)
+                .font(.callout)
+                .foregroundStyle(enabled ? .primary : .secondary)
         }
         .onAppear(perform: load)
     }

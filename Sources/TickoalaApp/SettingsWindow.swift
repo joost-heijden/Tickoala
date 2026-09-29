@@ -109,51 +109,53 @@ private struct DetectionSettings: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        Form {
-            Section("Detect by") {
-                Picker("Detect by", selection: $model.presenceSource) {
-                    ForEach(PresenceSource.allCases, id: \.self) { source in
-                        Text(source.label).tag(source)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                FormSection(title: "Detect by") {
+                    Picker("Detect by", selection: $model.presenceSource) {
+                        ForEach(PresenceSource.allCases, id: \.self) { source in
+                            Text(source.label).tag(source)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+
+                FormSection(title: "Status") {
+                    Text(currentStatus)
+                    if let outcome = model.lastWifiOutcome {
+                        Text(outcome)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .pickerStyle(.inline)
-            }
 
-            Section("Status") {
-                Text(currentStatus)
-                if let outcome = model.lastWifiOutcome {
-                    Text(outcome)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if model.wifi.access.needsAttention {
-                Section("Location Services") {
-                    Text(model.wifi.access.explanation
-                         ?? "Tickoala only reads the Wi-Fi network name, nothing else.")
-                    Button("Grant Location Services access") {
-                        NSApp.activateForUI()
-                        model.wifi.requestAccess()
+                if model.wifi.access.needsAttention {
+                    FormSection(title: "Location Services") {
+                        Text(model.wifi.access.explanation
+                             ?? "Tickoala only reads the Wi-Fi network name, nothing else.")
+                        Button("Grant Location Services access") {
+                            NSApp.activateForUI()
+                            model.wifi.requestAccess()
+                        }
                     }
                 }
-            }
 
-            if model.presenceSource == .wifi, let ssid = model.wifi.currentSSID, !model.isKnownNetwork(ssid) {
-                Section("This network") {
-                    Text("Network: \(ssid) (not linked)")
-                    Menu("Link \(ssid) to") {
-                        ForEach(model.profiles, id: \.profile.id) { item in
-                            Button(item.profile.name) {
-                                model.linkCurrentNetwork(to: item.profile.id)
+                if model.presenceSource == .wifi, let ssid = model.wifi.currentSSID, !model.isKnownNetwork(ssid) {
+                    FormSection(title: "This network") {
+                        Text("Network: \(ssid) (not linked)")
+                        Menu("Link \(ssid) to") {
+                            ForEach(model.profiles, id: \.profile.id) { item in
+                                Button(item.profile.name) {
+                                    model.linkCurrentNetwork(to: item.profile.id)
+                                }
                             }
                         }
                     }
                 }
             }
+            .padding(16)
         }
-        .formStyle(.grouped)
-        .padding(6)
     }
 
     private var currentStatus: String {
@@ -257,39 +259,41 @@ private struct UpdateSettings: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        Form {
-            Section("Version") {
-                LabeledContent("Current version", value: model.updateChecker.currentVersion)
-                if let version = model.updateChecker.availableVersion {
-                    Text("Version \(version) is available.")
-                    Button("View the new version") {
-                        NSWorkspace.shared.open(UpdateChecker.releasesURL)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                FormSection(title: "Version") {
+                    LabeledContent("Current version", value: model.updateChecker.currentVersion)
+                    if let version = model.updateChecker.availableVersion {
+                        Text("Version \(version) is available.")
+                        Button("View the new version") {
+                            NSWorkspace.shared.open(UpdateChecker.releasesURL)
+                        }
+                    } else {
+                        Text("You are on the latest version.")
+                            .foregroundStyle(.secondary)
                     }
-                } else {
-                    Text("You are on the latest version.")
+                }
+
+                FormSection(title: "Automatic check") {
+                    Toggle("Check for a new version once a day", isOn: Binding(
+                        get: { model.updateChecker.isEnabled },
+                        set: { enabled in
+                            if enabled {
+                                model.updateChecker.enable()
+                            } else {
+                                model.updateChecker.disable()
+                            }
+                        }
+                    ))
+                    .toggleStyle(.switch)
+                    Button("Check now") { model.updateChecker.checkNow() }
+                        .disabled(!model.updateChecker.isEnabled)
+                    Text("This is the only request Tickoala makes by itself.")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-
-            Section("Automatic check") {
-                Toggle("Check for a new version once a day", isOn: Binding(
-                    get: { model.updateChecker.isEnabled },
-                    set: { enabled in
-                        if enabled {
-                            model.updateChecker.enable()
-                        } else {
-                            model.updateChecker.disable()
-                        }
-                    }
-                ))
-                Button("Check now") { model.updateChecker.checkNow() }
-                    .disabled(!model.updateChecker.isEnabled)
-                Text("This is the only request Tickoala makes by itself.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .padding(16)
         }
-        .formStyle(.grouped)
-        .padding(6)
     }
 }

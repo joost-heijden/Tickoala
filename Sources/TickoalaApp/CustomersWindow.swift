@@ -51,6 +51,7 @@ struct CustomersWindow: View {
                 .tag(Int64?.some(item.profile.id))
             }
         }
+        .scrollContentBackground(.hidden)
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button {

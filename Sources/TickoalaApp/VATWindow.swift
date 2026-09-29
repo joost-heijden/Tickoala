@@ -15,6 +15,7 @@ struct VATWindow: View {
             content
         }
         .frame(minWidth: 560, minHeight: 360)
+        .tickoalaWindowBackground()
     }
 
     private var header: some View {

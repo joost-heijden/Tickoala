@@ -152,6 +152,7 @@ struct InvoiceSettingsWindow: View {
         // Kept below the Settings window's content height: a taller minimum made
         // the TabView grow and lift the tab strip out of line with the other tabs.
         .frame(minWidth: 520, minHeight: 380)
+        .tickoalaWindowBackground()
         .onAppear(perform: load)
         // Also store the password when the window closes, in case Return was
         // never pressed.

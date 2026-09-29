@@ -26,6 +26,7 @@ struct ProjectsWindow: View {
             }
         }
         .frame(minWidth: 620, minHeight: 420)
+        .tickoalaWindowBackground()
         .sheet(isPresented: $showingAdd) {
             if let profileId {
                 AddProjectSheet(model: model, profileId: profileId) { showingAdd = false }
@@ -110,6 +111,7 @@ struct ProjectsWindow: View {
                     }
                 }
                 .listStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
         }
     }
@@ -205,6 +207,7 @@ private struct ProjectRow: View {
                 } label: {
                     Image(systemName: "pencil")
                 }
+                .accessibilityLabel("Edit project")
                 .help("Change project number, name and hour budget")
 
                 Button(role: .destructive) {
@@ -212,6 +215,7 @@ private struct ProjectRow: View {
                 } label: {
                     Image(systemName: "trash")
                 }
+                .accessibilityLabel("Delete project")
                 .help("Delete project (⌘Z to undo)")
             }
         }

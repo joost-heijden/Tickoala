@@ -280,6 +280,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Replaces the default grey window background with white.
     @objc private func whitenWindow(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, !(window is NSPanel) else { return }
+        // Curtain only; the visible background is set in SwiftUI on each window
+        // root, because the hosting view paints its own opaque background over
+        // this one.
         window.backgroundColor = .tickoalaWindow
     }
 

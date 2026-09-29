@@ -167,18 +167,22 @@ private struct TimelineBar: View {
             .frame(width: width, height: rowHeight - 6)
             .offset(x: x, y: 3)
             .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
+            .contentShape(RoundedRectangle(cornerRadius: 5))
+            // A running block has no end yet and cannot be moved, but it must stay
+            // selectable so it can be corrected; only the drag is masked off.
             .onTapGesture(perform: onSelect)
             .gesture(
                 DragGesture(minimumDistance: 3)
                     .updating($moveX) { value, state, _ in state = value.translation.width }
                     .onEnded { value in
                         onMove(Int((value.translation.width / hourWidth * 60).rounded()))
-                    }
+                    },
+                including: draggable ? .all : .none
             )
             .overlay(alignment: .trailing) {
                 Rectangle()
                     .fill(.white.opacity(0.001))
-                    .frame(width: 8, height: rowHeight - 6)
+                    .frame(width: 10, height: rowHeight - 6)
                     .contentShape(Rectangle())
                     .highPriorityGesture(
                         DragGesture(minimumDistance: 3)
@@ -187,8 +191,15 @@ private struct TimelineBar: View {
                                 onResize(Int((value.translation.width / hourWidth * 60).rounded()))
                             }
                     )
+                    .allowsHitTesting(draggable)
             }
-            .allowsHitTesting(draggable)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("\(row.profileName) \(label)"))
+            .accessibilityHint(Text(draggable
+                ? "Select to correct. Drag to move, drag the right edge to change the end."
+                : "Select to correct."))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default) { onSelect() }
             .help(row.entry.note ?? "")
     }
 

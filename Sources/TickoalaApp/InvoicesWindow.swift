@@ -41,6 +41,7 @@ struct InvoicesWindow: View {
             footer
         }
         .frame(minWidth: 680, minHeight: 480)
+        .tickoalaWindowBackground()
         .onAppear(perform: loadFields)
         .confirmationDialog(
             "Send invoice to \(sendTarget?.profile.name ?? "")?",
@@ -162,6 +163,8 @@ struct InvoicesWindow: View {
                                     Spacer(minLength: 8)
                                     Text("Invoice \(invoice.number)")
                                         .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .fixedSize()
                                     Text(Formatting.money(cents: invoice.totalCents, currency: invoice.currency))
                                         .monospacedDigit()
                                         .frame(width: 100, alignment: .trailing)
@@ -187,6 +190,7 @@ struct InvoicesWindow: View {
                             } label: {
                                 Image(systemName: "trash")
                             }
+                            .accessibilityLabel("Delete invoice \(invoice.number)")
                             .help("Delete this invoice from the history")
                         }
                         .controlSize(.small)

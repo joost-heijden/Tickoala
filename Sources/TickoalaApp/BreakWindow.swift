@@ -38,6 +38,7 @@ struct BreakWindow: View {
             .padding(10)
         }
         .frame(minWidth: 520, minHeight: 380)
+        .tickoalaWindowBackground()
     }
 }
 
@@ -144,6 +145,7 @@ private struct NonWorkingDaysSection: View {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.borderless)
+                        .accessibilityLabel("Remove non-working day")
                         .help("Remove")
                     }
                 }

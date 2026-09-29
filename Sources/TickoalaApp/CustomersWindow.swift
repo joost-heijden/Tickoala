@@ -23,6 +23,7 @@ struct CustomersWindow: View {
             }
         }
         .frame(minWidth: 720, minHeight: 460)
+        .tickoalaWindowBackground()
         .sheet(isPresented: $showingAdd) {
             AddCustomerSheet(model: model) { showingAdd = false }
         }
@@ -295,6 +296,7 @@ private struct CustomerForm: View {
                                 Image(systemName: "minus.circle")
                             }
                             .buttonStyle(.borderless)
+                            .accessibilityLabel("Unlink network \(context)")
                             .help("Unlink network")
                         }
                     }

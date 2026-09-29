@@ -27,6 +27,7 @@ struct SettingsWindow: View {
         // margin keeps it clear of the window title.
         .padding(.top, 8)
         .frame(minWidth: 620, minHeight: 520)
+        .tickoalaWindowBackground()
     }
 }
 

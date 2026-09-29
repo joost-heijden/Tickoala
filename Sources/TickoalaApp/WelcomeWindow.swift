@@ -26,6 +26,7 @@ struct WelcomeView: View {
             footer
         }
         .frame(width: 460)
+        .tickoalaWindowBackground()
     }
 
     // MARK: - Header

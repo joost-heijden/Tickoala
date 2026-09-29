@@ -28,6 +28,7 @@ struct ExpensesWindow: View {
             }
         }
         .frame(minWidth: 760, minHeight: 460)
+        .tickoalaWindowBackground()
         .onAppear(perform: loadKmRate)
         .onChange(of: profileId) { _ in loadKmRate() }
         .sheet(isPresented: $showingAdd) {
@@ -149,14 +150,17 @@ struct ExpensesWindow: View {
                     TableColumn("") { expense in
                         HStack(spacing: 6) {
                             Button { editing = expense } label: { Image(systemName: "pencil") }
+                                .accessibilityLabel("Edit expense")
                                 .help("Edit")
                             Button { deleting = expense } label: { Image(systemName: "trash") }
+                                .accessibilityLabel("Delete expense")
                                 .help("Delete")
                         }
                     }
                     .width(60)
                 }
                 .tableStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
         }
     }

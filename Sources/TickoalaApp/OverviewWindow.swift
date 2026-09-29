@@ -45,6 +45,7 @@ struct OverviewWindow: View {
             }
         }
         .frame(minWidth: 900, minHeight: 460)
+        .tickoalaWindowBackground()
         // A disappeared block (different period, deleted) must not stay selected;
         // otherwise the form points at something that no longer exists.
         .onChange(of: model.overviewEntries.map { $0.id }) { ids in
@@ -203,23 +204,32 @@ struct OverviewWindow: View {
         // Backspace in the note cannot wipe a whole row.
         .focusable()
         .onDeleteCommand { deleteSelectedEntry() }
+        .scrollContentBackground(.hidden)
     }
 
     private var footer: some View {
         HStack(spacing: 16) {
+            // lineLimit + fixedSize: these figures are the point of the footer, so
+            // they must not wrap; the project summaries below give way first.
             Text("Total \(Formatting.duration(model.overviewTotal))  (\(Formatting.decimalHours(model.overviewTotal)) hours)")
                 .font(.headline)
+                .lineLimit(1)
+                .fixedSize()
                 .help("Net hours, after the automatic break deduction")
 
             if model.overviewBreak > 0 {
                 Text("break −\(Formatting.duration(model.overviewBreak))")
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
                     .help("Automatic break deduction, calculated per customer per day")
             }
 
             if model.overviewAmountCents > 0 {
                 Text("Amount \(Formatting.money(cents: model.overviewAmountCents, currency: model.overviewCurrency))")
                     .font(.headline)
+                    .lineLimit(1)
+                    .fixedSize()
                     .help("Net hours × the customer's hourly rate")
             }
 

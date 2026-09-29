@@ -46,5 +46,6 @@ struct ProjectPromptWindow: View {
         }
         .padding(18)
         .frame(minWidth: 360)
+        .tickoalaWindowBackground()
     }
 }

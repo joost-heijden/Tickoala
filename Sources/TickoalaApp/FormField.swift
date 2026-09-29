@@ -11,6 +11,15 @@ extension NSColor {
     }
 }
 
+extension View {
+    /// Fills the window behind the content: white in light mode, the system
+    /// background in dark mode. SwiftUI's hosting view does not honour
+    /// `NSWindow.backgroundColor`, so every window root paints this itself.
+    func tickoalaWindowBackground() -> some View {
+        background(Color(nsColor: .tickoalaWindow).ignoresSafeArea())
+    }
+}
+
 /// A titled card with form rows. Replaces SwiftUI's grouped `Form`, which
 /// right-aligns its controls on macOS and makes text start on the right.
 struct FormSection<Content: View>: View {

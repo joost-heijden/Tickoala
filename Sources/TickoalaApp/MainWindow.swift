@@ -16,8 +16,11 @@ struct MainWindow: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if model.profiles.isEmpty {
-                        Text("No customer configured yet.")
-                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("No customer configured yet.")
+                                .foregroundStyle(.secondary)
+                            Button("Add customer") { open("customers") }
+                        }
                     }
                     ForEach(model.profiles, id: \.profile.id) { item in
                         CustomerCard(model: model, item: item)
@@ -30,6 +33,7 @@ struct MainWindow: View {
             footer
         }
         .frame(minWidth: 560, minHeight: 500)
+        .tickoalaWindowBackground()
     }
 
     private var header: some View {
@@ -87,9 +91,14 @@ struct MainWindow: View {
                 model.showCurrentInvoicePeriod()
                 openWindow(id: "invoices")
             }
-            Button("Projects") { open("projects") }
-            Button("Customers") { open("customers") }
-            Button("Expenses") { open("expenses") }
+            // Grouped in a menu: seven buttons in one row overflow the window at
+            // its minimum width and clip the last ones.
+            Menu("Manage") {
+                Button("Projects") { open("projects") }
+                Button("Customers") { open("customers") }
+                Button("Expenses") { open("expenses") }
+            }
+            .fixedSize()
             Spacer()
             Button("Export CSV") { exportCSV() }
             Button("Settings") { open("settings") }

@@ -23,8 +23,8 @@ struct MenuContent: View {
         }
 
         if model.profiles.isEmpty {
-            Text("No profile configured yet")
-            Text("Use: tickoala profile add --name … --context …")
+            Text("No customer configured yet")
+            Button("Add customer…") { openCustomers() }
         }
 
         networkPrompts

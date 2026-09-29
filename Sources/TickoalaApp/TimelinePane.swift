@@ -5,22 +5,29 @@ import TickoalaCore
 /// its real time. Drag a bar to move it, drag its right edge to change the end.
 /// Corrections become visual; every change goes through the same undoable path
 /// as the table.
+///
+/// The full day fits the window width, so nothing scrolls sideways and the day
+/// labels stay put on the left.
 struct TimelinePane: View {
     @ObservedObject var model: AppModel
     @Binding var selection: Int64?
 
-    private let hourWidth: CGFloat = 52
-    private let rowHeight: CGFloat = 34
-    private let labelWidth: CGFloat = 74
+    private let labelWidth: CGFloat = 92
+    private let rowHeight: CGFloat = 28
+    private let gap: CGFloat = 3
 
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(days, id: \.self) { day in
-                    dayRow(day)
+        GeometryReader { geometry in
+            let hourWidth = max(16, (geometry.size.width - labelWidth - 24) / 24)
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: gap) {
+                    ruler(hourWidth: hourWidth)
+                    ForEach(days, id: \.self) { day in
+                        dayRow(day, hourWidth: hourWidth)
+                    }
                 }
+                .padding(10)
             }
-            .padding(8)
         }
     }
 
@@ -39,44 +46,60 @@ struct TimelinePane: View {
         return result
     }
 
-    private func dayRow(_ day: Date) -> some View {
-        let calendar = Formatting.calendar
-        let rows = model.overviewEntries.filter { calendar.isDate($0.entry.startedAt, inSameDayAs: day) }
-        let isWeekend = calendar.isDateInWeekend(day)
-        return HStack(alignment: .top, spacing: 6) {
-            VStack(alignment: .trailing, spacing: 0) {
-                Text(Formatting.day(day)).font(.callout).monospacedDigit()
-                if isWeekend {
-                    Text("weekend").font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: labelWidth, alignment: .trailing)
-
+    private func ruler(hourWidth: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            Color.clear.frame(width: labelWidth)
             ZStack(alignment: .topLeading) {
-                hourGrid
-                ForEach(rows) { row in
-                    bar(row, day: day)
+                ForEach(Array(stride(from: 0, through: 24, by: 3)), id: \.self) { hour in
+                    Text("\(hour)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .offset(x: CGFloat(hour) * hourWidth)
                 }
             }
-            .frame(width: 24 * hourWidth, height: rowHeight)
+            .frame(width: 24 * hourWidth, height: 14, alignment: .topLeading)
         }
     }
 
-    private var hourGrid: some View {
+    private func dayRow(_ day: Date, hourWidth: CGFloat) -> some View {
+        let calendar = Formatting.calendar
+        let rows = model.overviewEntries.filter { calendar.isDate($0.entry.startedAt, inSameDayAs: day) }
+        let isWeekend = calendar.isDateInWeekend(day)
+        return HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .trailing, spacing: 0) {
+                Text(Formatting.day(day)).font(.caption).monospacedDigit()
+                Text(weekday(day)).font(.caption2).foregroundStyle(.secondary)
+            }
+            .frame(width: labelWidth, alignment: .trailing)
+            .padding(.trailing, 6)
+
+            ZStack(alignment: .topLeading) {
+                grid(hourWidth: hourWidth, weekend: isWeekend)
+                ForEach(rows) { row in
+                    bar(row, day: day, hourWidth: hourWidth)
+                }
+            }
+            .frame(width: 24 * hourWidth, height: rowHeight, alignment: .topLeading)
+        }
+    }
+
+    private func grid(hourWidth: CGFloat, weekend: Bool) -> some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color(nsColor: .underPageBackgroundColor))
+            RoundedRectangle(cornerRadius: 6)
+                .fill(weekend ? Color.accentColor.opacity(0.07) : Color.primary.opacity(0.035))
             ForEach(0...24, id: \.self) { hour in
                 Rectangle()
-                    .fill(Color.secondary.opacity(hour % 6 == 0 ? 0.35 : 0.15))
+                    .fill(Color.primary.opacity(hour % 6 == 0 ? 0.18 : (hour % 3 == 0 ? 0.10 : 0.05)))
                     .frame(width: 1, height: rowHeight)
                     .offset(x: CGFloat(hour) * hourWidth)
             }
         }
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.08)))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     @ViewBuilder
-    private func bar(_ row: AppModel.EntryRow, day: Date) -> some View {
+    private func bar(_ row: AppModel.EntryRow, day: Date, hourWidth: CGFloat) -> some View {
         TimelineBar(
             row: row,
             day: day,
@@ -87,6 +110,13 @@ struct TimelinePane: View {
             onMove: { model.shiftEntry(id: row.id, minutes: $0) },
             onResize: { model.resizeEntryEnd(id: row.id, minutes: $0) }
         )
+    }
+
+    private func weekday(_ day: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEE"
+        return formatter.string(from: day)
     }
 }
 
@@ -105,6 +135,12 @@ private struct TimelineBar: View {
     @GestureState private var moveX: CGFloat = 0
     @GestureState private var resizeX: CGFloat = 0
 
+    /// A pleasant, stable colour per customer. The first is the accent colour, so
+    /// a single client looks like the rest of the app.
+    private static let palette: [Color] = [
+        .accentColor, .teal, .indigo, .purple, .pink, .orange, .green, .mint, .cyan, .brown
+    ]
+
     var body: some View {
         let startMinute = row.entry.startedAt.timeIntervalSince(day) / 60
         let end = row.entry.endedAt ?? Date()
@@ -115,11 +151,11 @@ private struct TimelineBar: View {
         let width = max(6, baseWidth + resizeX)
         let draggable = row.entry.endedAt != nil
 
-        RoundedRectangle(cornerRadius: 4)
-            .fill(color.opacity(isSelected ? 1 : 0.75))
+        RoundedRectangle(cornerRadius: 5)
+            .fill(color.opacity(isSelected ? 1 : 0.88))
             .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(.white.opacity(isSelected ? 0.9 : 0), lineWidth: 2)
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(.white.opacity(0.9), lineWidth: isSelected ? 2 : 0)
             )
             .overlay(alignment: .leading) {
                 Text(label)
@@ -130,6 +166,7 @@ private struct TimelineBar: View {
             }
             .frame(width: width, height: rowHeight - 6)
             .offset(x: x, y: 3)
+            .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
             .onTapGesture(perform: onSelect)
             .gesture(
                 DragGesture(minimumDistance: 3)
@@ -162,9 +199,7 @@ private struct TimelineBar: View {
         return "\(start)–\(end)\(kind)"
     }
 
-    /// A stable colour per customer, so blocks of the same client look alike.
     private var color: Color {
-        let hue = Double(abs(row.entry.profileId % 12)) / 12.0
-        return Color(hue: hue, saturation: 0.55, brightness: 0.75)
+        Self.palette[Int(abs(row.entry.profileId) % Int64(Self.palette.count))]
     }
 }

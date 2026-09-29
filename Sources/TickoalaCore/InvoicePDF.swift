@@ -186,10 +186,11 @@ private final class InvoicePageView: NSView {
         var y = top
 
         let headerFont = NSFont.boldSystemFont(ofSize: 9)
+        let hasExpense = invoice.lines.contains { $0.isExpense }
         InvoicePalette.panel.setFill()
         NSRect(x: margin, y: y - 5, width: bounds.width - 2 * margin, height: 19).fill()
         _ = draw("Description", x: descX, y: y, width: hoursX - descX - 8, font: headerFont, color: palette.accent)
-        _ = draw("Hours", x: hoursX, y: y, width: hoursWidth, font: headerFont, color: palette.accent, alignment: .right)
+        _ = draw(hasExpense ? "Qty" : "Hours", x: hoursX, y: y, width: hoursWidth, font: headerFont, color: palette.accent, alignment: .right)
         _ = draw("Rate", x: rateX, y: y, width: rateWidth, font: headerFont, color: palette.accent, alignment: .right)
         _ = draw("Amount", x: amountX, y: y, width: colWidth, font: headerFont, color: palette.accent, alignment: .right)
         y += 24
@@ -202,12 +203,16 @@ private final class InvoicePageView: NSView {
                 measured(amount, width: colWidth, font: bodyFont)
             )
             _ = draw(line.label, x: descX, y: y, width: hoursX - descX - 8, font: bodyFont, color: InvoicePalette.ink)
-            let hours = line.seconds < 0
-                ? "-" + Formatting.decimalHours(-line.seconds)
-                : Formatting.decimalHours(line.seconds)
-            _ = draw(hours, x: hoursX, y: y, width: hoursWidth, font: bodyFont, color: InvoicePalette.ink, alignment: .right)
-            if line.hourlyRateCents > 0 {
-                _ = draw(Formatting.money(cents: line.hourlyRateCents, currency: invoice.currency), x: rateX, y: y, width: rateWidth, font: bodyFont, color: InvoicePalette.ink, alignment: .right)
+            let quantity: String
+            if let value = line.quantity {
+                quantity = line.unit.map { "\(Formatting.quantity(value)) \($0)" } ?? Formatting.quantity(value)
+            } else {
+                quantity = line.seconds < 0 ? "-" + Formatting.decimalHours(-line.seconds) : Formatting.decimalHours(line.seconds)
+            }
+            _ = draw(quantity, x: hoursX, y: y, width: hoursWidth, font: bodyFont, color: InvoicePalette.ink, alignment: .right)
+            let rateCents = line.unitRateCents ?? line.hourlyRateCents
+            if rateCents > 0 {
+                _ = draw(Formatting.money(cents: rateCents, currency: invoice.currency), x: rateX, y: y, width: rateWidth, font: bodyFont, color: InvoicePalette.ink, alignment: .right)
             }
             _ = draw(amount, x: amountX, y: y, width: colWidth, font: bodyFont, color: InvoicePalette.ink, alignment: .right)
             y += rowHeight + 6

@@ -9,13 +9,18 @@ struct OverviewWindow: View {
     @State private var addingFor: Int64?
     @State private var confirmDelete = false
     @State private var deleteTarget: Int64?
+    @State private var showBars = false
 
     var body: some View {
         HSplitView {
             VStack(alignment: .leading, spacing: 0) {
                 toolbar
                 Divider()
-                table
+                if showBars {
+                    TimelinePane(model: model, selection: $selection)
+                } else {
+                    table
+                }
                 Divider()
                 footer
             }
@@ -75,6 +80,15 @@ struct OverviewWindow: View {
             .pickerStyle(.segmented)
             .frame(width: 190)
             .fixedSize()
+
+            Picker("", selection: $showBars) {
+                Image(systemName: "list.bullet").tag(false)
+                Image(systemName: "chart.bar").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 76)
+            .fixedSize()
+            .help("Show as a table or as a timeline with draggable bars")
 
             Button {
                 model.shiftPeriod(-1)
@@ -309,6 +323,7 @@ struct EntryEditor: View {
     @State private var hasEnd: Bool
     @State private var note: String
     @State private var projectId: Int64?
+    @State private var kind: EntryKind
     @State private var confirmDelete = false
     @State private var hasBreak: Bool
     @State private var pauseStart: Date
@@ -327,6 +342,7 @@ struct EntryEditor: View {
         _hasEnd = State(initialValue: row.entry.endedAt != nil)
         _note = State(initialValue: row.entry.note ?? "")
         _projectId = State(initialValue: row.entry.projectId)
+        _kind = State(initialValue: row.entry.kind)
 
         // By default the customer's configured break around the middle (half an
         // hour when nothing is configured), so something sensible is there
@@ -361,6 +377,11 @@ struct EntryEditor: View {
                         Text("(no project)").tag(Int64?.none)
                         ForEach(model.projects(for: row.entry.profileId)) { project in
                             Text(project.label).tag(Int64?.some(project.id))
+                        }
+                    }
+                    Picker("Kind", selection: $kind) {
+                        ForEach(EntryKind.allCases, id: \.self) { kind in
+                            Text(kind.label).tag(kind)
                         }
                     }
                     FormFieldStacked(label: "Note") {
@@ -437,7 +458,8 @@ struct EntryEditor: View {
             breakStart: hasBreak && hasEnd ? pauseStart : nil,
             breakEnd: hasBreak && hasEnd ? pauseEnd : nil,
             note: note,
-            status: hasEnd ? .completed : (row.entry.status == .running ? .running : .open)
+            status: hasEnd ? .completed : (row.entry.status == .running ? .running : .open),
+            kind: kind
         )
     }
 }
@@ -452,6 +474,7 @@ struct AddEntrySheet: View {
     @State private var end = Formatting.calendar.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var note = ""
     @State private var projectId: Int64?
+    @State private var kind: EntryKind = .work
     @State private var hasBreak = false
     @State private var pauseStart: Date
     @State private var pauseEnd: Date
@@ -480,6 +503,11 @@ struct AddEntrySheet: View {
                     Text("(no project)").tag(Int64?.none)
                     ForEach(model.projects(for: profileId)) { project in
                         Text(project.label).tag(Int64?.some(project.id))
+                    }
+                }
+                Picker("Kind", selection: $kind) {
+                    ForEach(EntryKind.allCases, id: \.self) { kind in
+                        Text(kind.label).tag(kind)
                     }
                 }
                 FormField(label: "Note", labelWidth: 90) {
@@ -532,7 +560,8 @@ struct AddEntrySheet: View {
             profileId: profileId, projectId: projectId, start: start, end: end,
             breakStart: hasBreak ? pauseStart : nil,
             breakEnd: hasBreak ? pauseEnd : nil,
-            note: note
+            note: note,
+            kind: kind
         )
         onClose()
     }

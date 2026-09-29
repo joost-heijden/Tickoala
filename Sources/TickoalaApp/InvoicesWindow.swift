@@ -179,6 +179,7 @@ struct InvoicesWindow: View {
                                 ProgressView().controlSize(.small)
                             }
                             Button("PDF…") { saveHistoryPDF(invoice) }
+                            Button("UBL…") { saveHistoryUBL(invoice) }
                             Button("CSV…") { exportHistoryCSV(invoice) }
                             Button("Resend…") { resendHistory(invoice) }
                             Button {
@@ -235,6 +236,9 @@ struct InvoicesWindow: View {
                 HStack(spacing: 8) {
                     Button("Create PDF…") { createPDF(candidate) }
                         .disabled(!missing.isEmpty)
+                    Button("Export UBL…") { exportUBL(candidate) }
+                        .disabled(!missing.isEmpty)
+                        .help("Peppol/UBL invoice for your bookkeeping")
                     Button("Export CSV…") { exportCSV(candidate) }
                     Spacer()
                     Toggle("Include hours CSV", isOn: csvBinding(candidate))
@@ -284,9 +288,13 @@ struct InvoicesWindow: View {
         let worked = Formatting.decimalHours(candidate.grossSeconds)
         let net = Formatting.decimalHours(candidate.netSeconds)
         let money = candidate.profile.hasHourlyRate
-            ? Formatting.money(cents: candidate.amountCents, currency: candidate.profile.currency)
+            ? Formatting.money(cents: candidate.amountCents - candidate.expensesCents, currency: candidate.profile.currency)
             : "no rate"
-        return "\(worked) h worked · \(net) h net · \(money)"
+        var line = "\(worked) h worked · \(net) h net · \(money)"
+        if candidate.expensesCents > 0 {
+            line += " + \(Formatting.money(cents: candidate.expensesCents, currency: candidate.profile.currency)) expenses"
+        }
+        return line
     }
 
     private func poBinding(_ candidate: AppModel.InvoiceCandidate) -> Binding<String> {
@@ -353,6 +361,23 @@ struct InvoicesWindow: View {
         loadFields()
     }
 
+    private func exportUBL(_ candidate: AppModel.InvoiceCandidate) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.xml]
+        panel.nameFieldStringValue = ublName(candidate)
+        panel.message = "Save the UBL/Peppol invoice for \(candidate.profile.name)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let invoice = model.makeInvoice(profileId: candidate.profile.id, poNumber: po(candidate)) else {
+            status = model.errorMessage ?? "Could not build the invoice."
+            return
+        }
+        if model.writeUBL(invoice, to: url) {
+            status = "UBL \(invoice.number) saved."
+        }
+        model.refresh()
+        loadFields()
+    }
+
     private func exportCSV(_ candidate: AppModel.InvoiceCandidate) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
@@ -397,6 +422,26 @@ struct InvoicesWindow: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         if model.write(invoice, to: url) {
             status = "Invoice \(invoice.number) saved."
+            NSWorkspace.shared.open(url)
+        }
+        model.refresh()
+        loadFields()
+    }
+
+    private func saveHistoryUBL(_ item: Store.IssuedInvoice) {
+        guard let invoice = model.makeInvoice(
+            profileId: item.profileId, period: historyPeriod(item), poNumber: item.poNumber
+        ) else {
+            status = model.errorMessage ?? "Could not rebuild the invoice."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.xml]
+        panel.nameFieldStringValue = "invoice-\(item.number)-\(safeName(item.profileName)).xml"
+        panel.message = "Save the UBL/Peppol invoice for \(item.profileName)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if model.writeUBL(invoice, to: url) {
+            status = "UBL \(invoice.number) saved."
             NSWorkspace.shared.open(url)
         }
         model.refresh()
@@ -453,6 +498,14 @@ struct InvoicesWindow: View {
     private func po(_ candidate: AppModel.InvoiceCandidate) -> String? {
         let value = (poNumbers[candidate.id] ?? "").trimmingCharacters(in: .whitespaces)
         return value.isEmpty ? nil : value
+    }
+
+    private func ublName(_ candidate: AppModel.InvoiceCandidate) -> String {
+        let client = safeName(candidate.profile.name)
+        if let number = candidate.number {
+            return "invoice-\(number)-\(client).xml"
+        }
+        return "invoice-\(client)-\(periodLabel).xml"
     }
 
     private func pdfName(_ candidate: AppModel.InvoiceCandidate) -> String {

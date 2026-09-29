@@ -10,6 +10,7 @@ struct BreakWindow: View {
             ScrollView {
                 VStack(spacing: 16) {
                     WorkdaySettings(model: model)
+                    NonWorkingDaysSection(model: model)
 
                     if model.profiles.isEmpty {
                         Text("No customer configured yet.")
@@ -96,6 +97,67 @@ private struct WorkdaySettings: View {
                 set((components.hour ?? 0) * 60 + (components.minute ?? 0))
             }
         )
+    }
+}
+
+/// Holidays and vacation days: marked once, so the tracker does not cut the day
+/// off at the workday end and the day is visibly not a normal one.
+private struct NonWorkingDaysSection: View {
+    @ObservedObject var model: AppModel
+
+    @State private var date = Date()
+    @State private var label = ""
+    @State private var kind: NonWorkingKind = .holiday
+
+    var body: some View {
+        FormSection(title: "Holidays and vacation") {
+            HStack(spacing: 8) {
+                DatePicker("", selection: $date, displayedComponents: .date)
+                    .labelsHidden()
+                Picker("", selection: $kind) {
+                    ForEach(NonWorkingKind.allCases, id: \.self) { kind in
+                        Text(kind.label).tag(kind)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 120)
+                TextField("", text: $label, prompt: Text("Label (optional)"))
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.leading)
+                Button("Add") { add() }
+            }
+            if model.nonWorkingDays.isEmpty {
+                Text("No non-working days marked.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.nonWorkingDays) { day in
+                    HStack {
+                        Text(Formatting.day(day.date))
+                            .monospacedDigit()
+                        Text(day.display)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            model.removeNonWorkingDay(day.date)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove")
+                    }
+                }
+            }
+            Text("On a marked day the workday-end fallback does not apply: a block without "
+                 + "a stop signal closes at the end of the day instead.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func add() {
+        model.addNonWorkingDay(Formatting.calendar.startOfDay(for: date), label: label, kind: kind)
+        label = ""
     }
 }
 

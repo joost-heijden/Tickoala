@@ -71,6 +71,17 @@ private struct GeneralSettings: View {
                         .foregroundStyle(.secondary)
                 }
 
+                FormSection(title: "Project budgets") {
+                    Toggle(isOn: $model.showBudgetWarnings) {
+                        Text("Warn when a project reaches 80% and 100% of its hour budget")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Text("Set an hour budget per project in the Projects window; the burn-down "
+                         + "then shows how much is left. This only adds the notification, off by default.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 FormSection(title: "About") {
                     LabeledContent("Version", value: model.updateChecker.currentVersion)
                     HStack {

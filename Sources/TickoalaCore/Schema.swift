@@ -145,6 +145,78 @@ enum Schema {
         """
         ALTER TABLE profiles ADD COLUMN billing_cc TEXT;
         """,
+
+        // Optional hour budget per project, in minutes. Zero means: no budget,
+        // and the burn-down and warnings stay off for this project.
+        """
+        ALTER TABLE projects ADD COLUMN budget_minutes INTEGER NOT NULL DEFAULT 0;
+        """,
+
+        // Expenses and mileage per client, billed on the invoice. A mileage entry
+        // keeps its kilometres and the rate used at the time; an expense keeps its
+        // amount. The default rate per kilometre lives on the client.
+        """
+        ALTER TABLE profiles ADD COLUMN km_rate_cents INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            date INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'expense',
+            quantity REAL NOT NULL DEFAULT 1,
+            unit_rate_cents INTEGER NOT NULL DEFAULT 0,
+            amount_cents INTEGER NOT NULL DEFAULT 0,
+            billable INTEGER NOT NULL DEFAULT 1,
+            note TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX idx_expenses_profile_date ON expenses (profile_id, date);
+        """,
+
+        // Billing rules per client: rounding of the invoiced time, a minimum to
+        // bill, and evening/weekend surcharges. All zero by default, which leaves
+        // the invoice exactly as it was.
+        """
+        ALTER TABLE profiles ADD COLUMN rounding_minutes INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE profiles ADD COLUMN rounding_up INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE profiles ADD COLUMN minimum_minutes INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE profiles ADD COLUMN evening_surcharge_percent INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE profiles ADD COLUMN weekend_surcharge_percent INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE profiles ADD COLUMN evening_start_minutes INTEGER NOT NULL DEFAULT 1080;
+        """,
+
+        // Travel time: a block can be work, travel to a client, or the commute.
+        // Travel and commute get their own rate per client, so they land on the
+        // invoice as their own line. Everything recorded before this is work.
+        """
+        ALTER TABLE time_entries ADD COLUMN kind TEXT NOT NULL DEFAULT 'work';
+        ALTER TABLE profiles ADD COLUMN travel_rate_cents INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE profiles ADD COLUMN commute_rate_cents INTEGER NOT NULL DEFAULT 0;
+        """,
+
+        // A fixed monthly amount per client, added to every invoice as its own
+        // line. Optional: a client without a retainer invoices exactly as before.
+        """
+        CREATE TABLE retainers (
+            profile_id INTEGER PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+            description TEXT NOT NULL DEFAULT '',
+            amount_cents INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1
+        );
+        """,
+
+        // Public holidays and vacation days. Marked by the user, not tied to a
+        // client: a day off is a day off everywhere.
+        """
+        CREATE TABLE non_working_days (
+            day INTEGER PRIMARY KEY,
+            label TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT 'holiday'
+        );
+        """,
     ]
 
     static func migrate(_ database: Database) throws {

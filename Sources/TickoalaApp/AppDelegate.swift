@@ -1,7 +1,22 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import Foundation
 import UserNotifications
+
+/// The system-wide hotkey callback. Carbon delivers the event on the main run
+/// loop; the closure is set up in `AppDelegate.registerGlobalHotKey`.
+private var tickoalaHotKeyAction: (() -> Void)?
+
+@available(macOS 13.0, *)
+private func tickoalaHotKeyHandler(
+    _ nextHandler: EventHandlerCallRef?,
+    _ event: EventRef?,
+    _ userData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    tickoalaHotKeyAction?()
+    return noErr
+}
 
 /// Owns the `AppModel`.
 ///
@@ -29,8 +44,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var networkObserver: AnyCancellable?
     /// Watches the version check so a new version is announced once.
     private var updateAnnounceObserver: AnyCancellable?
+    /// Watches a project budget crossing 80% or 100%.
+    private var budgetObserver: AnyCancellable?
     /// Whether the system allows notifications; otherwise the alert is the fallback.
     private var notificationsAllowed = false
+    /// The system-wide start/stop hotkey (⌃⌥T), registered with Carbon so it needs
+    /// no Accessibility permission.
+    private var hotKeyRef: EventHotKeyRef?
+    private var hotKeyHandlerRef: EventHandlerRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
@@ -51,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             object: nil
         )
         configureNotifications()
+        registerGlobalHotKey()
         // The menu already offers the choice; the notification (or, if that is
         // not allowed, the alert) makes sure it is seen. Deferred, so the signal
         // handler finishes first.
@@ -64,6 +86,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .compactMap { $0 }
             .sink { [weak self] version in
                 DispatchQueue.main.async { self?.announceUpdate(version) }
+            }
+        // A project that passes its budget threshold is announced once.
+        budgetObserver = model.$budgetAlert
+            .compactMap { $0 }
+            .sink { [weak self] alert in
+                DispatchQueue.main.async { self?.announceBudget(alert) }
             }
     }
 
@@ -87,6 +115,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ])
         center.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
             Task { @MainActor in self?.notificationsAllowed = granted }
+        }
+    }
+
+    /// A system-wide ⌃⌥T to start or stop without touching the menu bar. Carbon's
+    /// `RegisterEventHotKey` is used because it needs no Accessibility permission,
+    /// unlike an `NSEvent` global monitor.
+    private func registerGlobalHotKey() {
+        tickoalaHotKeyAction = { [weak self] in
+            Task { @MainActor in self?.toggleTimerFromHotKey() }
+        }
+        var spec = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        InstallEventHandler(
+            GetApplicationEventTarget(), tickoalaHotKeyHandler, 1, &spec, nil, &hotKeyHandlerRef
+        )
+        let id = EventHotKeyID(signature: OSType(0x5449434B), id: 1) // 'TICK'
+        RegisterEventHotKey(
+            UInt32(kVK_ANSI_T), UInt32(controlKey | optionKey), id,
+            GetApplicationEventTarget(), 0, &hotKeyRef
+        )
+    }
+
+    /// Stops whatever runs, or starts the chosen customer when nothing does.
+    private func toggleTimerFromHotKey() {
+        guard let status = model.status else { return }
+        if let running = status.profiles.first(where: { $0.runningEntry != nil }) {
+            model.stop(profileId: running.profile.id)
+            return
+        }
+        if let target = model.selectedCustomer ?? model.profiles.first?.profile {
+            model.start(profileId: target.id)
         }
     }
 
@@ -169,6 +230,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if alert.runModal() == .alertFirstButtonReturn {
             NSWorkspace.shared.open(UpdateChecker.releasesURL)
         }
+    }
+
+    /// Warns once that a project reached 80% or 100% of its hour budget. Prefers a
+    /// quiet notification; falls back to an alert when notifications are refused,
+    /// so an ad-hoc build still warns. The menu keeps showing the burn-down either
+    /// way, and nothing is enforced.
+    private func announceBudget(_ alert: AppModel.BudgetAlert) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        guard notificationsAllowed else {
+            let fallback = NSAlert()
+            fallback.messageText = alert.title
+            fallback.informativeText = alert.body
+            fallback.addButton(withTitle: "OK")
+            NSApp.activateForUI()
+            fallback.runModal()
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = alert.title
+        content.body = alert.body
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: "budget-\(alert.profileId)-\(alert.level.rawValue)", content: content, trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
     /// Clicking the Dock icon asks the app to reopen. Tickoala lives in the menu

@@ -251,7 +251,10 @@ public final class Tracker {
         var state = try store.state(profileId: profileId)
         guard let pendingAt = state.pendingStopAt else { return nil }
         let settings = try store.settings()
-        guard force || now >= settings.endOfWorkday(for: pendingAt) else { return nil }
+        // On a marked holiday or vacation day there is no workday to wait for, so
+        // the stop is final right away.
+        let nonWorking = try store.nonWorkingDay(pendingAt) != nil
+        guard force || nonWorking || now >= settings.endOfWorkday(for: pendingAt) else { return nil }
 
         var closed: TimeEntry?
         if let entryId = state.pendingStopEntryId,
@@ -300,6 +303,12 @@ public final class Tracker {
     /// workday end (late-night work) gets the next day's workday end instead of a
     /// zero-length block.
     private func workdayCutoff(for start: Date, settings: TrackerSettings) -> Date {
+        // A block on a holiday or vacation day is not cut off at the workday end;
+        // without a stop signal it closes at the end of that day instead.
+        if let _ = try? store.nonWorkingDay(start) {
+            let dayStart = Formatting.calendar.startOfDay(for: start)
+            return Formatting.calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+        }
         let sameDay = settings.endOfWorkday(for: start)
         guard start >= sameDay else { return sameDay }
         let nextDay = Formatting.calendar.date(byAdding: .day, value: 1, to: start) ?? start
@@ -338,8 +347,8 @@ public final class Tracker {
     /// Creates a project. If the profile has no active project yet, this becomes
     /// the active project — otherwise the tracker still wouldn't start on arrival.
     @discardableResult
-    public func createProject(profileId: Int64, number: String, name: String) throws -> Project {
-        let project = try store.createProject(profileId: profileId, number: number, name: name)
+    public func createProject(profileId: Int64, number: String, name: String, budgetMinutes: Int = 0) throws -> Project {
+        let project = try store.createProject(profileId: profileId, number: number, name: name, budgetMinutes: budgetMinutes)
         if try store.state(profileId: profileId).activeProjectId == nil {
             _ = try selectProject(profileId: profileId, projectId: project.id)
         }
@@ -349,7 +358,12 @@ public final class Tracker {
     // MARK: - Manual control
 
     @discardableResult
-    public func start(profileId: Int64, now: Date = Date(), source: EntrySource = .manual) throws -> TimeEntry {
+    public func start(
+        profileId: Int64,
+        now: Date = Date(),
+        source: EntrySource = .manual,
+        kind: EntryKind = .work
+    ) throws -> TimeEntry {
         var state = try store.state(profileId: profileId)
         if let running = try store.runningEntry(profileId: profileId) { return running }
         guard let projectId = state.activeProjectId, let project = try store.project(id: projectId) else {
@@ -362,7 +376,7 @@ public final class Tracker {
         try store.save(state)
         return try store.createEntry(
             profileId: profileId, projectId: project.id, startedAt: now, endedAt: nil,
-            status: .running, source: source, note: nil
+            status: .running, source: source, kind: kind, note: nil
         )
     }
 
@@ -425,7 +439,7 @@ public final class Tracker {
         try store.updateEntry(id: running.id, endedAt: .some(now), status: .completed)
         return try store.createEntry(
             profileId: profileId, projectId: projectId, startedAt: now, endedAt: nil,
-            status: .running, source: running.source, note: nil
+            status: .running, source: running.source, kind: running.kind, note: nil
         )
     }
 

@@ -61,6 +61,23 @@ just uses that.
 - **Multiple clients**, each with their own projects and settings
 - **Hourly rate per client**, in euro or dollar, with the resulting amounts shown
   in the overview and the CSV export
+- **Optional hour budget per project** with a burn-down, and a warning at 80% and
+  100% — off by default, see [Project budgets](#project-budgets)
+- **Billing rules per client** — round invoiced time to the quarter, round up,
+  bill a minimum, and add evening or weekend surcharges — off by default, see
+  [Billing rules](#billing-rules)
+- **Travel time as its own line** — record a block as work, client travel or the
+  commute, each with its own rate — see [Travel time](#travel-time)
+- **Retainers** — a fixed monthly amount per client, put on the invoice
+  automatically — see [Retainers](#retainers)
+- **Holidays and vacation** — mark non-working days; the workday end no longer
+  cuts them off — see [Holidays and vacation](#holidays-and-vacation)
+- **UBL/Peppol export** — the invoice as a UBL 2.1 file for your bookkeeping —
+  see [UBL/Peppol](#ublpeppol)
+- **Expenses and mileage per client**, added to the invoice as their own lines,
+  with an optional rate per kilometre — see [Expenses and mileage](#expenses-and-mileage)
+- **Quarterly VAT return** per rate, built from the same hours and expenses the
+  invoices show — see [VAT return](#vat-return)
 - **Projects** with number and name, switchable from the menu bar mid-session
 - **Automatic break deduction** per client — e.g. subtract 30 minutes on any day
   you worked 6 hours or more, with the duration and the threshold set separately
@@ -69,6 +86,10 @@ just uses that.
 - **Manual control** — pause, resume, stop, and correct, add, duplicate or delete
   blocks by hand from the overview
 - **Day / week / month totals**, per project and per day
+- **Timeline with draggable bars** — the overview as bars instead of a table, so
+  a correction is drag-and-drop
+- **Shortcuts, Siri and a global hotkey** — start, stop and read today's hours
+  without opening the menu bar; see [Shortcuts and the hotkey](#shortcuts-and-the-hotkey)
 - **CSV export** for invoicing
 - **Monthly invoice reminder** on the first weekday of the month
 - **PDF invoices** with VAT, PO number, your logo and a running invoice number
@@ -380,6 +401,177 @@ If you like to watch it grow, turn on the running month revenue under
 the menu bar icon and per customer in the menu, counting up every second while a
 block runs. Both are off by default.
 
+## Billing rules
+
+Consultancy invoices rarely charge the exact clock time: they round to quarters,
+round up, bill a minimum, and pay extra for evenings and weekends. Per client you
+can set all of it from **Manage customers → Billing rules**, or from the command
+line. Every rule is off by default, so a client without them invoices exactly as
+before.
+
+- **Round** the invoiced time to a number of minutes (15 for quarters), to the
+  nearest or up.
+- **Minimum**: bill at least this much per invoice; a light period is topped up
+  with a **Minimum billing** line.
+- **Evening surcharge**: a percentage on work after the evening start (18:00 by
+  default), added as its own line.
+- **Weekend surcharge**: a percentage on Saturday and Sunday work.
+
+The rules are a calculation on top of the recorded blocks, never an edit of them,
+so you can set, change or clear them at any moment.
+
+```bash
+tickoala billing set --profile "Acme" --round 15 --round-up true --minimum 1:00
+tickoala billing set --profile "Acme" --evening 25 --weekend 50 --evening-start 18:00
+tickoala billing clear --profile "Acme"
+```
+
+## Travel time
+
+A block is **work**, **travel to a client** or the **commute**. Travel and commute
+are recorded the same way but land on the invoice as their own line:
+
+- **Travel** is billed at the client's travel rate; without one it falls back to
+  the hourly rate.
+- **Commute** (Dutch *woon-werkverkeer*) is only billed when its own rate is set;
+  otherwise it is recorded but stays off the invoice.
+
+Set the rates per client under **Manage customers**, or from the command line:
+
+```bash
+tickoala profile edit --profile "Acme" --travel-rate 65.00 --commute-rate 0
+tickoala timer start --profile "Acme" --kind travel
+tickoala entry add --profile "Acme" --number 2401 --start "2026-09-10 08:00" --end "2026-09-10 09:00" --kind travel
+tickoala entry edit --id 12 --kind commute
+```
+
+In the overview each block has a **Kind** picker, and the timeline draws travel and
+commute alongside work. Travel time never counts towards a project budget.
+
+## Project budgets
+
+For fixed-price work you can give a project an hour budget and watch it burn
+down. It is entirely optional and off by default: a project without a budget
+shows nothing extra, and nothing is enforced.
+
+Set the budget under **Manage projects**: each row has a **Budget** field in
+hours (leave it empty for none). A project with a budget then shows how much is
+left next to it, green, turning orange at 80% and red when the budget is passed.
+The same line appears in the menu under the customer.
+
+Set the budget from the command line too:
+
+```bash
+tickoala project edit --profile "Acme" --number 2401 --budget 80   # 80 hours
+tickoala project edit --profile "Acme" --number 2401 --budget 1:30 # 1.5 hours
+tickoala project edit --profile "Acme" --number 2401 --budget 0    # clear it
+```
+
+The budget counts every block booked on the project over all time, with any
+recorded break already taken off — the same figure as a project row in a report.
+Like the break deduction it is a calculation on top of your raw blocks, so you
+can set, change or clear a budget at any moment without touching the recorded
+time.
+
+To be warned when a budget reaches 80% and 100%, turn on **Settings → General →
+Project budgets → Warn when a project reaches 80% and 100% of its hour budget**.
+It is off by default. Each threshold warns once, as a notification (or a dialog
+when notifications are unavailable), and the level is remembered so a restart
+does not warn again. Changing the budget re-arms the warning.
+
+## Expenses and mileage
+
+On top of the hours you can bill expenses and mileage for a client. This is
+entirely optional: a client without expenses invoices exactly as before.
+
+Open **Expenses** from the menu (or the hub) and pick a customer. Every entry has
+a date, a description and either an amount (parking, materials) or a number of
+kilometres at a rate. Billable entries are added to that customer's invoice as
+their own lines, next to the project hours; the VAT is charged over hours and
+expenses together. Uncheck **Add to the invoice** to keep a cost out of the
+invoice while still recording it.
+
+Mileage uses the client's **mileage rate** (in the header of the Expenses
+window, or under the customer). The amount is fixed the moment you record the
+claim, so changing the rate later never alters an old entry. The same via the
+command line:
+
+```bash
+tickoala profile edit --profile "Acme" --km-rate 0.23        # default rate per km
+tickoala expense add --profile "Acme" --description "Parking" --amount 12.50
+tickoala expense add --profile "Acme" --description "Travel" --km 120 --rate 0.23
+tickoala expense list --profile "Acme" --period month
+tickoala expense delete --id 4
+```
+
+The amount of a mileage claim is `kilometres × rate`; a plain expense stores the
+amount. Both count towards the invoice's subtotal and VAT. The invoices window
+shows the expenses that will be added on top of the hours, and the invoice PDF
+gives each its own row, with the quantity (for example `120 km`) and the rate.
+
+## Retainers
+
+A retainer is a fixed monthly amount per client — a support contract, a
+subscription — added to that client's invoice automatically as its own line. Set
+it under **Manage customers → Retainer**, or:
+
+```bash
+tickoala retainer set --profile "Acme" --amount 1500 --description "Support contract"
+tickoala retainer list
+tickoala retainer clear --profile "Acme"
+```
+
+The amount is invoiced on top of the hours, and VAT is charged over it like any
+other line. An amount of zero, or an inactive retainer, is never billed.
+
+## Holidays and vacation
+
+Under **Settings → Workday** you can mark public holidays and vacation days. A
+marked day is not a normal working day: the workday-end fallback no longer cuts it
+off, and a block without a stop signal closes at the end of that day instead. The
+days are global — a day off is a day off for every client.
+
+```bash
+tickoala holiday add 2026-12-25 --label "Christmas"
+tickoala holiday add 2027-01-02 --kind vacation
+tickoala holiday list
+tickoala holiday remove 2026-12-25
+```
+
+## UBL/Peppol
+
+Every invoice can be exported as a **UBL 2.1** file (the Peppol BIS billing
+format), for import into your bookkeeping package or an e-invoicing portal. In the
+invoices window press **Export UBL…** on a customer, or use the history row's
+**UBL…** button; from the command line:
+
+```bash
+tickoala invoice --profile "Acme" --month 2026-08 --ubl ~/Desktop/invoice.xml
+tickoala invoice --profile "Acme" --month 2026-08 --out ~/Desktop/invoice.pdf --ubl ~/Desktop/invoice.xml
+```
+
+It is the same invoice the PDF shows, as XML: both parties, the lines with their
+quantities and rates, the VAT (with reverse charge as category `AE`), and the
+totals. Nothing is sent anywhere — the file is written to the path you choose.
+
+## VAT return
+
+Tickoala keeps a quarterly VAT overview per rate, ready to copy into the
+Belastingdienst's form. It is a report, nothing more: no filing, no server.
+
+Open **VAT return** from the menu, step to the quarter with the arrows, and read
+the turnover and VAT per rate. The figures come from the same calculation an
+invoice uses: net hours × the client's rate, plus the billable expenses, with the
+client's VAT rate over the sum. A client with 0% (reverse charge) lands in a 0%
+line; a quarter without work shows nothing.
+
+```bash
+tickoala vat --year 2026 --quarter 3
+```
+
+> The return assumes euro clients. Amounts are shown as-is; a client invoicing in
+> dollars is not converted.
+
 ## Invoices
 
 On the **first weekday of every month** (if the 1st falls on a Saturday or
@@ -430,6 +622,21 @@ is not supported, because macOS's networking framework cannot upgrade a
 connection halfway; providers that offer port 465 (Gmail with an app password,
 Fastmail and most others) work.
 
+## Shortcuts and the hotkey
+
+Tickoala exposes a few actions to **Shortcuts** (and Siri): *Start timer*, *Stop
+timer* and *Today's hours*. They open the same database with the same rules, so a
+shortcut behaves exactly like the menu. Look for Tickoala under the Shortcuts app's
+apps, or ask Siri, for example: *"Start Tickoala for Acme"*.
+
+There is also a system-wide hotkey, **⌃⌥T**, that starts or stops without touching
+the menu bar: it stops whatever is running, or starts the chosen customer when
+nothing does. It uses Carbon's hotkey API, so it needs no Accessibility
+permission.
+
+> A widget is not included: it needs a WidgetKit extension that the dependency-free
+> SwiftPM build does not produce. Shortcuts and the hotkey cover the same need.
+
 ## Command line
 
 ```bash
@@ -437,6 +644,14 @@ tickoala status                 # also --json
 tickoala report week            # or day / month, with --date and --profile
 tickoala profile list           # clients, with their hourly rate
 tickoala rate set --profile "Acme" --rate 87.50
+tickoala project edit --profile "Acme" --number 2401 --budget 80   # optional hour budget
+tickoala expense add --profile "Acme" --description "Parking" --amount 12.50
+tickoala expense add --profile "Acme" --description "Travel" --km 120 --rate 0.23
+tickoala billing set --profile "Acme" --round 15 --round-up true --minimum 1:00
+tickoala retainer set --profile "Acme" --amount 1500 --description "Support contract"
+tickoala holiday add 2026-12-25 --label "Christmas"
+tickoala timer start --profile "Acme" --kind travel   # work (default), travel or commute
+tickoala vat --year 2026 --quarter 3   # quarterly VAT return
 tickoala entry list --period week
 tickoala entry add --number 2401 --start "2026-09-10 09:00" --end "2026-09-10 17:00"
 tickoala entry edit --id 12 --end "2026-09-10 16:30"
@@ -470,9 +685,11 @@ swift build && .build/debug/TickoalaChecks
 
 The suite covers start, stop, pause, resume, duplicate events, brief dropouts, two
 clients at once, multiple networks per client, project linking, switching and
-renumbering, unique project numbers, break deduction, restarting with an open
-timer, day/week/month totals, CSV export, invoicing, the running month revenue,
-and runs the real CLI as a separate process.
+renumbering, unique project numbers, break deduction, project budgets and their
+80%/100% thresholds, expenses and mileage on the invoice, the quarterly VAT
+return, restarting with an open timer, day/week/month totals, CSV export,
+invoicing, billing rules, travel time, retainers, holidays, the UBL/Peppol
+export, the running month revenue, and runs the real CLI as a separate process.
 
 It runs as a plain executable rather than through `swift test`: XCTest and
 swift-testing ship with full Xcode, not with the Command Line Tools, and this

@@ -65,6 +65,16 @@ struct TickoalaApp: App {
         }
         .defaultSize(width: 760, height: 560)
 
+        Window("Expenses", id: "expenses") {
+            ExpensesWindow(model: appDelegate.model)
+        }
+        .defaultSize(width: 820, height: 480)
+
+        Window("VAT return", id: "vat") {
+            VATWindow(model: appDelegate.model)
+        }
+        .defaultSize(width: 600, height: 400)
+
         Window("Invoice settings", id: "invoice-settings") {
             InvoiceSettingsWindow(model: appDelegate.model)
         }

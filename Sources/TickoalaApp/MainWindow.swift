@@ -89,6 +89,7 @@ struct MainWindow: View {
             }
             Button("Projects") { open("projects") }
             Button("Customers") { open("customers") }
+            Button("Expenses") { open("expenses") }
             Spacer()
             Button("Export CSV") { exportCSV() }
             Button("Settings") { open("settings") }

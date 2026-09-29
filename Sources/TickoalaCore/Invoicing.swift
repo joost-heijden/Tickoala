@@ -149,15 +149,22 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
     }
 }
 
-/// One line of the invoice: a project, or the automatic break deduction.
+/// One line of the invoice: a project, the automatic break deduction, or an
+/// expense / mileage claim.
 public struct InvoiceLine: Equatable, Sendable {
     public var label: String
-    /// Recorded seconds; negative for the break deduction.
+    /// Recorded seconds; negative for the break deduction. Zero on an expense.
     public var seconds: TimeInterval
     public var hourlyRateCents: Int
     public var amountCents: Int
+    /// On an expense or mileage line: the quantity, its unit (`km`) and the
+    /// per-unit rate. `nil` on an hours line.
+    public var quantity: Double? = nil
+    public var unit: String? = nil
+    public var unitRateCents: Int? = nil
 
     public var isDeduction: Bool { seconds < 0 }
+    public var isExpense: Bool { quantity != nil }
 }
 
 /// Everything the PDF and the CLI need, fully computed.
@@ -173,6 +180,8 @@ public struct Invoice: Equatable, Sendable {
     public var lines: [InvoiceLine]
     /// Net seconds invoiced (after break deduction).
     public var netSeconds: TimeInterval
+    /// Billable expenses and mileage included in the subtotal.
+    public var expensesCents: Int
     public var subtotalCents: Int
     public var vatRatePercent: Int
     public var vatCents: Int
@@ -339,23 +348,103 @@ public enum Invoicing {
         )
 
         let rate = profile.hourlyRateCents
+        let rules = profile.billingRules
         func amount(_ seconds: TimeInterval) -> Int {
             guard rate > 0 else { return 0 }
             return Int((seconds / 3600 * Double(rate)).rounded())
         }
 
         // The automatic break deduction is already folded into these net hours;
-        // the invoice never shows it as its own line.
+        // the invoice never shows it as its own line. Billing rules round each
+        // line's invoiced time; with no rules set the hours are untouched.
         var lines = report.byProjectNet
             .filter { $0.total > 0 }
             .map { item in
-                InvoiceLine(
+                let seconds = rules.roundingMinutes > 0 ? rules.rounded(item.total) : item.total
+                return InvoiceLine(
                     label: item.label,
-                    seconds: item.total,
+                    seconds: seconds,
                     hourlyRateCents: rate,
-                    amountCents: amount(item.total)
+                    amountCents: amount(seconds)
                 )
             }
+        // A minimum number of billable hours, topped up as its own line.
+        if rules.minimumMinutes > 0, rate > 0 {
+            let worked = lines.reduce(0) { $0 + $1.seconds }
+            let minimum = TimeInterval(rules.minimumMinutes) * 60
+            if worked < minimum {
+                let short = minimum - worked
+                lines.append(InvoiceLine(
+                    label: "Minimum billing",
+                    seconds: short,
+                    hourlyRateCents: rate,
+                    amountCents: amount(short)
+                ))
+            }
+        }
+        // Travel and commute get their own line, at their own rate. A commute
+        // without a rate stays off the invoice; its time is still recorded.
+        for kind in [EntryKind.travel, .commute] {
+            let seconds = report.byKind[kind] ?? 0
+            guard seconds > 0, profile.isBillable(kind: kind) else { continue }
+            let kindRate = profile.rateCents(for: kind)
+            guard kindRate > 0 else { continue }
+            lines.append(InvoiceLine(
+                label: kind == .travel ? "Travel time" : "Commute",
+                seconds: seconds,
+                hourlyRateCents: kindRate,
+                amountCents: profile.amountCents(for: seconds, rateCents: kindRate)
+            ))
+        }
+        // A retainer is a fixed monthly amount, added automatically.
+        if let retainer = try store.retainer(profileId: profileId), retainer.isSet {
+            lines.append(InvoiceLine(
+                label: retainer.label,
+                seconds: 0,
+                hourlyRateCents: 0,
+                amountCents: retainer.amountCents,
+                quantity: 1,
+                unit: nil,
+                unitRateCents: retainer.amountCents
+            ))
+        }
+        // Billable expenses and mileage for the same period become their own
+        // lines, on top of the hours.
+        let expenses = try store.expenses(profileId: profileId, from: period.start, to: period.end)
+            .filter { $0.billable && $0.amountCents != 0 }
+        lines.append(contentsOf: expenses.map { expense in
+            InvoiceLine(
+                label: expense.description,
+                seconds: 0,
+                hourlyRateCents: 0,
+                amountCents: expense.amountCents,
+                quantity: expense.quantity,
+                unit: expense.kind == .mileage ? "km" : nil,
+                unitRateCents: expense.unitRateCents
+            )
+        })
+        // Evening and weekend surcharges, as their own line. Their amount is a
+        // percentage of the hours, so they carry no quantity of their own.
+        if rules.isActive, rate > 0,
+           rules.eveningSurchargePercent > 0 || rules.weekendSurchargePercent > 0 {
+            let entries = try store.entries(from: period.start, to: period.end, profileId: profileId)
+            let extra = Billing.surchargeSeconds(entries: entries, rules: rules, now: now, calendar: calendar)
+            func surcharge(_ seconds: TimeInterval, percent: Int, label: String) {
+                guard percent > 0, seconds > 0 else { return }
+                let amount = Int((Double(amount(seconds)) * Double(percent) / 100).rounded())
+                lines.append(InvoiceLine(
+                    label: "\(label) surcharge (\(percent)%)",
+                    seconds: 0,
+                    hourlyRateCents: 0,
+                    amountCents: amount,
+                    quantity: 1,
+                    unit: nil,
+                    unitRateCents: amount
+                ))
+            }
+            surcharge(extra.evening, percent: rules.eveningSurchargePercent, label: "Evening")
+            surcharge(extra.weekend, percent: rules.weekendSurchargePercent, label: "Weekend")
+        }
         if lines.isEmpty {
             lines.append(InvoiceLine(
                 label: "No hours recorded in this period",
@@ -366,6 +455,7 @@ public enum Invoicing {
         }
 
         let subtotal = lines.reduce(0) { $0 + $1.amountCents }
+        let expensesTotal = expenses.reduce(0) { $0 + $1.amountCents }
         let vat = Int((Double(subtotal) * Double(max(0, profile.vatRatePercent)) / 100).rounded())
 
         let stored = try store.storeInvoice(
@@ -390,7 +480,8 @@ public enum Invoicing {
             issuedAt: issuedAt,
             dueAt: dueAt,
             lines: lines,
-            netSeconds: report.netTotal,
+            netSeconds: lines.reduce(0) { $0 + max(0, $1.seconds) },
+            expensesCents: expensesTotal,
             subtotalCents: subtotal,
             vatRatePercent: profile.vatRatePercent,
             vatCents: vat,

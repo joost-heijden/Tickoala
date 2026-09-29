@@ -73,6 +73,9 @@ public struct Report: Sendable {
     public var byDay: [DayTotal]
     /// The distribution per client, including break deduction and the amount at the rate.
     public var byProfile: [ProfileTotal]
+    /// Net seconds per kind (work, travel, commute). Work carries the automatic
+    /// break deduction; travel and commute do not.
+    public var byKind: [EntryKind: TimeInterval]
     public var openCount: Int
     public var runningCount: Int
 
@@ -148,6 +151,10 @@ public enum Reporting {
         // A break is determined per client and per day: every client has its own rule.
         var perProfileDay: [ProfileDay: TimeInterval] = [:]
         var perProfileGross: [Int64: TimeInterval] = [:]
+        // Seconds per client and per kind, so travel and commute can be billed at
+        // their own rate without touching the project breakdown.
+        var perProfileKind: [Int64: [EntryKind: TimeInterval]] = [:]
+        var perKind: [EntryKind: TimeInterval] = [:]
         // A block with a recorded break has already lost that break from its
         // duration. On such a day the automatic rule steps aside, so nothing is
         // deducted twice.
@@ -157,15 +164,21 @@ public enum Reporting {
             let duration = entry.duration(now: now)
             let day = calendar.startOfDay(for: entry.startedAt)
             total += duration
+            perDay[day, default: 0] += duration
+            perProfileKind[entry.profileId, default: [:]][entry.kind, default: 0] += duration
+            perKind[entry.kind, default: 0] += duration
+            // Only work counts towards a project and towards the break rule; travel
+            // and commute are their own thing.
+            guard entry.kind == .work else { continue }
             perProject[entry.projectId, default: 0] += duration
             perProjectDay[ProfileDay(profileId: entry.profileId, day: day), default: [:]][entry.projectId, default: 0] += duration
-            perDay[day, default: 0] += duration
             perProfileDay[ProfileDay(profileId: entry.profileId, day: day), default: 0] += duration
             perProfileGross[entry.profileId, default: 0] += duration
             if entry.breakDuration > 0 {
                 manualBreakDay[ProfileDay(profileId: entry.profileId, day: day), default: 0] += entry.breakDuration
             }
         }
+
 
         // Load clients once; both the break row and the rate depend on them.
         var profileCache: [Int64: Profile] = [:]
@@ -187,6 +200,10 @@ public enum Reporting {
         }
         let breakTotal = breakPerProfileDay.values.reduce(0, +)
 
+        // Work carries the automatic break; travel and commute are untouched.
+        var byKind = perKind
+        byKind[.work] = max(0, (perKind[.work] ?? 0) - breakTotal)
+
         // Charge each day's automatic break against that day's projects, so an
         // invoice can show net hours per project without a deduction line.
         // ponytail: a day spread over several projects splits the break in
@@ -202,18 +219,24 @@ public enum Reporting {
         }
 
         var byProfile: [ProfileTotal] = []
-        for (profileId, gross) in perProfileGross {
+        for (profileId, kinds) in perProfileKind {
             let profile = try loadProfile(profileId)
+            let gross = kinds.values.reduce(0, +)
             let breakDeduction = breakPerProfile[profileId] ?? 0
-            let net = max(0, gross - breakDeduction)
+            let workNet = max(0, (kinds[.work] ?? 0) - breakDeduction)
             let rate = profile?.hourlyRateCents ?? 0
+            var amount = profile?.amountCents(for: workNet) ?? 0
+            if let profile {
+                amount += profile.amountCents(for: kinds[.travel] ?? 0, rateCents: profile.rateCents(for: .travel))
+                amount += profile.amountCents(for: kinds[.commute] ?? 0, rateCents: profile.rateCents(for: .commute))
+            }
             byProfile.append(ProfileTotal(
                 label: profile?.name ?? "?",
                 total: gross,
                 breakDeduction: breakDeduction,
                 hourlyRateCents: rate,
                 currency: profile?.currency ?? .eur,
-                amountCents: profile?.amountCents(for: net) ?? 0
+                amountCents: amount
             ))
         }
         byProfile.sort { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
@@ -248,6 +271,7 @@ public enum Reporting {
             byProjectNet: byProjectNet,
             byDay: byDay,
             byProfile: byProfile,
+            byKind: byKind,
             openCount: entries.filter { $0.status == .open }.count,
             runningCount: entries.filter { $0.status == .running }.count
         )
@@ -264,7 +288,7 @@ public enum Reporting {
     ) throws -> [ProfileDay: TimeInterval] {
         var worked: [ProfileDay: TimeInterval] = [:]
         var manualBreak: [ProfileDay: TimeInterval] = [:]
-        for entry in try store.entries(from: from, to: to, profileId: profileId) {
+        for entry in try store.entries(from: from, to: to, profileId: profileId) where entry.kind == .work {
             let key = ProfileDay(profileId: entry.profileId, day: calendar.startOfDay(for: entry.startedAt))
             worked[key, default: 0] += entry.duration(now: now)
             manualBreak[key, default: 0] += entry.breakDuration

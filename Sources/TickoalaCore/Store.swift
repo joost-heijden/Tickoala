@@ -124,13 +124,25 @@ public final class Store {
         return profile
     }
 
-    public func updateProfile(id: Int64, name: String? = nil, active: Bool? = nil, hourlyRateCents: Int? = nil, currency: Currency? = nil) throws {
+    public func updateProfile(
+        id: Int64,
+        name: String? = nil,
+        active: Bool? = nil,
+        hourlyRateCents: Int? = nil,
+        currency: Currency? = nil,
+        kmRateCents: Int? = nil,
+        travelRateCents: Int? = nil,
+        commuteRateCents: Int? = nil
+    ) throws {
         var assignments: [String] = []
         var parameters: [SQLValue] = []
         if let name { assignments.append("name = ?"); parameters.append(.text(name)) }
         if let active { assignments.append("active = ?"); parameters.append(.int(active ? 1 : 0)) }
         if let hourlyRateCents { assignments.append("hourly_rate_cents = ?"); parameters.append(.int(Int64(max(0, hourlyRateCents)))) }
         if let currency { assignments.append("currency = ?"); parameters.append(.text(currency.rawValue)) }
+        if let kmRateCents { assignments.append("km_rate_cents = ?"); parameters.append(.int(Int64(max(0, kmRateCents)))) }
+        if let travelRateCents { assignments.append("travel_rate_cents = ?"); parameters.append(.int(Int64(max(0, travelRateCents)))) }
+        if let commuteRateCents { assignments.append("commute_rate_cents = ?"); parameters.append(.int(Int64(max(0, commuteRateCents)))) }
         guard !assignments.isEmpty else { return }
         parameters.append(.int(id))
         try database.run("UPDATE profiles SET \(assignments.joined(separator: ", ")) WHERE id = ?;", parameters)
@@ -147,6 +159,27 @@ public final class Store {
                 .int(rule.enabled ? 1 : 0),
                 .int(Int64(rule.minutes)),
                 .int(Int64(rule.thresholdMinutes)),
+                .int(profileId),
+            ]
+        )
+    }
+
+    /// Rounding, minimum and surcharges for a client. All zero leaves the invoice
+    /// exactly as it was, so an old client is unaffected until this is set.
+    public func updateBillingRules(profileId: Int64, rules: BillingRules) throws {
+        try database.run(
+            """
+            UPDATE profiles SET rounding_minutes = ?, rounding_up = ?, minimum_minutes = ?,
+                evening_surcharge_percent = ?, weekend_surcharge_percent = ?, evening_start_minutes = ?
+            WHERE id = ?;
+            """,
+            [
+                .int(Int64(max(0, rules.roundingMinutes))),
+                .int(rules.roundUp ? 1 : 0),
+                .int(Int64(max(0, rules.minimumMinutes))),
+                .int(Int64(max(0, rules.eveningSurchargePercent))),
+                .int(Int64(max(0, rules.weekendSurchargePercent))),
+                .int(Int64(min(max(0, rules.eveningStartMinutes), 24 * 60))),
                 .int(profileId),
             ]
         )
@@ -230,6 +263,8 @@ public final class Store {
             ("profiles", "SELECT * FROM profiles WHERE id = ?;"),
             ("projects", "SELECT * FROM projects WHERE profile_id = ?;"),
             ("time_entries", "SELECT * FROM time_entries WHERE profile_id = ?;"),
+            ("expenses", "SELECT * FROM expenses WHERE profile_id = ?;"),
+            ("retainers", "SELECT * FROM retainers WHERE profile_id = ?;"),
             ("profile_state", "SELECT * FROM profile_state WHERE profile_id = ?;"),
             ("profile_contexts", "SELECT * FROM profile_contexts WHERE profile_id = ?;"),
             ("invoices", "SELECT * FROM invoices WHERE profile_id = ?;"),
@@ -297,15 +332,16 @@ public final class Store {
     // MARK: - Projects
 
     @discardableResult
-    public func createProject(profileId: Int64, number: String, name: String) throws -> Project {
+    public func createProject(profileId: Int64, number: String, name: String, budgetMinutes: Int = 0) throws -> Project {
         if try project(profileId: profileId, number: number) != nil {
             throw TrackerError.duplicateProjectNumber(number)
         }
+        let budget = max(0, budgetMinutes)
         let id = try database.run(
-            "INSERT INTO projects (profile_id, number, name, active, created_at) VALUES (?, ?, ?, 1, ?);",
-            [.int(profileId), .text(number), .text(name), .int(Int64(Date().timeIntervalSince1970))]
+            "INSERT INTO projects (profile_id, number, name, active, budget_minutes, created_at) VALUES (?, ?, ?, 1, ?, ?);",
+            [.int(profileId), .text(number), .text(name), .int(Int64(budget)), .int(Int64(Date().timeIntervalSince1970))]
         )
-        return Project(id: id, profileId: profileId, number: number, name: name)
+        return Project(id: id, profileId: profileId, number: number, name: name, budgetMinutes: budget)
     }
 
     public func projects(profileId: Int64, includeInactive: Bool = true) throws -> [Project] {
@@ -326,7 +362,13 @@ public final class Store {
         ).first.map(Self.project(from:))
     }
 
-    public func updateProject(id: Int64, number: String? = nil, name: String? = nil, active: Bool? = nil) throws {
+    public func updateProject(
+        id: Int64,
+        number: String? = nil,
+        name: String? = nil,
+        active: Bool? = nil,
+        budgetMinutes: Int? = nil
+    ) throws {
         guard let existing = try project(id: id) else { throw TrackerError.unknownProject(String(id)) }
         // The number stays unique within the organization, also when renumbering.
         if let number, number.caseInsensitiveCompare(existing.number) != .orderedSame {
@@ -339,9 +381,34 @@ public final class Store {
         if let number { assignments.append("number = ?"); parameters.append(.text(number)) }
         if let name { assignments.append("name = ?"); parameters.append(.text(name)) }
         if let active { assignments.append("active = ?"); parameters.append(.int(active ? 1 : 0)) }
+        if let budgetMinutes { assignments.append("budget_minutes = ?"); parameters.append(.int(Int64(max(0, budgetMinutes)))) }
         guard !assignments.isEmpty else { return }
         parameters.append(.int(id))
         try database.run("UPDATE projects SET \(assignments.joined(separator: ", ")) WHERE id = ?;", parameters)
+    }
+
+    /// Worked seconds per project over all time, for the budget burn-down. The
+    /// duration is the block span minus a recorded break, the same as a project
+    /// row in a report; a running block is counted up to `now`.
+    public func projectUsageSeconds(now: Date = Date()) throws -> [Int64: TimeInterval] {
+        let rows = try database.query(
+            """
+            SELECT project_id,
+                   SUM(MAX(0, COALESCE(ended_at, ?) - started_at
+                       - CASE WHEN break_started_at IS NOT NULL AND break_ended_at IS NOT NULL
+                              THEN break_ended_at - break_started_at ELSE 0 END)) AS seconds
+            FROM time_entries
+            WHERE project_id IS NOT NULL AND kind = 'work'
+            GROUP BY project_id;
+            """,
+            [.int(Int64(now.timeIntervalSince1970))]
+        )
+        var result: [Int64: TimeInterval] = [:]
+        for row in rows {
+            guard let id = row.int("project_id") else { continue }
+            result[id] = TimeInterval(max(0, row.int("seconds") ?? 0))
+        }
+        return result
     }
 
     /// Removes a project. Existing time entries stay but lose their project link
@@ -412,13 +479,14 @@ public final class Store {
         breakEndedAt: Date? = nil,
         status: EntryStatus,
         source: EntrySource,
+        kind: EntryKind = .work,
         note: String?
     ) throws -> TimeEntry {
         let now = Date()
         let id = try database.run(
             """
-            INSERT INTO time_entries (profile_id, project_id, started_at, ended_at, break_started_at, break_ended_at, status, source, note, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO time_entries (profile_id, project_id, started_at, ended_at, break_started_at, break_ended_at, status, source, kind, note, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             [
                 .int(profileId),
@@ -429,6 +497,7 @@ public final class Store {
                 breakEndedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null,
                 .text(status.rawValue),
                 .text(source.rawValue),
+                .text(kind.rawValue),
                 note.map { SQLValue.text($0) } ?? .null,
                 .int(Int64(now.timeIntervalSince1970)),
                 .int(Int64(now.timeIntervalSince1970)),
@@ -437,7 +506,7 @@ public final class Store {
         return TimeEntry(
             id: id, profileId: profileId, projectId: projectId, startedAt: startedAt, endedAt: endedAt,
             breakStartedAt: breakStartedAt, breakEndedAt: breakEndedAt,
-            status: status, source: source, note: note, createdAt: now, updatedAt: now
+            status: status, source: source, kind: kind, note: note, createdAt: now, updatedAt: now
         )
     }
 
@@ -483,6 +552,7 @@ public final class Store {
         breakStartedAt: Date?? = nil,
         breakEndedAt: Date?? = nil,
         status: EntryStatus? = nil,
+        kind: EntryKind? = nil,
         note: String?? = nil
     ) throws {
         guard try entry(id: id) != nil else { throw TrackerError.unknownEntry(id) }
@@ -511,6 +581,10 @@ public final class Store {
         if let status {
             assignments.append("status = ?")
             parameters.append(.text(status.rawValue))
+        }
+        if let kind {
+            assignments.append("kind = ?")
+            parameters.append(.text(kind.rawValue))
         }
         if let note {
             assignments.append("note = ?")
@@ -542,6 +616,7 @@ public final class Store {
             breakEndedAt: entry.breakEndedAt,
             status: entry.status,
             source: entry.source,
+            kind: entry.kind,
             note: entry.note
         )
     }
@@ -571,6 +646,197 @@ public final class Store {
     public func clearBreak(id: Int64) throws {
         guard try entry(id: id) != nil else { throw TrackerError.unknownEntry(id) }
         try updateEntry(id: id, breakStartedAt: .some(nil), breakEndedAt: .some(nil))
+    }
+
+    // MARK: - Expenses
+
+    @discardableResult
+    public func createExpense(
+        profileId: Int64,
+        date: Date,
+        description: String,
+        kind: ExpenseKind = .expense,
+        quantity: Double = 1,
+        unitRateCents: Int = 0,
+        amountCents: Int,
+        billable: Bool = true,
+        note: String? = nil
+    ) throws -> Expense {
+        let now = Date()
+        let id = try database.run(
+            """
+            INSERT INTO expenses (profile_id, date, description, kind, quantity, unit_rate_cents, amount_cents, billable, note, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            [
+                .int(profileId),
+                .int(Int64(date.timeIntervalSince1970)),
+                .text(description),
+                .text(kind.rawValue),
+                .double(max(0, quantity)),
+                .int(Int64(max(0, unitRateCents))),
+                .int(Int64(amountCents)),
+                .int(billable ? 1 : 0),
+                note.map { SQLValue.text($0) } ?? .null,
+                .int(Int64(now.timeIntervalSince1970)),
+                .int(Int64(now.timeIntervalSince1970)),
+            ]
+        )
+        return Expense(
+            id: id, profileId: profileId, date: date, description: description, kind: kind,
+            quantity: max(0, quantity), unitRateCents: max(0, unitRateCents), amountCents: amountCents,
+            billable: billable, note: note, createdAt: now, updatedAt: now
+        )
+    }
+
+    public func expense(id: Int64) throws -> Expense? {
+        try database.query("SELECT * FROM expenses WHERE id = ?;", [.int(id)]).first.map(Self.expense(from:))
+    }
+
+    /// Expenses in the window [from, to); both bounds are optional so a whole
+    /// client's list can be fetched.
+    public func expenses(profileId: Int64, from: Date? = nil, to: Date? = nil) throws -> [Expense] {
+        var sql = "SELECT * FROM expenses WHERE profile_id = ?"
+        var parameters: [SQLValue] = [.int(profileId)]
+        if let from { sql += " AND date >= ?"; parameters.append(.int(Int64(from.timeIntervalSince1970))) }
+        if let to { sql += " AND date < ?"; parameters.append(.int(Int64(to.timeIntervalSince1970))) }
+        sql += " ORDER BY date, id;"
+        return try database.query(sql, parameters).map(Self.expense(from:))
+    }
+
+    public func updateExpense(
+        id: Int64,
+        date: Date? = nil,
+        description: String? = nil,
+        kind: ExpenseKind? = nil,
+        quantity: Double? = nil,
+        unitRateCents: Int? = nil,
+        amountCents: Int? = nil,
+        billable: Bool? = nil,
+        note: String??
+    ) throws {
+        guard try expense(id: id) != nil else { throw TrackerError.unknownEntry(id) }
+        var assignments: [String] = []
+        var parameters: [SQLValue] = []
+        if let date { assignments.append("date = ?"); parameters.append(.int(Int64(date.timeIntervalSince1970))) }
+        if let description { assignments.append("description = ?"); parameters.append(.text(description)) }
+        if let kind { assignments.append("kind = ?"); parameters.append(.text(kind.rawValue)) }
+        if let quantity { assignments.append("quantity = ?"); parameters.append(.double(max(0, quantity))) }
+        if let unitRateCents { assignments.append("unit_rate_cents = ?"); parameters.append(.int(Int64(max(0, unitRateCents)))) }
+        if let amountCents { assignments.append("amount_cents = ?"); parameters.append(.int(Int64(amountCents))) }
+        if let billable { assignments.append("billable = ?"); parameters.append(.int(billable ? 1 : 0)) }
+        if let note { assignments.append("note = ?"); parameters.append(note.map { SQLValue.text($0) } ?? .null) }
+        guard !assignments.isEmpty else { return }
+        assignments.append("updated_at = ?")
+        parameters.append(.int(Int64(Date().timeIntervalSince1970)))
+        parameters.append(.int(id))
+        try database.run("UPDATE expenses SET \(assignments.joined(separator: ", ")) WHERE id = ?;", parameters)
+    }
+
+    public func deleteExpense(id: Int64) throws {
+        try database.run("DELETE FROM expenses WHERE id = ?;", [.int(id)])
+    }
+
+    static func expense(from row: Row) -> Expense {
+        Expense(
+            id: row.int("id") ?? 0,
+            profileId: row.int("profile_id") ?? 0,
+            date: row.date("date") ?? Date(timeIntervalSince1970: 0),
+            description: row.string("description") ?? "",
+            kind: ExpenseKind(rawValue: row.string("kind") ?? "") ?? .expense,
+            quantity: row.double("quantity") ?? 1,
+            unitRateCents: Int(row.int("unit_rate_cents") ?? 0),
+            amountCents: Int(row.int("amount_cents") ?? 0),
+            billable: row.bool("billable"),
+            note: row.string("note"),
+            createdAt: row.date("created_at") ?? Date(timeIntervalSince1970: 0),
+            updatedAt: row.date("updated_at") ?? Date(timeIntervalSince1970: 0)
+        )
+    }
+
+    // MARK: - Retainer
+
+    /// The fixed monthly amount for a client, if one is set.
+    public func retainer(profileId: Int64) throws -> Retainer? {
+        try database.query("SELECT * FROM retainers WHERE profile_id = ?;", [.int(profileId)]).first.map { row in
+            Retainer(
+                profileId: row.int("profile_id") ?? 0,
+                description: row.string("description") ?? "",
+                amountCents: Int(row.int("amount_cents") ?? 0),
+                active: row.bool("active")
+            )
+        }
+    }
+
+    /// Sets (or replaces) the retainer of a client. A zero amount stores an
+    /// inactive retainer, so it never lands on an invoice.
+    public func setRetainer(profileId: Int64, description: String, amountCents: Int, active: Bool = true) throws {
+        guard try profile(id: profileId) != nil else { throw TrackerError.unknownProfile(String(profileId)) }
+        try database.run(
+            """
+            INSERT INTO retainers (profile_id, description, amount_cents, active) VALUES (?, ?, ?, ?)
+            ON CONFLICT(profile_id) DO UPDATE SET description = excluded.description,
+                amount_cents = excluded.amount_cents, active = excluded.active;
+            """,
+            [
+                .int(profileId),
+                .text(description.trimmingCharacters(in: .whitespacesAndNewlines)),
+                .int(Int64(max(0, amountCents))),
+                .int(active ? 1 : 0),
+            ]
+        )
+    }
+
+    public func clearRetainer(profileId: Int64) throws {
+        try database.run("DELETE FROM retainers WHERE profile_id = ?;", [.int(profileId)])
+    }
+
+    // MARK: - Non-working days
+
+    private static func dayKey(_ date: Date) -> Int64 {
+        Int64(Formatting.calendar.startOfDay(for: date).timeIntervalSince1970)
+    }
+
+    /// The marked holidays and vacation days, oldest first.
+    public func nonWorkingDays(from: Date? = nil, to: Date? = nil) throws -> [NonWorkingDay] {
+        var sql = "SELECT * FROM non_working_days"
+        var parameters: [SQLValue] = []
+        if let from, let to {
+            sql += " WHERE day >= ? AND day < ?"
+            parameters = [.int(Self.dayKey(from)), .int(Self.dayKey(to))]
+        }
+        sql += " ORDER BY day;"
+        return try database.query(sql, parameters).map { row in
+            NonWorkingDay(
+                date: Date(timeIntervalSince1970: TimeInterval(row.int("day") ?? 0)),
+                label: row.string("label") ?? "",
+                kind: NonWorkingKind(rawValue: row.string("kind") ?? "") ?? .holiday
+            )
+        }
+    }
+
+    public func nonWorkingDay(_ date: Date) throws -> NonWorkingDay? {
+        try database.query("SELECT * FROM non_working_days WHERE day = ?;", [.int(Self.dayKey(date))]).first.map { row in
+            NonWorkingDay(
+                date: Date(timeIntervalSince1970: TimeInterval(row.int("day") ?? 0)),
+                label: row.string("label") ?? "",
+                kind: NonWorkingKind(rawValue: row.string("kind") ?? "") ?? .holiday
+            )
+        }
+    }
+
+    public func addNonWorkingDay(_ date: Date, label: String, kind: NonWorkingKind = .holiday) throws {
+        try database.run(
+            """
+            INSERT INTO non_working_days (day, label, kind) VALUES (?, ?, ?)
+            ON CONFLICT(day) DO UPDATE SET label = excluded.label, kind = excluded.kind;
+            """,
+            [.int(Self.dayKey(date)), .text(label.trimmingCharacters(in: .whitespaces)), .text(kind.rawValue)]
+        )
+    }
+
+    public func deleteNonWorkingDay(_ date: Date) throws {
+        try database.run("DELETE FROM non_working_days WHERE day = ?;", [.int(Self.dayKey(date))])
     }
 
     // MARK: - Event log
@@ -653,6 +919,14 @@ public final class Store {
                 minutes: Int(row.int("break_minutes") ?? Int64(BreakRule.default.minutes)),
                 thresholdMinutes: Int(row.int("break_threshold_minutes") ?? Int64(BreakRule.default.thresholdMinutes))
             ),
+            billingRules: BillingRules(
+                roundingMinutes: Int(row.int("rounding_minutes") ?? 0),
+                roundUp: row.bool("rounding_up"),
+                minimumMinutes: Int(row.int("minimum_minutes") ?? 0),
+                eveningSurchargePercent: Int(row.int("evening_surcharge_percent") ?? 0),
+                weekendSurchargePercent: Int(row.int("weekend_surcharge_percent") ?? 0),
+                eveningStartMinutes: Int(row.int("evening_start_minutes") ?? Int64(18 * 60))
+            ),
             hourlyRateCents: Int(row.int("hourly_rate_cents") ?? 0),
             currency: Currency(rawValue: row.string("currency") ?? "") ?? .eur,
             billingAddress: row.string("billing_address"),
@@ -663,7 +937,10 @@ public final class Store {
             billingCc: row.string("billing_cc"),
             latitude: row.double("latitude"),
             longitude: row.double("longitude"),
-            presenceRadiusMeters: Int(row.int("presence_radius_m") ?? 150)
+            presenceRadiusMeters: Int(row.int("presence_radius_m") ?? 150),
+            kmRateCents: Int(row.int("km_rate_cents") ?? 0),
+            travelRateCents: Int(row.int("travel_rate_cents") ?? 0),
+            commuteRateCents: Int(row.int("commute_rate_cents") ?? 0)
         )
     }
 
@@ -673,7 +950,8 @@ public final class Store {
             profileId: row.int("profile_id") ?? 0,
             number: row.string("number") ?? "",
             name: row.string("name") ?? "",
-            active: row.bool("active")
+            active: row.bool("active"),
+            budgetMinutes: Int(row.int("budget_minutes") ?? 0)
         )
     }
 
@@ -688,6 +966,7 @@ public final class Store {
             breakEndedAt: row.date("break_ended_at"),
             status: EntryStatus(rawValue: row.string("status") ?? "") ?? .open,
             source: EntrySource(rawValue: row.string("source") ?? "") ?? .manual,
+            kind: EntryKind(rawValue: row.string("kind") ?? "") ?? .work,
             note: row.string("note"),
             createdAt: row.date("created_at") ?? Date(timeIntervalSince1970: 0),
             updatedAt: row.date("updated_at") ?? Date(timeIntervalSince1970: 0)

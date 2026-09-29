@@ -87,6 +87,17 @@ private struct CustomerForm: View {
     @State private var name = ""
     @State private var rateText = ""
     @State private var currency: Currency = .eur
+    @State private var travelRateText = ""
+    @State private var commuteRateText = ""
+    @State private var retainerDescription = ""
+    @State private var retainerAmountText = ""
+    @State private var retainerActive = false
+    @State private var roundingMinutes = 0
+    @State private var roundUp = false
+    @State private var minimumText = ""
+    @State private var eveningPercent = 0
+    @State private var weekendPercent = 0
+    @State private var eveningStart = Date()
     @State private var newContext = ""
     @State private var active = true
     @State private var loaded = false
@@ -132,6 +143,30 @@ private struct CustomerForm: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    FormField(label: "Travel rate") {
+                        HStack(spacing: 8) {
+                            TextField("", text: $travelRateText, prompt: Text("same as hourly"))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                                .multilineTextAlignment(.leading)
+                                .onSubmit { saveTravelRates() }
+                                .onChange(of: travelRateText) { _ in saveTravelRates() }
+                            Text("per hour for client travel")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    FormField(label: "Commute rate") {
+                        HStack(spacing: 8) {
+                            TextField("", text: $commuteRateText, prompt: Text("not billed"))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                                .multilineTextAlignment(.leading)
+                                .onSubmit { saveTravelRates() }
+                                .onChange(of: commuteRateText) { _ in saveTravelRates() }
+                            Text("per hour; empty means the commute is not invoiced")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     Toggle("Active", isOn: $active)
                         .onChange(of: active) { _ in save() }
                 }
@@ -174,6 +209,69 @@ private struct CustomerForm: View {
                             .multilineTextAlignment(.leading)
                             .onChange(of: poNumber) { _ in saveInvoicing() }
                     }
+                }
+
+                FormSection(title: "Billing rules") {
+                    HStack {
+                        Text("Round invoiced time")
+                        Spacer()
+                        Stepper(value: $roundingMinutes, in: 0...60, step: 5) {
+                            Text(roundingMinutes == 0 ? "off" : "\(roundingMinutes) min")
+                                .monospacedDigit()
+                        }
+                        .frame(width: 150, alignment: .trailing)
+                        .onChange(of: roundingMinutes) { _ in saveBillingRules() }
+                    }
+                    Toggle("Round up", isOn: $roundUp)
+                        .onChange(of: roundUp) { _ in saveBillingRules() }
+                        .disabled(roundingMinutes == 0)
+                    FormField(label: "Minimum") {
+                        TextField("", text: $minimumText, prompt: Text("e.g. 1:00, off"))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                            .multilineTextAlignment(.leading)
+                            .onChange(of: minimumText) { _ in saveBillingRules() }
+                    }
+                    Stepper(value: $eveningPercent, in: 0...200, step: 5) {
+                        Text("Evening surcharge: \(eveningPercent) %")
+                            .monospacedDigit()
+                    }
+                    .onChange(of: eveningPercent) { _ in saveBillingRules() }
+                    FormField(label: "Evening from") {
+                        DatePicker("", selection: $eveningStart, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                            .onChange(of: eveningStart) { _ in saveBillingRules() }
+                    }
+                    Stepper(value: $weekendPercent, in: 0...200, step: 5) {
+                        Text("Weekend surcharge: \(weekendPercent) %")
+                            .monospacedDigit()
+                    }
+                    .onChange(of: weekendPercent) { _ in saveBillingRules() }
+                    Text("Applied when the invoice is built; your recorded time is never changed.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                FormSection(title: "Retainer") {
+                    FormField(label: "Monthly amount") {
+                        TextField("", text: $retainerAmountText, prompt: Text("0.00"))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 110)
+                            .multilineTextAlignment(.leading)
+                            .onSubmit { saveRetainer() }
+                            .onChange(of: retainerAmountText) { _ in saveRetainer() }
+                    }
+                    FormField(label: "Description") {
+                        TextField("", text: $retainerDescription, prompt: Text("Support contract"))
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
+                            .onChange(of: retainerDescription) { _ in saveRetainer() }
+                    }
+                    Toggle("Add to every invoice", isOn: $retainerActive)
+                        .onChange(of: retainerActive) { _ in saveRetainer() }
+                    Text("A fixed amount per month, put on the invoice automatically. Empty means none.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 FormSection(title: "Networks") {
@@ -336,7 +434,93 @@ private struct CustomerForm: View {
         billingEmail = profile.billingEmail ?? ""
         billingCc = profile.billingCc ?? ""
         radius = profile.presenceRadiusMeters
+        travelRateText = profile.travelRateCents > 0 ? Formatting.decimalAmount(cents: profile.travelRateCents) : ""
+        commuteRateText = profile.commuteRateCents > 0 ? Formatting.decimalAmount(cents: profile.commuteRateCents) : ""
+        if let retainer = model.retainer(for: profile.id) {
+            retainerDescription = retainer.description
+            retainerAmountText = retainer.amountCents > 0 ? Formatting.decimalAmount(cents: retainer.amountCents) : ""
+            retainerActive = retainer.active
+        }
+        let rules = profile.billingRules
+        roundingMinutes = rules.roundingMinutes
+        roundUp = rules.roundUp
+        minimumText = rules.minimumMinutes > 0
+            ? Formatting.duration(TimeInterval(rules.minimumMinutes) * 60)
+            : ""
+        eveningPercent = rules.eveningSurchargePercent
+        weekendPercent = rules.weekendSurchargePercent
+        var components = DateComponents()
+        components.hour = rules.eveningStartMinutes / 60
+        components.minute = rules.eveningStartMinutes % 60
+        eveningStart = Formatting.calendar.date(from: components) ?? Date()
         loaded = true
+    }
+
+    private func saveBillingRules() {
+        guard loaded else { return }
+        let trimmed = minimumText.trimmingCharacters(in: .whitespaces)
+        var minimum = 0
+        if !trimmed.isEmpty {
+            guard let parsed = Formatting.parseHoursMinutes(trimmed) else {
+                model.errorMessage = "Cannot read the minimum hours: '\(trimmed)'."
+                return
+            }
+            minimum = parsed
+        }
+        let clock = Formatting.calendar.dateComponents([.hour, .minute], from: eveningStart)
+        let eveningStartMinutes = (clock.hour ?? 0) * 60 + (clock.minute ?? 0)
+        model.updateBillingRules(
+            profileId: profile.id,
+            rules: BillingRules(
+                roundingMinutes: roundingMinutes,
+                roundUp: roundUp,
+                minimumMinutes: minimum,
+                eveningSurchargePercent: eveningPercent,
+                weekendSurchargePercent: weekendPercent,
+                eveningStartMinutes: eveningStartMinutes
+            )
+        )
+    }
+
+    private func saveRetainer() {
+        guard loaded else { return }
+        let trimmed = retainerAmountText.trimmingCharacters(in: .whitespaces)
+        let cents: Int
+        if trimmed.isEmpty {
+            cents = 0
+        } else if let parsed = Formatting.parseMoneyCents(trimmed) {
+            cents = parsed
+        } else {
+            model.errorMessage = "Cannot read the retainer amount: '\(trimmed)'."
+            return
+        }
+        if cents == 0 && retainerDescription.trimmingCharacters(in: .whitespaces).isEmpty {
+            model.clearRetainer(profileId: profile.id)
+        } else {
+            model.setRetainer(
+                profileId: profile.id,
+                description: retainerDescription,
+                amountCents: cents,
+                active: retainerActive && cents > 0
+            )
+        }
+    }
+
+    /// Travel and commute rates save the same way as the hourly rate: empty means
+    /// zero, and unreadable input is left in place with a message.
+    private func saveTravelRates() {
+        guard loaded else { return }
+        func cents(_ text: String, _ label: String) -> Int? {
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { return 0 }
+            guard let parsed = Formatting.parseMoneyCents(trimmed) else {
+                model.errorMessage = "Cannot read the \(label) rate: '\(trimmed)'."
+                return nil
+            }
+            return parsed
+        }
+        guard let travel = cents(travelRateText, "travel"), let commute = cents(commuteRateText, "commute") else { return }
+        model.updateCustomerTravelRates(id: profile.id, travelRateCents: travel, commuteRateCents: commute)
     }
 
     private func saveInvoicing() {

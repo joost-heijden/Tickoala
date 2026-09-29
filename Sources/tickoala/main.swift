@@ -17,7 +17,7 @@ Status and maintenance:
 Profiles (a profile can be linked to multiple Wi-Fi networks):
   tickoala profile list
   tickoala profile add --name <name> --context <ssid>[,ssid2,...] [--rate 87.50] [--currency eur|usd]
-  tickoala profile edit --profile <name|context> [--name x] [--active true|false] [--rate 87.50] [--currency eur|usd]
+  tickoala profile edit --profile <name|context> [--name x] [--active true|false] [--rate 87.50] [--currency eur|usd] [--km-rate 0.23] [--travel-rate 0.00] [--commute-rate 0.00]
   tickoala profile context list   --profile <name|context>
   tickoala profile context add    --profile <name|context> --context <ssid>[,ssid2,...]
   tickoala profile context remove --profile <name|context> --context <ssid>[,ssid2,...]
@@ -26,16 +26,39 @@ Hourly rate (per customer):
   tickoala rate list
   tickoala rate set --profile <name> --rate 87.50 [--currency eur|usd]
 
-Projects:
+Projects (an optional hour budget adds a burn-down and warns at 80% and 100%):
   tickoala project list [--profile <name>]
-  tickoala project add --profile <name> --number <number> --name <project name>
+  tickoala project add --profile <name> --number <number> --name <project name> [--budget 80]
   tickoala project select --profile <name> --number <number>
-  tickoala project edit --profile <name> --number <number> [--new-number y] [--name x] [--active true|false]
+  tickoala project edit --profile <name> --number <number> [--new-number y] [--name x] [--active true|false] [--budget 80]
+                                  --budget accepts 80, 80.5 or 1:30 in hours; 0 clears it
 
 Location (per customer, for detection by place instead of network):
   tickoala location set   --profile <name> --lat <n> --lon <n> [--radius <meters>]
   tickoala location clear --profile <name>
   tickoala location list
+
+Expenses and mileage (per customer, added to the invoice):
+  tickoala expense list [--profile <name>] [--period day|week|month] [--date <day>] [--from <t> --to <t>]
+  tickoala expense add  --profile <name> --description "Parking" --amount 12.50 [--date <day>] [--non-billable]
+  tickoala expense add  --profile <name> --description "Travel"  --km 120 --rate 0.23 [--date <day>] [--non-billable]
+  tickoala expense edit --id <n> [--description x] [--date <day>] [--amount 12.50 | --km 120 --rate 0.23] [--billable true|false]
+  tickoala expense delete --id <n>
+
+Holidays and vacation (non-working days, global):
+  tickoala holiday list [--from <day> --to <day>]
+  tickoala holiday add <day> [--label "Christmas"] [--kind holiday|vacation]
+  tickoala holiday remove <day>
+
+Billing rules (per customer, applied when the invoice is built):
+  tickoala billing list
+  tickoala billing set --profile <name> [--round 15] [--round-up true|false] [--minimum 1:00] [--evening 25] [--weekend 50] [--evening-start 18:00]
+  tickoala billing clear --profile <name>
+
+Retainer (fixed monthly amount per customer, added to the invoice):
+  tickoala retainer list
+  tickoala retainer set --profile <name> --amount 1500 [--description "Support contract"] [--active true|false]
+  tickoala retainer clear --profile <name>
 
 Automatic break deduction (per customer):
   tickoala break list
@@ -43,20 +66,23 @@ Automatic break deduction (per customer):
                                        --threshold accepts 6:00, 6h or 360 (minutes)
 
 Timer:
-  tickoala timer start|stop --profile <name>
+  tickoala timer start|stop --profile <name> [--kind work|travel|commute]
   tickoala pause  --profile <name>
   tickoala resume --profile <name>
 
 Correcting blocks:
   tickoala entry list [--period day|week|month] [--date <day>] [--from <time> --to <time>] [--profile <name>]
-  tickoala entry add --profile <name> --number <project number> --start <time> --end <time> [--note "..."]
-  tickoala entry edit --id <n> [--start <time>] [--end <time>] [--number <project number>] [--status completed|open] [--note "..."]
+  tickoala entry add --profile <name> --number <project number> --start <time> --end <time> [--kind work|travel|commute] [--note "..."]
+  tickoala entry edit --id <n> [--start <time>] [--end <time>] [--number <project number>] [--status completed|open] [--kind work|travel|commute] [--note "..."]
   tickoala entry delete --id <n>
+
+VAT return (quarterly, per rate):
+  tickoala vat [--year 2026] [--quarter 1|2|3|4]
 
 Overview and export:
   tickoala report [day|week|month] [--date <day>] [--profile <name>]
   tickoala export [--period month] [--date <day>] [--from <time> --to <time>] [--profile <name>] [--out <file>]
-  tickoala invoice [--profile <name>] [--month YYYY-MM] [--po <number>] [--out <file.pdf>]
+  tickoala invoice [--profile <name>] [--month YYYY-MM] [--po <number>] [--out <file.pdf>] [--ubl <file.xml>]
 
 Settings:
   tickoala config list
@@ -92,6 +118,14 @@ func boolOption(_ arguments: Arguments, _ name: String) -> Bool? {
     if ["true", "yes", "1", "on"].contains(raw) { return true }
     if ["false", "no", "0", "off"].contains(raw) { return false }
     return nil
+}
+
+func kindOption(_ arguments: Arguments) throws -> EntryKind? {
+    guard let raw = arguments.string("kind")?.lowercased() else { return nil }
+    guard let kind = EntryKind(rawValue: raw) else {
+        throw CLIError.usage("--kind must be work, travel or commute")
+    }
+    return kind
 }
 
 func run() throws {
@@ -160,11 +194,26 @@ func run() throws {
     case "break":
         try runBreak(arguments)
 
+    case "expense":
+        try runExpense(arguments)
+
     case "rate":
         try runRate(arguments)
 
+    case "billing":
+        try runBilling(arguments)
+
+    case "retainer":
+        try runRetainer(arguments)
+
+    case "holiday", "vacation":
+        try runHoliday(arguments)
+
     case "entry":
         try runEntry(arguments)
+
+    case "vat":
+        try runVAT(arguments)
 
     case "report":
         try runReport(arguments)
@@ -283,7 +332,10 @@ func runProfile(_ arguments: Arguments) throws {
             name: arguments.string("name"),
             active: boolOption(arguments, "active"),
             hourlyRateCents: try optionalRateCents(arguments),
-            currency: try optionalCurrency(arguments)
+            currency: try optionalCurrency(arguments),
+            kmRateCents: try optionalMoney(arguments, "km-rate"),
+            travelRateCents: try optionalMoney(arguments, "travel-rate"),
+            commuteRateCents: try optionalMoney(arguments, "commute-rate")
         )
         print("profile \(profile.id) updated")
     case "context":
@@ -326,6 +378,7 @@ func runProject(_ arguments: Arguments) throws {
         let profiles = arguments.string("profile") != nil
             ? [try resolveProfile(arguments, tracker.store)]
             : try tracker.store.profiles()
+        let usage = try tracker.store.projectUsageSeconds()
         for profile in profiles {
             let state = try tracker.store.state(profileId: profile.id)
             print("\(profile.name):")
@@ -333,7 +386,15 @@ func runProject(_ arguments: Arguments) throws {
             if projects.isEmpty { print("  (no projects)") }
             for project in projects {
                 let marker = state.activeProjectId == project.id ? "→" : " "
-                print("  \(marker) \(project.label)\(project.active ? "" : "  [inactive]")")
+                var line = "  \(marker) \(project.label)\(project.active ? "" : "  [inactive]")"
+                if project.hasBudget {
+                    let budget = ProjectBudget(
+                        budgetSeconds: project.budgetSeconds,
+                        usedSeconds: usage[project.id] ?? 0
+                    )
+                    line += "  —  \(budget.summary)"
+                }
+                print(line)
             }
         }
     case "add":
@@ -341,7 +402,8 @@ func runProject(_ arguments: Arguments) throws {
         let project = try tracker.createProject(
             profileId: profile.id,
             number: try arguments.require("number"),
-            name: try arguments.require("name")
+            name: try arguments.require("name"),
+            budgetMinutes: try optionalBudgetMinutes(arguments) ?? 0
         )
         var message = "project added to \(profile.name): \(project.label)"
         if try tracker.store.state(profileId: profile.id).activeProjectId == project.id {
@@ -370,10 +432,17 @@ func runProject(_ arguments: Arguments) throws {
             id: project.id,
             number: arguments.string("new-number"),
             name: arguments.string("name"),
-            active: boolOption(arguments, "active")
+            active: boolOption(arguments, "active"),
+            budgetMinutes: try optionalBudgetMinutes(arguments)
         )
         if let updated = try tracker.store.project(id: project.id) {
-            print("project updated: \(updated.label)\(updated.active ? "" : "  [inactive]")")
+            var line = "project updated: \(updated.label)\(updated.active ? "" : "  [inactive]")"
+            if arguments.string("budget") != nil {
+                line += updated.hasBudget
+                    ? "  budget \(Formatting.decimalHours(updated.budgetSeconds)) h"
+                    : "  budget cleared"
+            }
+            print(line)
         }
     default:
         throw CLIError.usage("usage: tickoala project list|add|select|edit")
@@ -466,6 +535,117 @@ func runBreak(_ arguments: Arguments) throws {
     }
 }
 
+// MARK: - Expenses and mileage
+
+/// Reads an optional option as an amount in cents; `nil` when absent.
+func optionalMoney(_ arguments: Arguments, _ name: String) throws -> Int? {
+    guard let raw = arguments.string(name) else { return nil }
+    guard let cents = Formatting.parseMoneyCents(raw) else {
+        throw CLIError.usage("cannot read --\(name): '\(raw)' (for example 12.50)")
+    }
+    return cents
+}
+
+func runExpense(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    switch arguments.word(1) ?? "list" {
+    case "list":
+        let window = try resolveWindow(arguments, defaultPeriod: .month)
+        let profiles: [Profile]
+        if arguments.string("profile") != nil {
+            profiles = [try resolveProfile(arguments, tracker.store)]
+        } else {
+            profiles = try tracker.store.profiles()
+        }
+        var shown = false
+        for profile in profiles {
+            let expenses = try tracker.store.expenses(profileId: profile.id, from: window.start, to: window.end)
+            guard !expenses.isEmpty else { continue }
+            shown = true
+            print("\(profile.name):")
+            for expense in expenses {
+                let quantity = expense.kind == .mileage
+                    ? "\(Formatting.quantity(expense.quantity)) km × \(Formatting.money(cents: expense.unitRateCents, currency: profile.currency))"
+                    : "—"
+                let flag = expense.billable ? "" : "  [not invoiced]"
+                print("  \(expense.id)  \(Formatting.day(expense.date))  \(expense.description)  \(quantity)  \(Formatting.money(cents: expense.amountCents, currency: profile.currency))\(flag)")
+            }
+        }
+        if !shown {
+            print("no expenses between \(Formatting.timestamp(window.start)) and \(Formatting.timestamp(window.end))")
+        }
+    case "add":
+        let profile = try resolveProfile(arguments, tracker.store)
+        let description = try arguments.require("description")
+        let date = try arguments.date("date", default: Date()) ?? Date()
+        let billable = boolOption(arguments, "billable") ?? !arguments.flag("non-billable")
+        if let kmRaw = arguments.string("km") {
+            guard let kilometres = Double(kmRaw.replacingOccurrences(of: ",", with: ".")) else {
+                throw CLIError.usage("cannot read --km: '\(kmRaw)'")
+            }
+            let rate = try optionalMoney(arguments, "rate") ?? profile.kmRateCents
+            let amount = Expense.mileageAmountCents(kilometres: kilometres, rateCentsPerKm: rate)
+            let expense = try tracker.store.createExpense(
+                profileId: profile.id, date: date, description: description, kind: .mileage,
+                quantity: kilometres, unitRateCents: rate, amountCents: amount,
+                billable: billable, note: arguments.string("note")
+            )
+            print("mileage \(expense.id) added for \(profile.name): \(Formatting.quantity(kilometres)) km × \(Formatting.money(cents: rate, currency: profile.currency)) = \(Formatting.money(cents: amount, currency: profile.currency))")
+        } else {
+            let amount = try optionalMoney(arguments, "amount") ?? 0
+            let expense = try tracker.store.createExpense(
+                profileId: profile.id, date: date, description: description, kind: .expense,
+                quantity: 1, unitRateCents: amount, amountCents: amount,
+                billable: billable, note: arguments.string("note")
+            )
+            print("expense \(expense.id) added for \(profile.name): \(description)  \(Formatting.money(cents: amount, currency: profile.currency))")
+        }
+    case "edit":
+        guard let id = arguments.int("id").map(Int64.init) else { throw CLIError.usage("missing option --id") }
+        guard let existing = try tracker.store.expense(id: id) else { throw TrackerError.unknownEntry(id) }
+        var kind = existing.kind
+        var quantity = existing.quantity
+        var unitRate = existing.unitRateCents
+        var amount = existing.amountCents
+        if let kmRaw = arguments.string("km") {
+            guard let kilometres = Double(kmRaw.replacingOccurrences(of: ",", with: ".")) else {
+                throw CLIError.usage("cannot read --km: '\(kmRaw)'")
+            }
+            kind = .mileage
+            quantity = kilometres
+        }
+        if let rate = try optionalMoney(arguments, "rate") { unitRate = rate }
+        if let newAmount = try optionalMoney(arguments, "amount") {
+            kind = .expense
+            quantity = 1
+            unitRate = newAmount
+            amount = newAmount
+        }
+        if kind == .mileage { amount = Expense.mileageAmountCents(kilometres: quantity, rateCentsPerKm: unitRate) }
+        try tracker.store.updateExpense(
+            id: id,
+            date: try arguments.date("date", default: nil),
+            description: arguments.string("description"),
+            kind: kind,
+            quantity: quantity,
+            unitRateCents: unitRate,
+            amountCents: amount,
+            billable: boolOption(arguments, "billable") ?? (arguments.flag("non-billable") ? false : nil),
+            note: arguments.string("note").map { Optional($0) }
+        )
+        if let updated = try tracker.store.expense(id: id) {
+            let currency = (try tracker.store.profile(id: updated.profileId))?.currency ?? .eur
+            print("expense \(updated.id) updated: \(updated.description)  \(Formatting.money(cents: updated.amountCents, currency: currency))")
+        }
+    case "delete":
+        guard let id = arguments.int("id").map(Int64.init) else { throw CLIError.usage("missing option --id") }
+        try tracker.store.deleteExpense(id: id)
+        print("expense \(id) deleted")
+    default:
+        throw CLIError.usage("usage: tickoala expense list|add|edit|delete")
+    }
+}
+
 // MARK: - Hourly rate
 
 /// Reads the optional `--rate` as cents; `nil` if the option is absent.
@@ -475,6 +655,16 @@ func optionalRateCents(_ arguments: Arguments) throws -> Int? {
         throw CLIError.usage("cannot read the hourly rate: '\(raw)' (for example 87.50)")
     }
     return cents
+}
+
+/// Reads the optional `--budget` as minutes; `nil` if the option is absent. Hours
+/// are accepted as `80`, `80.5` or `1:30`.
+func optionalBudgetMinutes(_ arguments: Arguments) throws -> Int? {
+    guard let raw = arguments.string("budget") else { return nil }
+    guard let minutes = Formatting.parseHoursMinutes(raw) else {
+        throw CLIError.usage("cannot read the budget: '\(raw)' (for example 80, 80.5 or 1:30)")
+    }
+    return minutes
 }
 
 /// Reads the optional `--currency` as a currency; `nil` if the option is absent.
@@ -497,7 +687,14 @@ func runRate(_ arguments: Arguments) throws {
             let text = profile.hasHourlyRate
                 ? "\(Formatting.money(cents: profile.hourlyRateCents, currency: profile.currency)) per hour"
                 : "no hourly rate"
-            print("\(profile.name): \(text)")
+            var extras: [String] = []
+            if profile.travelRateCents > 0 {
+                extras.append("travel \(Formatting.money(cents: profile.travelRateCents, currency: profile.currency))/h")
+            }
+            if profile.commuteRateCents > 0 {
+                extras.append("commute \(Formatting.money(cents: profile.commuteRateCents, currency: profile.currency))/h")
+            }
+            print("\(profile.name): \(text)\(extras.isEmpty ? "" : "  (" + extras.joined(separator: ", ") + ")")")
         }
     case "set":
         let profile = try resolveProfile(arguments, tracker.store)
@@ -516,6 +713,115 @@ func runRate(_ arguments: Arguments) throws {
     }
 }
 
+// MARK: - Holidays
+
+func runHoliday(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    switch arguments.word(1) ?? "list" {
+    case "list":
+        let from = try arguments.date("from", default: nil)
+        let to = try arguments.date("to", default: nil)
+        let days = try tracker.store.nonWorkingDays(from: from, to: to)
+        if days.isEmpty { print("no non-working days marked"); return }
+        for day in days {
+            print("\(Formatting.day(day.date))  \(day.kind.rawValue)  \(day.label)")
+        }
+    case "add", "set":
+        guard let raw = arguments.word(2), let date = Formatting.parseDate(raw) else {
+            throw CLIError.usage("usage: tickoala holiday add <day> [--label \"...\"] [--kind holiday|vacation]")
+        }
+        let kind = arguments.string("kind").flatMap(NonWorkingKind.init(rawValue:)) ?? .holiday
+        try tracker.store.addNonWorkingDay(date, label: arguments.string("label") ?? "", kind: kind)
+        print("\(Formatting.day(date)) marked as \(kind.rawValue)")
+    case "remove", "delete":
+        guard let raw = arguments.word(2), let date = Formatting.parseDate(raw) else {
+            throw CLIError.usage("usage: tickoala holiday remove <day>")
+        }
+        try tracker.store.deleteNonWorkingDay(date)
+        print("\(Formatting.day(date)) is a working day again")
+    default:
+        throw CLIError.usage("usage: tickoala holiday list|add|remove")
+    }
+}
+
+// MARK: - Billing rules
+
+func runBilling(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    switch arguments.word(1) ?? "list" {
+    case "list":
+        let profiles = try tracker.store.profiles()
+        if profiles.isEmpty { print("no customers yet"); return }
+        for profile in profiles {
+            print("\(profile.name): \(profile.billingRules.summary)")
+        }
+    case "set":
+        let profile = try resolveProfile(arguments, tracker.store)
+        var rules = profile.billingRules
+        if let round = arguments.int("round") { rules.roundingMinutes = max(0, round) }
+        if let roundUp = boolOption(arguments, "round-up") { rules.roundUp = roundUp }
+        if let raw = arguments.string("minimum") {
+            guard let minutes = Formatting.parseHoursMinutes(raw) else {
+                throw CLIError.usage("cannot read --minimum: '\(raw)' (use 1:00 or 60)")
+            }
+            rules.minimumMinutes = minutes
+        }
+        if let evening = arguments.int("evening") { rules.eveningSurchargePercent = max(0, evening) }
+        if let weekend = arguments.int("weekend") { rules.weekendSurchargePercent = max(0, weekend) }
+        if let raw = arguments.string("evening-start") {
+            guard let minutes = Formatting.parseHoursMinutes(raw) else {
+                throw CLIError.usage("cannot read --evening-start: '\(raw)' (use 18:00)")
+            }
+            rules.eveningStartMinutes = minutes
+        }
+        try tracker.store.updateBillingRules(profileId: profile.id, rules: rules)
+        print("\(profile.name): \(rules.summary)")
+    case "clear":
+        let profile = try resolveProfile(arguments, tracker.store)
+        try tracker.store.updateBillingRules(profileId: profile.id, rules: .default)
+        print("\(profile.name): billing rules cleared")
+    default:
+        throw CLIError.usage("usage: tickoala billing list|set|clear")
+    }
+}
+
+// MARK: - Retainer
+
+func runRetainer(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    switch arguments.word(1) ?? "list" {
+    case "list":
+        let profiles = try tracker.store.profiles()
+        let set = profiles.compactMap { profile -> (Profile, Retainer)? in
+            guard let retainer = try? tracker.store.retainer(profileId: profile.id), retainer.isSet else { return nil }
+            return (profile, retainer)
+        }
+        if set.isEmpty { print("no retainers set"); return }
+        for (profile, retainer) in set {
+            print("\(profile.name): \(Formatting.money(cents: retainer.amountCents, currency: profile.currency)) per month — \(retainer.label)")
+        }
+    case "set":
+        let profile = try resolveProfile(arguments, tracker.store)
+        guard let raw = arguments.string("amount"), let cents = Formatting.parseMoneyCents(raw) else {
+            throw CLIError.usage("usage: tickoala retainer set --profile <name> --amount 1500 [--description \"...\"]")
+        }
+        let active = boolOption(arguments, "active") ?? true
+        try tracker.store.setRetainer(
+            profileId: profile.id,
+            description: arguments.string("description") ?? "Retainer",
+            amountCents: cents,
+            active: active
+        )
+        print("\(profile.name): retainer \(Formatting.money(cents: cents, currency: profile.currency)) per month\(active ? "" : " (inactive)")")
+    case "clear":
+        let profile = try resolveProfile(arguments, tracker.store)
+        try tracker.store.clearRetainer(profileId: profile.id)
+        print("\(profile.name): retainer cleared")
+    default:
+        throw CLIError.usage("usage: tickoala retainer list|set|clear")
+    }
+}
+
 // MARK: - Timer
 
 func runTimer(_ arguments: Arguments) throws {
@@ -523,8 +829,8 @@ func runTimer(_ arguments: Arguments) throws {
     let profile = try resolveProfile(arguments, tracker.store)
     switch arguments.word(1) ?? "" {
     case "start":
-        let entry = try tracker.start(profileId: profile.id)
-        print("block \(entry.id) running since \(Formatting.clock(entry.startedAt))")
+        let entry = try tracker.start(profileId: profile.id, kind: try kindOption(arguments) ?? .work)
+        print("block \(entry.id) running since \(Formatting.clock(entry.startedAt)) (\(entry.kind.rawValue))")
     case "stop":
         let entry = try tracker.stop(profileId: profile.id)
         print(entry.map { "block \($0.id) stopped — \(Formatting.duration($0.duration()))" } ?? "no timer was running")
@@ -547,7 +853,8 @@ func runEntry(_ arguments: Arguments) throws {
             let project = try entry.projectId.flatMap { try tracker.store.project(id: $0) }
             let profile = try tracker.store.profile(id: entry.profileId)
             let end = entry.endedAt.map(Formatting.clock) ?? "…"
-            print("\(entry.id)  \(Formatting.day(entry.startedAt))  \(Formatting.clock(entry.startedAt))–\(end)  \(Formatting.duration(entry.duration()))  \(profile?.name ?? "?")  \(project?.label ?? "(no project)")  \(entry.status.rawValue)  \(entry.source.rawValue)\(entry.note.map { "  \"\($0)\"" } ?? "")")
+            let kind = entry.kind == .work ? "" : "  [\(entry.kind.rawValue)]"
+            print("\(entry.id)  \(Formatting.day(entry.startedAt))  \(Formatting.clock(entry.startedAt))–\(end)  \(Formatting.duration(entry.duration()))  \(profile?.name ?? "?")  \(project?.label ?? "(no project)")  \(entry.status.rawValue)  \(entry.source.rawValue)\(kind)\(entry.note.map { "  \"\($0)\"" } ?? "")")
         }
     case "add":
         let profile = try resolveProfile(arguments, tracker.store)
@@ -565,7 +872,8 @@ func runEntry(_ arguments: Arguments) throws {
         }
         let entry = try tracker.store.createEntry(
             profileId: profile.id, projectId: projectId, startedAt: start, endedAt: end,
-            status: .completed, source: .manual, note: arguments.string("note")
+            status: .completed, source: .manual, kind: try kindOption(arguments) ?? .work,
+            note: arguments.string("note")
         )
         print("block \(entry.id) added: \(Formatting.timestamp(start)) – \(Formatting.clock(end)) (\(Formatting.duration(entry.duration())))")
     case "edit":
@@ -605,6 +913,7 @@ func runEntry(_ arguments: Arguments) throws {
             startedAt: start,
             endedAt: end,
             status: status,
+            kind: try kindOption(arguments),
             note: arguments.string("note").map { Optional($0) }
         )
         if let updated = try tracker.store.entry(id: id) {
@@ -629,6 +938,27 @@ func resolveWindow(_ arguments: Arguments, defaultPeriod: ReportPeriod) throws -
     let period = resolvePeriod(arguments, positionalIndex: 1) ?? defaultPeriod
     let anchor = try arguments.date("date", default: Date()) ?? Date()
     return Reporting.range(period, containing: anchor)
+}
+
+// MARK: - VAT return
+
+func runVAT(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    let now = try arguments.date("date", default: Date()) ?? Date()
+    let base = VATPeriod.containing(now)
+    let year = arguments.int("year") ?? base.year
+    let quarter = arguments.int("quarter") ?? base.quarter
+    guard (1...4).contains(quarter) else { throw CLIError.usage("--quarter must be 1, 2, 3 or 4") }
+
+    let period = VATPeriod(year: year, quarter: quarter)
+    let report = try VAT.report(store: tracker.store, period: period)
+    let lastDay = period.end.addingTimeInterval(-86400)
+    print("VAT return \(period.label)  (\(Formatting.day(period.start)) to \(Formatting.day(lastDay)))")
+    if report.lines.isEmpty { print("  nothing to declare"); return }
+    for line in report.lines {
+        print("  \(String(format: "%3d%%", line.ratePercent))  turnover \(Formatting.money(cents: line.netCents).padding(toLength: 14, withPad: " ", startingAt: 0))  VAT \(Formatting.money(cents: line.vatCents))")
+    }
+    print("  total       turnover \(Formatting.money(cents: report.totalNetCents).padding(toLength: 14, withPad: " ", startingAt: 0))  VAT \(Formatting.money(cents: report.totalVatCents))")
 }
 
 // MARK: - Report
@@ -728,11 +1058,20 @@ func runInvoice(_ arguments: Arguments) throws {
         period: period,
         poNumber: arguments.string("po")
     )
-    let pdf = InvoicePDF.data(for: invoice)
-    let out = arguments.string("out") ?? "invoice-\(invoice.number).pdf"
-    let url = URL(fileURLWithPath: (out as NSString).expandingTildeInPath)
-    try pdf.write(to: url)
-    print("invoice \(invoice.number) for \(profile.name) written to \(url.path)")
+    if let ubl = arguments.string("ubl") {
+        let url = URL(fileURLWithPath: (ubl as NSString).expandingTildeInPath)
+        try UBLExport.data(for: invoice).write(to: url)
+        print("UBL \(invoice.number) written to \(url.path)")
+    }
+    if let out = arguments.string("out") {
+        let url = URL(fileURLWithPath: (out as NSString).expandingTildeInPath)
+        try InvoicePDF.data(for: invoice).write(to: url)
+        print("invoice \(invoice.number) for \(profile.name) written to \(url.path)")
+    } else if arguments.string("ubl") == nil {
+        let url = URL(fileURLWithPath: ("invoice-\(invoice.number).pdf" as NSString).expandingTildeInPath)
+        try InvoicePDF.data(for: invoice).write(to: url)
+        print("invoice \(invoice.number) for \(profile.name) written to \(url.path)")
+    }
     print("period \(Formatting.day(invoice.periodStart)) to \(Formatting.day(invoice.periodEnd.addingTimeInterval(-86400)))")
     print("net \(Formatting.decimalHours(invoice.netSeconds)) hours, total \(Formatting.money(cents: invoice.totalCents, currency: invoice.currency))")
 }
@@ -749,6 +1088,7 @@ func runConfig(_ arguments: Arguments) throws {
         print("workday-end-minutes   \(settings.workdayEndMinutes)   a block with no signal ends at this time (minutes since midnight)")
         print("workday-start-minutes \(settings.workdayStartMinutes)   automatic check-ins near this time snap to it (minutes since midnight)")
         print("project-prompt        \(settings.projectPrompt.rawValue)   ask for a project on arrival (0 never, 1 first of the day, 2 every arrival)")
+        print("budget-warnings       \(settings.budgetWarningsEnabled ? 1 : 0)   warn when a project budget reaches 80% and 100%")
     case "set":
         guard let key = arguments.word(2), let raw = arguments.word(3), let value = Int(raw) else {
             throw CLIError.usage("usage: tickoala config set <key> <value>")

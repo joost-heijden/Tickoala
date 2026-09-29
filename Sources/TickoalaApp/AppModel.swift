@@ -78,6 +78,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Warn once when a project's hour budget reaches 80% and once at 100%. Off
+    /// by default: a budget on its own only shows the burn-down, this adds a
+    /// notification, so setting a budget never forces a warning on you.
+    @Published var showBudgetWarnings = TrackerSettings.default.budgetWarningsEnabled {
+        didSet {
+            guard showBudgetWarnings != oldValue else { return }
+            persistSetting(key: "budget-warnings", value: showBudgetWarnings ? 1 : 0)
+        }
+    }
+
     // Overview window
     @Published var period: ReportPeriod = .day {
         didSet { reloadOverview() }
@@ -101,6 +111,14 @@ final class AppModel: ObservableObject {
     @Published private(set) var overviewByProject: [ProjectTotal] = []
     @Published private(set) var overviewByProfile: [ProfileTotal] = []
     @Published private(set) var overviewAmountCents: Int = 0
+
+    /// Burn-down per project that has a budget, keyed by project id. Empty when
+    /// no budget is set anywhere, so the feature is invisible by default.
+    @Published private(set) var projectBudgets: [Int64: ProjectBudget] = [:]
+    /// Set when a project crosses the 80% or 100% threshold; the app delegate
+    /// turns it into a notification. Only assigned on a fresh crossing.
+    @Published private(set) var budgetAlert: BudgetAlert?
+    @Published private(set) var nonWorkingDays: [NonWorkingDay] = []
 
     /// Source of the start/stop signals: the app watches the Wi-Fi network itself.
     let wifi = WifiWatcher()
@@ -170,6 +188,27 @@ final class AppModel: ObservableObject {
         var event: ContextEvent
     }
 
+    /// A project that just crossed its 80% or 100% budget threshold.
+    struct BudgetAlert: Equatable {
+        var profileId: Int64
+        var projectLabel: String
+        var customerName: String
+        var level: ProjectBudget.Level
+        var budgetSeconds: TimeInterval
+        var usedSeconds: TimeInterval
+
+        var title: String {
+            level == .exceeded ? "Project budget reached" : "Project budget at 80%"
+        }
+
+        var body: String {
+            let used = Formatting.duration(usedSeconds)
+            let total = Formatting.duration(budgetSeconds)
+            let tail = level == .exceeded ? "Over budget." : "\(Formatting.duration(max(0, budgetSeconds - usedSeconds))) left."
+            return "\(customerName) · \(projectLabel): \(used) of \(total) used. \(tail)"
+        }
+    }
+
     init() {
         Self.migrateOldPreferences()
         do {
@@ -194,6 +233,7 @@ final class AppModel: ObservableObject {
             workdayEndMinutes = settings.workdayEndMinutes
             workdayStartMinutes = settings.workdayStartMinutes
             projectPrompt = settings.projectPrompt
+            showBudgetWarnings = settings.budgetWarningsEnabled
         }
         // A coordinate only becomes a signal when it is near a stored location.
         wifi.resolveLocationContext = { [weak self] latitude, longitude in
@@ -393,6 +433,8 @@ final class AppModel: ObservableObject {
             }
             projectsPerProfile = active
             allProjectsPerProfile = all
+            reloadBudgets()
+            nonWorkingDays = try tracker.store.nonWorkingDays()
             errorMessage = nil
         } catch {
             errorMessage = "\(error)"
@@ -573,6 +615,74 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func updateBillingRules(profileId: Int64, rules: BillingRules) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.updateBillingRules(profileId: profileId, rules: rules)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func updateCustomerTravelRates(id: Int64, travelRateCents: Int, commuteRateCents: Int) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.updateProfile(
+                id: id, travelRateCents: travelRateCents, commuteRateCents: commuteRateCents
+            )
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func retainer(for profileId: Int64) -> Retainer? {
+        try? tracker?.store.retainer(profileId: profileId)
+    }
+
+    func addNonWorkingDay(_ date: Date, label: String, kind: NonWorkingKind) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.addNonWorkingDay(date, label: label, kind: kind)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func removeNonWorkingDay(_ date: Date) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.deleteNonWorkingDay(date)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func setRetainer(profileId: Int64, description: String, amountCents: Int, active: Bool) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.setRetainer(
+                profileId: profileId, description: description, amountCents: amountCents, active: active
+            )
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func clearRetainer(profileId: Int64) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.clearRetainer(profileId: profileId)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
     func setCustomerActive(id: Int64, active: Bool) {
         guard let tracker else { return }
         do {
@@ -644,7 +754,7 @@ final class AppModel: ObservableObject {
     /// Creates a project. Returns `false` if it failed, for example because the
     /// number already exists within this organization.
     @discardableResult
-    func addProject(profileId: Int64, number: String, name: String) -> Bool {
+    func addProject(profileId: Int64, number: String, name: String, budgetMinutes: Int = 0) -> Bool {
         guard let tracker else { return false }
         let number = number.trimmingCharacters(in: .whitespaces)
         let name = name.trimmingCharacters(in: .whitespaces)
@@ -654,7 +764,9 @@ final class AppModel: ObservableObject {
         }
         do {
             let previousActive = (try? tracker.store.state(profileId: profileId))?.activeProjectId
-            let project = try tracker.createProject(profileId: profileId, number: number, name: name)
+            let project = try tracker.createProject(
+                profileId: profileId, number: number, name: name, budgetMinutes: max(0, budgetMinutes)
+            )
             record("Add project",
                 perform: { [weak self] in
                     guard let self, let tracker = self.tracker else { return }
@@ -665,7 +777,9 @@ final class AppModel: ObservableObject {
                     }
                 },
                 revert: { [weak self] in
-                    _ = try? self?.tracker?.createProject(profileId: profileId, number: number, name: name)
+                    _ = try? self?.tracker?.createProject(
+                        profileId: profileId, number: number, name: name, budgetMinutes: max(0, budgetMinutes)
+                    )
                 })
             refresh()
             return true
@@ -757,7 +871,8 @@ final class AppModel: ObservableObject {
                 perform: { [weak self] in
                     guard let self, let tracker = self.tracker,
                           let restored = try? tracker.store.createProject(
-                              profileId: project.profileId, number: project.number, name: project.name
+                              profileId: project.profileId, number: project.number, name: project.name,
+                              budgetMinutes: project.budgetMinutes
                           ) else { return }
                     restoredId = restored.id
                     if !project.active {
@@ -784,6 +899,209 @@ final class AppModel: ObservableObject {
 
     func activeProjectId(for profileId: Int64) -> Int64? {
         profiles.first(where: { $0.profile.id == profileId })?.project?.id
+    }
+
+    // MARK: - Project budgets
+
+    /// The burn-down of a project with a budget; `nil` when it has none.
+    func budget(for projectId: Int64) -> ProjectBudget? { projectBudgets[projectId] }
+
+    /// The projects of a customer that carry a budget, for the menu.
+    func budgetedProjects(for profileId: Int64) -> [Project] {
+        allProjects(for: profileId).filter { $0.hasBudget }
+    }
+
+    /// Sets or clears a project's hour budget; 0 clears it. Changing the budget
+    /// re-arms the warnings, because the thresholds moved.
+    func setProjectBudget(id: Int64, minutes: Int) {
+        guard let tracker else { return }
+        let value = max(0, minutes)
+        do {
+            let previous = try? tracker.store.project(id: id)
+            try tracker.store.updateProject(id: id, budgetMinutes: value)
+            UserDefaults.standard.removeObject(forKey: Self.budgetWarnedKey(id))
+            if let previous, previous.budgetMinutes != value {
+                record("Change budget",
+                    perform: { [weak self] in
+                        try? self?.tracker?.store.updateProject(id: id, budgetMinutes: previous.budgetMinutes)
+                        UserDefaults.standard.removeObject(forKey: Self.budgetWarnedKey(id))
+                    },
+                    revert: { [weak self] in
+                        try? self?.tracker?.store.updateProject(id: id, budgetMinutes: value)
+                        UserDefaults.standard.removeObject(forKey: Self.budgetWarnedKey(id))
+                    })
+            }
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    // MARK: - Expenses and mileage
+
+    /// All expenses of a customer, for the management window.
+    func expenses(for profileId: Int64) -> [Expense] {
+        (try? tracker?.store.expenses(profileId: profileId)) ?? []
+    }
+
+    /// Net cents of the billable expenses of a customer within a window, so the
+    /// invoices window can show what will be added on top of the hours.
+    func expenseTotalCents(for profileId: Int64, in range: DateRange) -> Int {
+        ((try? tracker?.store.expenses(profileId: profileId, from: range.start, to: range.end)) ?? [])
+            .filter { $0.billable }
+            .reduce(0) { $0 + $1.amountCents }
+    }
+
+    func setCustomerKmRate(id: Int64, cents: Int) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.updateProfile(id: id, kmRateCents: max(0, cents))
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// Adds an expense or mileage claim. The amount of a mileage claim is worked
+    /// out here; a plain expense stores the amount as both amount and unit rate so
+    /// the invoice can show `1 × €12.50`.
+    @discardableResult
+    func addExpense(
+        profileId: Int64,
+        date: Date,
+        description: String,
+        kind: ExpenseKind,
+        quantity: Double,
+        unitRateCents: Int,
+        amountCents: Int,
+        billable: Bool,
+        note: String
+    ) -> Bool {
+        guard let tracker else { return false }
+        let description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !description.isEmpty else {
+            errorMessage = "Enter a description for the expense."
+            return false
+        }
+        let values = normalizedExpense(kind: kind, quantity: quantity, unitRateCents: unitRateCents, amountCents: amountCents)
+        guard values.amountCents > 0 else {
+            errorMessage = "The amount must be greater than zero."
+            return false
+        }
+        do {
+            _ = try tracker.store.createExpense(
+                profileId: profileId,
+                date: Formatting.calendar.startOfDay(for: date),
+                description: description,
+                kind: kind,
+                quantity: values.quantity,
+                unitRateCents: values.unitRateCents,
+                amountCents: values.amountCents,
+                billable: billable,
+                note: note.isEmpty ? nil : note
+            )
+            refresh()
+            return true
+        } catch {
+            errorMessage = "\(error)"
+            return false
+        }
+    }
+
+    func updateExpense(
+        id: Int64,
+        date: Date,
+        description: String,
+        kind: ExpenseKind,
+        quantity: Double,
+        unitRateCents: Int,
+        amountCents: Int,
+        billable: Bool,
+        note: String
+    ) {
+        guard let tracker else { return }
+        let description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !description.isEmpty else {
+            errorMessage = "Enter a description for the expense."
+            return
+        }
+        let values = normalizedExpense(kind: kind, quantity: quantity, unitRateCents: unitRateCents, amountCents: amountCents)
+        do {
+            try tracker.store.updateExpense(
+                id: id,
+                date: Formatting.calendar.startOfDay(for: date),
+                description: description,
+                kind: kind,
+                quantity: values.quantity,
+                unitRateCents: values.unitRateCents,
+                amountCents: values.amountCents,
+                billable: billable,
+                note: .some(note.isEmpty ? nil : note)
+            )
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    func deleteExpense(id: Int64) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.deleteExpense(id: id)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    private func normalizedExpense(
+        kind: ExpenseKind,
+        quantity: Double,
+        unitRateCents: Int,
+        amountCents: Int
+    ) -> (quantity: Double, unitRateCents: Int, amountCents: Int) {
+        switch kind {
+        case .mileage:
+            let kilometres = max(0, quantity)
+            let rate = max(0, unitRateCents)
+            return (kilometres, rate, Expense.mileageAmountCents(kilometres: kilometres, rateCentsPerKm: rate))
+        case .expense:
+            let amount = max(0, amountCents)
+            return (1, amount, amount)
+        }
+    }
+
+    private static func budgetWarnedKey(_ projectId: Int64) -> String { "budget-warned-\(projectId)" }
+
+    /// Recomputes the burn-down of every budgeted project and raises a warning on
+    /// a fresh threshold crossing. The highest warned level is remembered per
+    /// project, so a warning is not repeated every tick or after a restart.
+    private func reloadBudgets() {
+        guard let tracker else { return }
+        let usage = (try? tracker.store.projectUsageSeconds()) ?? [:]
+        let defaults = UserDefaults.standard
+        var budgets: [Int64: ProjectBudget] = [:]
+        for projects in allProjectsPerProfile.values {
+            for project in projects where project.hasBudget {
+                let budget = ProjectBudget(budgetSeconds: project.budgetSeconds, usedSeconds: usage[project.id] ?? 0)
+                budgets[project.id] = budget
+                guard showBudgetWarnings else { continue }
+                let key = Self.budgetWarnedKey(project.id)
+                let previous = ProjectBudget.Level(rawValue: defaults.integer(forKey: key)) ?? .none
+                guard let crossed = budget.crossedLevel(above: previous) else { continue }
+                defaults.set(crossed.rawValue, forKey: key)
+                let customer = profiles.first { $0.profile.id == project.profileId }?.profile.name ?? ""
+                budgetAlert = BudgetAlert(
+                    profileId: project.profileId,
+                    projectLabel: project.label,
+                    customerName: customer,
+                    level: crossed,
+                    budgetSeconds: budget.budgetSeconds,
+                    usedSeconds: budget.usedSeconds
+                )
+            }
+        }
+        projectBudgets = budgets
     }
 
     // MARK: - Control
@@ -883,11 +1201,13 @@ final class AppModel: ObservableObject {
                     breakDisplay = automatic
                     breakIsAutomatic = true
                 }
+                let base = try entry.projectId.flatMap { try tracker.store.project(id: $0) }?.label ?? "(no project)"
+                let projectLabel = entry.kind == .work ? base : "\(base) · \(entry.kind.label)"
                 return EntryRow(
                     entry: entry,
                     profileName: profile?.name ?? "?",
-                    projectLabel: try entry.projectId.flatMap { try tracker.store.project(id: $0) }?.label ?? "(no project)",
-                    hourlyRateCents: profile?.hourlyRateCents ?? 0,
+                    projectLabel: projectLabel,
+                    hourlyRateCents: profile?.rateCents(for: entry.kind) ?? 0,
                     currency: profile?.currency ?? .eur,
                     breakDisplay: breakDisplay,
                     breakIsAutomatic: breakIsAutomatic,
@@ -947,7 +1267,8 @@ final class AppModel: ObservableObject {
         breakStart: Date?,
         breakEnd: Date?,
         note: String,
-        status: EntryStatus
+        status: EntryStatus,
+        kind: EntryKind = .work
     ) {
         guard let tracker else { return }
         let start = Formatting.minute(start)
@@ -966,6 +1287,7 @@ final class AppModel: ObservableObject {
                 startedAt: start,
                 endedAt: .some(end),
                 status: status,
+                kind: kind,
                 note: .some(note.isEmpty ? nil : note)
             )
             // The store validates that the break falls within the block.
@@ -985,6 +1307,7 @@ final class AppModel: ObservableObject {
                             breakStartedAt: .some(previous.breakStartedAt),
                             breakEndedAt: .some(previous.breakEndedAt),
                             status: previous.status,
+                            kind: previous.kind,
                             note: .some(previous.note)
                         )
                     },
@@ -997,6 +1320,7 @@ final class AppModel: ObservableObject {
                             breakStartedAt: .some(breakStart),
                             breakEndedAt: .some(breakEnd),
                             status: status,
+                            kind: kind,
                             note: .some(note.isEmpty ? nil : note)
                         )
                     })
@@ -1007,6 +1331,36 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Moves a block on the timeline: start and end shift together, break included.
+    func shiftEntry(id: Int64, minutes: Int) {
+        guard minutes != 0, let tracker, let entry = try? tracker.store.entry(id: id) else { return }
+        let delta = TimeInterval(minutes * 60)
+        updateEntry(
+            id: id, projectId: entry.projectId,
+            start: entry.startedAt.addingTimeInterval(delta),
+            end: entry.endedAt?.addingTimeInterval(delta),
+            breakStart: entry.breakStartedAt?.addingTimeInterval(delta),
+            breakEnd: entry.breakEndedAt?.addingTimeInterval(delta),
+            note: entry.note ?? "", status: entry.status, kind: entry.kind
+        )
+    }
+
+    /// Changes the end of a block on the timeline, for dragging its right edge.
+    func resizeEntryEnd(id: Int64, minutes: Int) {
+        guard minutes != 0, let tracker, let entry = try? tracker.store.entry(id: id), let currentEnd = entry.endedAt else {
+            return
+        }
+        let delta = TimeInterval(minutes * 60)
+        let lowest = max(entry.startedAt.addingTimeInterval(60), entry.breakEndedAt ?? entry.startedAt)
+        let newEnd = max(lowest, currentEnd.addingTimeInterval(delta))
+        updateEntry(
+            id: id, projectId: entry.projectId,
+            start: entry.startedAt, end: newEnd,
+            breakStart: entry.breakStartedAt, breakEnd: entry.breakEndedAt,
+            note: entry.note ?? "", status: entry.status, kind: entry.kind
+        )
+    }
+
     @discardableResult
     func addEntry(
         profileId: Int64,
@@ -1015,7 +1369,8 @@ final class AppModel: ObservableObject {
         end: Date,
         breakStart: Date? = nil,
         breakEnd: Date? = nil,
-        note: String
+        note: String,
+        kind: EntryKind = .work
     ) -> Int64? {
         guard let tracker else { return nil }
         let start = Formatting.minute(start)
@@ -1035,7 +1390,7 @@ final class AppModel: ObservableObject {
             let entry = try tracker.store.createEntry(
                 profileId: profileId, projectId: projectId, startedAt: start, endedAt: end,
                 breakStartedAt: breakStart, breakEndedAt: breakEnd,
-                status: .completed, source: .manual, note: note.isEmpty ? nil : note
+                status: .completed, source: .manual, kind: kind, note: note.isEmpty ? nil : note
             )
             record("Add block",
                 perform: { [weak self] in
@@ -1051,6 +1406,7 @@ final class AppModel: ObservableObject {
                         breakEndedAt: entry.breakEndedAt,
                         status: entry.status,
                         source: entry.source,
+                        kind: entry.kind,
                         note: entry.note
                     )
                 })
@@ -1174,6 +1530,7 @@ final class AppModel: ObservableObject {
         var profile: Profile
         var grossSeconds: TimeInterval
         var netSeconds: TimeInterval
+        var expensesCents: Int = 0
         var amountCents: Int
         var number: String?
         var id: Int64 { profile.id }
@@ -1191,13 +1548,16 @@ final class AppModel: ObservableObject {
             )
             let number = try? tracker.store.issuedInvoiceNumber(profileId: profile.id, periodStart: period.start)
             let gross = report?.total ?? 0
-            if gross <= 0 && number == nil { continue }
+            let expenses = (try? tracker.store.expenses(profileId: profile.id, from: period.start, to: period.end)) ?? []
+            let expenseCents = expenses.filter { $0.billable }.reduce(0) { $0 + $1.amountCents }
+            if gross <= 0 && number == nil && expenseCents == 0 { continue }
             let net = report?.netTotal ?? 0
             result.append(InvoiceCandidate(
                 profile: profile,
                 grossSeconds: gross,
                 netSeconds: net,
-                amountCents: profile.amountCents(for: net),
+                expensesCents: expenseCents,
+                amountCents: profile.amountCents(for: net) + expenseCents,
                 number: number
             ))
         }
@@ -1255,6 +1615,17 @@ final class AppModel: ObservableObject {
             return true
         } catch {
             errorMessage = "Could not write the invoice: \(error)"
+            return false
+        }
+    }
+
+    /// Writes the UBL/Peppol XML for the invoice, for import in bookkeeping.
+    func writeUBL(_ invoice: Invoice, to url: URL) -> Bool {
+        do {
+            try UBLExport.data(for: invoice).write(to: url)
+            return true
+        } catch {
+            errorMessage = "Could not write the UBL file: \(error)"
             return false
         }
     }
@@ -1342,6 +1713,12 @@ final class AppModel: ObservableObject {
 
     func invoiceSettings() -> InvoiceSettings {
         (try? tracker?.store.invoiceSettings()) ?? .default
+    }
+
+    /// The quarterly VAT return for the given period, or `nil` on a read error.
+    func vatReport(for period: VATPeriod) -> VATReport? {
+        guard let tracker else { return nil }
+        return try? VAT.report(store: tracker.store, period: period)
     }
 
     func saveInvoiceSettings(_ settings: InvoiceSettings) {

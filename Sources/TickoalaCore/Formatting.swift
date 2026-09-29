@@ -43,6 +43,16 @@ public enum Formatting {
         String(format: "%.2f", max(0, interval) / 3600)
     }
 
+    /// A plain number for a quantity, with pointless trailing zeros dropped:
+    /// `120`, `3.5`, `0.25`.
+    public static func quantity(_ value: Double) -> String {
+        if value == value.rounded() { return String(Int(value)) }
+        var text = String(format: "%.2f", value)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
+    }
+
     /// Amount in cents as `€1,234.56`; the sign goes in front of the currency symbol.
     public static func money(cents: Int, currency: Currency = .eur) -> String {
         let sign = cents < 0 ? "-" : ""
@@ -71,6 +81,30 @@ public enum Formatting {
         }
         guard !text.isEmpty, let value = Double(text), value >= 0 else { return nil }
         return Int((value * 100).rounded())
+    }
+
+    /// Reads an entered hour budget as `80`, `80.5`, `80,5` or `1:30` and returns
+    /// minutes. `nil` for unreadable or negative input.
+    public static func parseHoursMinutes(_ input: String) -> Int? {
+        var text = input
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+            .replacingOccurrences(of: "uur", with: "")
+            .replacingOccurrences(of: "h", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return nil }
+        if text.contains(":") {
+            let parts = text.split(separator: ":")
+            guard parts.count == 2,
+                  let hours = Int(parts[0]), hours >= 0,
+                  let minutes = Int(parts[1]), minutes >= 0, minutes < 60 else { return nil }
+            return hours * 60 + minutes
+        }
+        if text.contains(",") {
+            text = text.replacingOccurrences(of: ",", with: ".")
+        }
+        guard let value = Double(text), value >= 0 else { return nil }
+        return Int((value * 60).rounded())
     }
 
     private static func grouped(_ value: Int) -> String {

@@ -142,6 +142,7 @@ private struct ProjectRow: View {
 
     @State private var number: String = ""
     @State private var name: String = ""
+    @State private var budgetText: String = ""
     @State private var editing = false
     @State private var confirmDelete = false
 
@@ -156,6 +157,16 @@ private struct ProjectRow: View {
                 TextField("Project name", text: $name)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { commit() }
+                HStack(spacing: 4) {
+                    TextField("Budget", text: $budgetText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 70)
+                        .onSubmit { commit() }
+                        .help("Hour budget, for example 80 or 40.5. Leave empty for none.")
+                    Text("h budget")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Button("Save") { commit() }
                 Button("Cancel") { editing = false }
             } else {
@@ -165,6 +176,9 @@ private struct ProjectRow: View {
 
                 Text(project.name)
                     .foregroundStyle(project.active ? .primary : .secondary)
+                if project.hasBudget, let budget = model.budget(for: project.id) {
+                    BudgetBurnDown(budget: budget)
+                }
                 Spacer()
 
                 if isActiveProject {
@@ -184,11 +198,14 @@ private struct ProjectRow: View {
                 Button {
                     number = project.number
                     name = project.name
+                    budgetText = project.budgetMinutes % 60 == 0
+                        ? String(project.budgetMinutes / 60)
+                        : String(format: "%.2f", Double(project.budgetMinutes) / 60)
                     editing = true
                 } label: {
                     Image(systemName: "pencil")
                 }
-                .help("Change project number and name")
+                .help("Change project number, name and hour budget")
 
                 Button(role: .destructive) {
                     confirmDelete = true
@@ -208,10 +225,52 @@ private struct ProjectRow: View {
     }
 
     private func commit() {
+        let trimmed = budgetText.trimmingCharacters(in: .whitespaces)
+        let minutes = trimmed.isEmpty ? 0 : Formatting.parseHoursMinutes(trimmed)
+        guard let minutes else {
+            model.errorMessage = "The budget must be a number of hours, for example 80 or 80.5."
+            return
+        }
         // Stays open if the number already exists, so the input isn't lost.
         if model.updateProject(id: project.id, number: number, name: name) {
+            if minutes != project.budgetMinutes {
+                model.setProjectBudget(id: project.id, minutes: minutes)
+            }
             editing = false
         }
+    }
+}
+
+/// The burn-down of a project: a bar plus what is left, coloured at the 80% and
+/// 100% thresholds. Shown only for projects that actually carry a budget.
+private struct BudgetBurnDown: View {
+    let budget: ProjectBudget
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ProgressView(value: min(budget.fraction, 1))
+                .progressViewStyle(.linear)
+                .tint(tint)
+                .frame(width: 120)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(tint)
+                .lineLimit(1)
+        }
+        .help(budget.summary)
+    }
+
+    private var tint: Color {
+        switch budget.level {
+        case .exceeded: return .red
+        case .nearLimit: return .orange
+        default: return .green
+        }
+    }
+
+    private var label: String {
+        if budget.isOver { return "over by \(Formatting.duration(budget.overSeconds))" }
+        return "\(Formatting.duration(budget.remainingSeconds)) left of \(Formatting.duration(budget.budgetSeconds))"
     }
 }
 
@@ -223,6 +282,7 @@ private struct AddProjectSheet: View {
 
     @State private var number = ""
     @State private var name = ""
+    @State private var budgetText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -237,7 +297,13 @@ private struct AddProjectSheet: View {
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.leading)
                 }
-                Text("The project number is unique within this customer.")
+                FormField(label: "Budget (h)", labelWidth: 110) {
+                    TextField("optional", text: $budgetText)
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
+                }
+                Text("The project number is unique within this customer. "
+                     + "A budget shows a burn-down and, if switched on, warns at 80% and 100%.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -248,13 +314,16 @@ private struct AddProjectSheet: View {
 
             HStack {
                 Button("Add") {
-                    if model.addProject(profileId: profileId, number: number, name: name) {
+                    if model.addProject(
+                        profileId: profileId, number: number, name: name, budgetMinutes: parsedBudget ?? 0
+                    ) {
                         onClose()
                     }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(number.trimmingCharacters(in: .whitespaces).isEmpty
-                          || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                          || name.trimmingCharacters(in: .whitespaces).isEmpty
+                          || !budgetIsValid)
 
                 Button("Cancel", role: .cancel) { onClose() }
                 Spacer()
@@ -262,5 +331,15 @@ private struct AddProjectSheet: View {
         }
         .padding(16)
         .frame(width: 420)
+    }
+
+    /// Empty means no budget; anything else has to be readable hours.
+    private var parsedBudget: Int? {
+        let trimmed = budgetText.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? 0 : Formatting.parseHoursMinutes(trimmed)
+    }
+
+    private var budgetIsValid: Bool {
+        budgetText.trimmingCharacters(in: .whitespaces).isEmpty || parsedBudget != nil
     }
 }

@@ -38,6 +38,70 @@ public struct BreakRule: Equatable, Sendable {
     }
 }
 
+/// How a client's hours are turned into a bill. Everything is off by default:
+/// zero rounding, no minimum, no surcharges, which leaves the invoice untouched.
+/// Applied when the invoice is built, never to the recorded time.
+public struct BillingRules: Equatable, Sendable {
+    /// Round invoiced time to this many minutes (15 for quarter hours). 0 = off.
+    public var roundingMinutes: Int
+    /// Round up instead of to the nearest increment.
+    public var roundUp: Bool
+    /// Bill at least this many minutes per invoice; 0 = no minimum.
+    public var minimumMinutes: Int
+    /// Extra percentage on hours worked in the evening (0 = off).
+    public var eveningSurchargePercent: Int
+    /// Extra percentage on hours worked on Saturday and Sunday (0 = off).
+    public var weekendSurchargePercent: Int
+    /// When the evening starts, minutes since midnight (default 18:00).
+    public var eveningStartMinutes: Int
+
+    public static let `default` = BillingRules()
+
+    public init(
+        roundingMinutes: Int = 0,
+        roundUp: Bool = false,
+        minimumMinutes: Int = 0,
+        eveningSurchargePercent: Int = 0,
+        weekendSurchargePercent: Int = 0,
+        eveningStartMinutes: Int = 18 * 60
+    ) {
+        self.roundingMinutes = max(0, roundingMinutes)
+        self.roundUp = roundUp
+        self.minimumMinutes = max(0, minimumMinutes)
+        self.eveningSurchargePercent = max(0, eveningSurchargePercent)
+        self.weekendSurchargePercent = max(0, weekendSurchargePercent)
+        self.eveningStartMinutes = min(max(0, eveningStartMinutes), 24 * 60)
+    }
+
+    /// Is any rule set? If not, the invoice is built exactly as before.
+    public var isActive: Bool {
+        roundingMinutes > 0 || minimumMinutes > 0
+            || eveningSurchargePercent > 0 || weekendSurchargePercent > 0
+    }
+
+    /// The invoiced time after rounding. Nothing changes while `roundingMinutes`
+    /// is zero.
+    public func rounded(_ seconds: TimeInterval) -> TimeInterval {
+        guard roundingMinutes > 0, seconds > 0 else { return max(0, seconds) }
+        let increment = TimeInterval(roundingMinutes) * 60
+        let units = seconds / increment
+        return (roundUp ? units.rounded(.up) : units.rounded()) * increment
+    }
+
+    /// Short description for lists and menus.
+    public var summary: String {
+        guard isActive else { return "no billing rules" }
+        var parts: [String] = []
+        if roundingMinutes > 0 {
+            parts.append("round \(roundingMinutes) min \(roundUp ? "up" : "nearest")")
+        }
+        if minimumMinutes > 0 { parts.append("minimum \(Formatting.duration(TimeInterval(minimumMinutes) * 60))") }
+        if eveningSurchargePercent > 0 { parts.append("evening +\(eveningSurchargePercent)%") }
+        if weekendSurchargePercent > 0 { parts.append("weekend +\(weekendSurchargePercent)%") }
+        return parts.joined(separator: ", ")
+    }
+}
+
 /// The currency in which a client invoices. Only the symbol and the code differ;
 /// amounts are always stored in whole cents.
 public enum Currency: String, CaseIterable, Sendable {
@@ -82,6 +146,8 @@ public struct Profile: Equatable, Identifiable, Sendable {
     public var contexts: [String]
     public var active: Bool
     public var breakRule: BreakRule
+    /// Rounding, minimum and surcharges for the invoice of this client.
+    public var billingRules: BillingRules
     public var hourlyRateCents: Int
     public var currency: Currency
     /// Free-form billing address, shown on the invoice. Multi-line is allowed.
@@ -102,6 +168,15 @@ public struct Profile: Equatable, Identifiable, Sendable {
     public var latitude: Double?
     public var longitude: Double?
     public var presenceRadiusMeters: Int
+    /// Default mileage rate for this client, in cents per kilometre. Used to
+    /// pre-fill a new mileage entry; the amount is fixed when the entry is made.
+    /// Zero means no rate yet.
+    public var kmRateCents: Int
+    /// Hourly rate for travel to this client. Zero means travel is billed at the
+    /// normal hourly rate. Negative is not allowed.
+    public var travelRateCents: Int
+    /// Hourly rate for the commute. Zero means the commute is not invoiced at all.
+    public var commuteRateCents: Int
 
     public init(
         id: Int64,
@@ -109,6 +184,7 @@ public struct Profile: Equatable, Identifiable, Sendable {
         contexts: [String],
         active: Bool = true,
         breakRule: BreakRule = .default,
+        billingRules: BillingRules = .default,
         hourlyRateCents: Int = 0,
         currency: Currency = .eur,
         billingAddress: String? = nil,
@@ -119,13 +195,17 @@ public struct Profile: Equatable, Identifiable, Sendable {
         billingCc: String? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        presenceRadiusMeters: Int = 150
+        presenceRadiusMeters: Int = 150,
+        kmRateCents: Int = 0,
+        travelRateCents: Int = 0,
+        commuteRateCents: Int = 0
     ) {
         self.id = id
         self.name = name
         self.contexts = contexts
         self.active = active
         self.breakRule = breakRule
+        self.billingRules = billingRules
         self.hourlyRateCents = hourlyRateCents
         self.currency = currency
         self.billingAddress = billingAddress
@@ -137,6 +217,9 @@ public struct Profile: Equatable, Identifiable, Sendable {
         self.latitude = latitude
         self.longitude = longitude
         self.presenceRadiusMeters = presenceRadiusMeters
+        self.kmRateCents = kmRateCents
+        self.travelRateCents = max(0, travelRateCents)
+        self.commuteRateCents = max(0, commuteRateCents)
     }
 
     /// Is there a rate set that can be used for calculations?
@@ -144,8 +227,13 @@ public struct Profile: Equatable, Identifiable, Sendable {
 
     /// Amount for a number of worked seconds at this rate, in cents.
     public func amountCents(for interval: TimeInterval) -> Int {
-        guard hourlyRateCents > 0, interval > 0 else { return 0 }
-        return Int((interval / 3600 * Double(hourlyRateCents)).rounded())
+        amountCents(for: interval, rateCents: hourlyRateCents)
+    }
+
+    /// The same at an explicit rate, for travel and commute lines.
+    public func amountCents(for interval: TimeInterval, rateCents: Int) -> Int {
+        guard rateCents > 0, interval > 0 else { return 0 }
+        return Int((interval / 3600 * Double(rateCents)).rounded())
     }
 
     /// The network contexts, without the hidden `geo:<id>` marker that location
@@ -161,6 +249,21 @@ public struct Profile: Equatable, Identifiable, Sendable {
     /// like a network name would.
     public var geoContext: String { "geo:\(id)" }
 
+    /// The rate a block of this kind is billed at. Travel falls back to the
+    /// normal hourly rate; the commute is zero unless its own rate is set.
+    public func rateCents(for kind: EntryKind) -> Int {
+        switch kind {
+        case .work: return hourlyRateCents
+        case .travel: return travelRateCents > 0 ? travelRateCents : hourlyRateCents
+        case .commute: return commuteRateCents
+        }
+    }
+
+    /// Is a block of this kind invoiced? The commute is only billable with a rate.
+    public func isBillable(kind: EntryKind) -> Bool {
+        kind != .commute || commuteRateCents > 0
+    }
+
     /// Display in lists: all linked Wi-Fi contexts on one line.
     public var contextsLabel: String {
         if !wifiContexts.isEmpty { return wifiContexts.joined(separator: ", ") }
@@ -175,17 +278,117 @@ public struct Project: Equatable, Identifiable, Sendable {
     public var number: String
     public var name: String
     public var active: Bool
+    /// Optional hour budget for this project, in minutes. Zero means no budget,
+    /// which is the default, so nothing is tracked or warned until it is set.
+    public var budgetMinutes: Int
 
-    public init(id: Int64, profileId: Int64, number: String, name: String, active: Bool = true) {
+    public init(
+        id: Int64,
+        profileId: Int64,
+        number: String,
+        name: String,
+        active: Bool = true,
+        budgetMinutes: Int = 0
+    ) {
         self.id = id
         self.profileId = profileId
         self.number = number
         self.name = name
         self.active = active
+        self.budgetMinutes = budgetMinutes
     }
 
     /// Display in the menu bar: `number — name`.
     public var label: String { "\(number) — \(name)" }
+
+    /// Is a budget set for this project?
+    public var hasBudget: Bool { budgetMinutes > 0 }
+
+    /// The budget as a number of seconds.
+    public var budgetSeconds: TimeInterval { TimeInterval(budgetMinutes) * 60 }
+}
+
+/// How much of a project's hour budget is used. The burn-down is calculated on
+/// top of the recorded blocks, exactly like a break deduction: no time entry is
+/// changed by it, so a budget can be set or cleared at any moment.
+public struct ProjectBudget: Equatable, Sendable {
+    /// The thresholds at which the app warns. Ordered, so "did we pass one?" is
+    /// a comparison rather than a chain of ifs.
+    public enum Level: Int, Equatable, Sendable, Comparable {
+        /// No budget set.
+        case none = 0
+        /// Under 80% used.
+        case ok = 1
+        /// 80% or more used, but not over.
+        case nearLimit = 80
+        /// 100% or more used.
+        case exceeded = 100
+
+        public static func < (lhs: Level, rhs: Level) -> Bool { lhs.rawValue < rhs.rawValue }
+    }
+
+    public var budgetSeconds: TimeInterval
+    public var usedSeconds: TimeInterval
+
+    public init(budgetSeconds: TimeInterval, usedSeconds: TimeInterval) {
+        self.budgetSeconds = max(0, budgetSeconds)
+        self.usedSeconds = max(0, usedSeconds)
+    }
+
+    /// The fraction of the budget used, for a progress bar. Zero without a budget.
+    public var fraction: Double { budgetSeconds > 0 ? usedSeconds / budgetSeconds : 0 }
+
+    /// True once the budget is reached or passed.
+    public var isOver: Bool { budgetSeconds > 0 && usedSeconds >= budgetSeconds }
+
+    /// What is left; zero when over.
+    public var remainingSeconds: TimeInterval { max(0, budgetSeconds - usedSeconds) }
+
+    /// How far over budget, so the display can show it.
+    public var overSeconds: TimeInterval { max(0, usedSeconds - budgetSeconds) }
+
+    public var level: Level {
+        guard budgetSeconds > 0 else { return .none }
+        if usedSeconds >= budgetSeconds { return .exceeded }
+        if usedSeconds >= budgetSeconds * 0.8 { return .nearLimit }
+        return .ok
+    }
+
+    /// The threshold that was passed when moving from `previous` to the current
+    /// level, or `nil` when no warning threshold was newly crossed. Used to warn
+    /// exactly once per threshold instead of on every tick.
+    public func crossedLevel(above previous: Level) -> Level? {
+        let current = level
+        guard current > previous, current == .nearLimit || current == .exceeded else { return nil }
+        return current
+    }
+
+    /// Short description for lists and menus.
+    public var summary: String {
+        guard budgetSeconds > 0 else { return "no budget" }
+        if isOver {
+            return "\(Formatting.duration(usedSeconds)) used of \(Formatting.duration(budgetSeconds)) — over by \(Formatting.duration(overSeconds))"
+        }
+        return "\(Formatting.duration(usedSeconds)) used of \(Formatting.duration(budgetSeconds)) — \(Formatting.duration(remainingSeconds)) left"
+    }
+}
+
+/// What a block counts as. Work is what the timer records; travel to a client
+/// and the commute to the office are recorded the same way but billed at their
+/// own rate (or not at all) and shown as their own invoice line.
+public enum EntryKind: String, CaseIterable, Sendable {
+    case work
+    case travel
+    /// Home-to-office travel, Dutch "woon-werkverkeer". Usually not billable.
+    case commute
+
+    public var label: String {
+        switch self {
+        case .work: return "Work"
+        case .travel: return "Travel"
+        case .commute: return "Commute"
+        }
+    }
 }
 
 public enum EntryStatus: String, Sendable {
@@ -220,6 +423,8 @@ public struct TimeEntry: Equatable, Identifiable, Sendable {
     public var breakEndedAt: Date?
     public var status: EntryStatus
     public var source: EntrySource
+    /// Work, travel or commute. Everything recorded before this existed is work.
+    public var kind: EntryKind
     public var note: String?
     public var createdAt: Date
     public var updatedAt: Date
@@ -234,6 +439,7 @@ public struct TimeEntry: Equatable, Identifiable, Sendable {
         breakEndedAt: Date? = nil,
         status: EntryStatus,
         source: EntrySource,
+        kind: EntryKind = .work,
         note: String?,
         createdAt: Date,
         updatedAt: Date
@@ -247,6 +453,7 @@ public struct TimeEntry: Equatable, Identifiable, Sendable {
         self.breakEndedAt = breakEndedAt
         self.status = status
         self.source = source
+        self.kind = kind
         self.note = note
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -295,6 +502,139 @@ public struct ProfileState: Equatable, Sendable {
         self.pendingStopEntryId = pendingStopEntryId
         self.attention = attention
     }
+}
+
+/// An expense or a mileage claim for a client. Expenses are billed on top of the
+/// hours; a mileage entry stores the kilometres and the rate used at the moment,
+/// so later changing the client's default rate does not alter old claims.
+public enum ExpenseKind: String, CaseIterable, Sendable {
+    case expense
+    case mileage
+
+    public var label: String {
+        switch self {
+        case .expense: return "Expense"
+        case .mileage: return "Mileage"
+        }
+    }
+}
+
+public struct Expense: Equatable, Identifiable, Sendable {
+    public var id: Int64
+    public var profileId: Int64
+    public var date: Date
+    public var description: String
+    public var kind: ExpenseKind
+    /// Kilometres for mileage; 1 for a plain expense.
+    public var quantity: Double
+    /// Cents per kilometre for mileage; the amount itself for an expense.
+    public var unitRateCents: Int
+    /// Net amount in cents, excluding VAT.
+    public var amountCents: Int
+    /// Include this on the invoice (and in the VAT return).
+    public var billable: Bool
+    public var note: String?
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: Int64,
+        profileId: Int64,
+        date: Date,
+        description: String,
+        kind: ExpenseKind = .expense,
+        quantity: Double = 1,
+        unitRateCents: Int = 0,
+        amountCents: Int,
+        billable: Bool = true,
+        note: String? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.profileId = profileId
+        self.date = date
+        self.description = description
+        self.kind = kind
+        self.quantity = quantity
+        self.unitRateCents = unitRateCents
+        self.amountCents = amountCents
+        self.billable = billable
+        self.note = note
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    /// The amount a mileage entry works out to, or the entered amount for a plain
+    /// expense. Rounded to whole cents.
+    public static func mileageAmountCents(kilometres: Double, rateCentsPerKm: Int) -> Int {
+        guard kilometres > 0, rateCentsPerKm > 0 else { return 0 }
+        return Int((kilometres * Double(rateCentsPerKm)).rounded())
+    }
+
+    /// How the quantity reads on the invoice: `120 km` for mileage, otherwise the
+    /// count with trailing zeros dropped.
+    public var quantityText: String {
+        kind == .mileage
+            ? "\(Formatting.quantity(quantity)) km"
+            : Formatting.quantity(quantity)
+    }
+}
+
+/// A fixed monthly amount for a client, put on the invoice automatically. A
+/// retainer is a line on top of the hours, not a replacement for them.
+public struct Retainer: Equatable, Sendable {
+    public var profileId: Int64
+    public var description: String
+    public var amountCents: Int
+    public var active: Bool
+
+    public init(profileId: Int64, description: String, amountCents: Int, active: Bool = true) {
+        self.profileId = profileId
+        self.description = description
+        self.amountCents = max(0, amountCents)
+        self.active = active
+    }
+
+    /// Is there something to put on an invoice? A retainer of zero is not set.
+    public var isSet: Bool { active && amountCents > 0 }
+
+    public var label: String {
+        description.trimmingCharacters(in: .whitespaces).isEmpty ? "Retainer" : description
+    }
+}
+
+/// A day that is not a normal working day: a public holiday or a vacation day.
+/// Marked by the user; the tracker does not expect work and does not cut the day
+/// off at the usual workday end.
+public enum NonWorkingKind: String, CaseIterable, Sendable {
+    case holiday
+    case vacation
+
+    public var label: String {
+        switch self {
+        case .holiday: return "Holiday"
+        case .vacation: return "Vacation"
+        }
+    }
+}
+
+public struct NonWorkingDay: Equatable, Identifiable, Sendable {
+    /// Start of the day, in local time.
+    public var date: Date
+    public var label: String
+    public var kind: NonWorkingKind
+
+    public var id: Date { date }
+
+    public init(date: Date, label: String = "", kind: NonWorkingKind = .holiday) {
+        self.date = date
+        self.label = label.trimmingCharacters(in: .whitespaces)
+        self.kind = kind
+    }
+
+    /// What to show: the label if there is one, otherwise the kind.
+    public var display: String { label.isEmpty ? kind.label : label }
 }
 
 public enum EventKind: String, Sendable {

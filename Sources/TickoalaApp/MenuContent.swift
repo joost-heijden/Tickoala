@@ -85,6 +85,14 @@ struct MenuContent: View {
                     }
                 }
 
+                if model.showBudgetWarnings {
+                    ForEach(model.budgetedProjects(for: item.profile.id)) { project in
+                        if let budget = model.budget(for: project.id) {
+                            Text(budgetLine(project: project, budget: budget))
+                        }
+                    }
+                }
+
                 if item.runningEntry != nil {
                     Button("Pause") { model.pause(profileId: item.profile.id) }
                     Button("Stop") { model.stop(profileId: item.profile.id) }
@@ -116,6 +124,16 @@ struct MenuContent: View {
             openWindow(id: "invoices")
         }
         .keyboardShortcut("i")
+
+        Button("Expenses") {
+            NSApp.activateForUI()
+            openWindow(id: "expenses")
+        }
+
+        Button("VAT return") {
+            NSApp.activateForUI()
+            openWindow(id: "vat")
+        }
 
         Divider()
 
@@ -185,6 +203,18 @@ struct MenuContent: View {
     private func openCustomers() {
         NSApp.activateForUI()
         openWindow(id: "customers")
+    }
+
+    /// A burn-down line for the menu: a warning sign once the budget is near or
+    /// passed, otherwise just how much is left.
+    private func budgetLine(project: Project, budget: ProjectBudget) -> String {
+        if budget.isOver {
+            return "⚠︎ \(project.label): over budget by \(Formatting.duration(budget.overSeconds))"
+        }
+        if budget.level == .nearLimit {
+            return "⚠︎ \(project.label): \(Formatting.duration(budget.remainingSeconds)) of \(Formatting.duration(budget.budgetSeconds)) left"
+        }
+        return "Budget \(project.label): \(Formatting.duration(budget.remainingSeconds)) left"
     }
 }
 

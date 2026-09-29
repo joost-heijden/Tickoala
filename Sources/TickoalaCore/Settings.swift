@@ -34,13 +34,18 @@ public struct TrackerSettings: Equatable, Sendable {
     public var workdayStartMinutes: Int
     /// Whether an automatic start asks which project to work on, and when.
     public var projectPrompt: ProjectPrompt
+    /// Whether reaching a project's hour budget is warned about at 80% and 100%.
+    /// Off by default: a project budget alone turns the burn-down on, this switch
+    /// only adds the notification, so nothing is enforced.
+    public var budgetWarningsEnabled: Bool
 
     public static let `default` = TrackerSettings(
         dedupeWindowSeconds: 30,
         maxEntrySeconds: 16 * 3600,
         workdayEndMinutes: 18 * 60,
         workdayStartMinutes: 8 * 60,
-        projectPrompt: .never
+        projectPrompt: .never,
+        budgetWarningsEnabled: false
     )
 
     public init(
@@ -48,19 +53,21 @@ public struct TrackerSettings: Equatable, Sendable {
         maxEntrySeconds: Int,
         workdayEndMinutes: Int = 18 * 60,
         workdayStartMinutes: Int = 8 * 60,
-        projectPrompt: ProjectPrompt = .never
+        projectPrompt: ProjectPrompt = .never,
+        budgetWarningsEnabled: Bool = false
     ) {
         self.dedupeWindowSeconds = dedupeWindowSeconds
         self.maxEntrySeconds = maxEntrySeconds
         self.workdayEndMinutes = workdayEndMinutes
         self.workdayStartMinutes = workdayStartMinutes
         self.projectPrompt = projectPrompt
+        self.budgetWarningsEnabled = budgetWarningsEnabled
     }
 
     static let keys = [
         "dedupe-window-seconds", "max-entry-seconds",
         "workday-end-minutes", "workday-start-minutes",
-        "project-prompt",
+        "project-prompt", "budget-warnings",
     ]
 
     mutating func set(_ key: String, _ value: Int) -> Bool {
@@ -71,6 +78,7 @@ public struct TrackerSettings: Equatable, Sendable {
         case "workday-start-minutes": workdayStartMinutes = min(max(0, value), 24 * 60)
         case "project-prompt":
             projectPrompt = ProjectPrompt(rawValue: min(max(0, value), ProjectPrompt.allCases.count - 1)) ?? .never
+        case "budget-warnings": budgetWarningsEnabled = value != 0
         default: return false
         }
         return true

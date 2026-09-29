@@ -40,6 +40,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     static let updateCategory = "UPDATE_AVAILABLE"
     static let updateDownloadAction = "UPDATE_DOWNLOAD"
 
+    /// A white window background in light mode; the default
+    /// `windowBackgroundColor` is a washed-out grey that makes the whole app look
+    /// flat. Dark mode keeps the system colour.
+    static let windowBackground = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? .windowBackgroundColor
+            : .white
+    }
+
     /// Watches for a network change that needs the user's answer.
     private var networkObserver: AnyCancellable?
     /// Watches the version check so a new version is announced once.
@@ -69,6 +78,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             self,
             selector: #selector(windowWillClose(_:)),
             name: NSWindow.willCloseNotification,
+            object: nil
+        )
+        // Whitens every window the app opens; alerts and save panels are
+        // `NSPanel`s and keep their system look.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(whitenWindow(_:)),
+            name: NSWindow.didBecomeKeyNotification,
             object: nil
         )
         configureNotifications()
@@ -267,6 +284,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc private func reinstallMainMenu(_ notification: Notification) {
         installMainMenu()
+    }
+
+    /// Replaces the default grey window background with white.
+    @objc private func whitenWindow(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, !(window is NSPanel) else { return }
+        window.backgroundColor = Self.windowBackground
     }
 
     /// Back to a pure menu bar app once the last window is gone. The short pause

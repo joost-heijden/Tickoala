@@ -22,7 +22,8 @@ struct CustomersWindow: View {
                 emptyState
             }
         }
-        .frame(minWidth: 720, minHeight: 460)
+        // Narrower and the rate row's trailing label wraps one character per line.
+        .frame(minWidth: 820, minHeight: 460)
         .tickoalaWindowBackground()
         .sheet(isPresented: $showingAdd) {
             AddCustomerSheet(model: model) { showingAdd = false }

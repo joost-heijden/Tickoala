@@ -40,7 +40,8 @@ struct InvoicesWindow: View {
             Divider()
             footer
         }
-        .frame(minWidth: 680, minHeight: 480)
+        // Narrower and the history row is wider than the pane, clipping its left.
+        .frame(minWidth: 760, minHeight: 480)
         .tickoalaWindowBackground()
         .onAppear(perform: loadFields)
         .confirmationDialog(

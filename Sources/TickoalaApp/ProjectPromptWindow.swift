@@ -45,7 +45,9 @@ struct ProjectPromptWindow: View {
             }
         }
         .padding(18)
-        .frame(minWidth: 360)
+        // Fill the window: otherwise the background only covers the content and
+        // shows as a white stripe on a grey window.
+        .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .tickoalaWindowBackground()
     }
 }

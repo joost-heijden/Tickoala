@@ -44,7 +44,9 @@ struct OverviewWindow: View {
                 .frame(minWidth: 280, maxWidth: 360)
             }
         }
-        .frame(minWidth: 900, minHeight: 460)
+        // The control row needs ~700 for the table pane plus the editor's 360;
+        // below this the toolbar clips and the Date column scrolls out of sight.
+        .frame(minWidth: 1060, minHeight: 460)
         .tickoalaWindowBackground()
         // A disappeared block (different period, deleted) must not stay selected;
         // otherwise the form points at something that no longer exists.
@@ -72,89 +74,91 @@ struct OverviewWindow: View {
     private struct ProfileBox: Identifiable { var id: Int64 }
 
     private var toolbar: some View {
-        HStack(spacing: 10) {
-            Picker("", selection: $model.period) {
-                ForEach(ReportPeriod.allCases, id: \.self) { period in
-                    Text(period.label).tag(period)
+        // The range gets its own line: in the control row it was the first thing
+        // to be squeezed away, so the shown period disappeared on a narrow window.
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Picker("", selection: $model.period) {
+                    ForEach(ReportPeriod.allCases, id: \.self) { period in
+                        Text(period.label).tag(period)
+                    }
                 }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 190)
-            .fixedSize()
-
-            Picker("", selection: $showBars) {
-                Image(systemName: "list.bullet").tag(false)
-                Image(systemName: "chart.bar").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 76)
-            .fixedSize()
-            .help("Show as a table or as a timeline with draggable bars")
-
-            Button {
-                model.shiftPeriod(-1)
-            } label: {
-                Image(systemName: "chevron.left")
-            }
-            Button("Today") { model.anchor = Date() }
+                .pickerStyle(.segmented)
+                .frame(width: 190)
                 .fixedSize()
-            Button {
-                model.shiftPeriod(1)
-            } label: {
-                Image(systemName: "chevron.right")
-            }
 
-            // One line, and allowed to shrink before the buttons do.
-            Text(rangeLabel)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(-1)
-
-            Spacer(minLength: 8)
-
-            Picker("", selection: $model.profileFilter) {
-                Text("All customers").tag(Int64?.none)
-                ForEach(model.profiles, id: \.profile.id) { item in
-                    Text(item.profile.name).tag(Int64?.some(item.profile.id))
+                Picker("", selection: $showBars) {
+                    Image(systemName: "list.bullet").tag(false)
+                    Image(systemName: "chart.bar").tag(true)
                 }
-            }
-            .frame(width: 180)
-            .fixedSize()
+                .pickerStyle(.segmented)
+                .frame(width: 76)
+                .fixedSize()
+                .help("Show as a table or as a timeline with draggable bars")
 
-            // Fixed size, otherwise this vertical line stretches the whole toolbar.
-            Rectangle()
-                .fill(.separator)
-                .frame(width: 1, height: 22)
+                Button {
+                    model.shiftPeriod(-1)
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                Button("Today") { model.anchor = Date() }
+                    .fixedSize()
+                Button {
+                    model.shiftPeriod(1)
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
 
-            Button {
-                addNewBlock()
-            } label: {
-                Image(systemName: "plus")
-                    .accessibilityLabel("Add block")
-            }
-            .help("Add a new block")
-            .disabled(addProfileId == nil)
+                Spacer(minLength: 8)
 
-            Button {
-                duplicateSelectedEntry()
-            } label: {
-                Image(systemName: "plus.on.rectangle")
-                    .accessibilityLabel("Duplicate")
-            }
-            .help("Duplicate the selected block (⌘D)")
-            .keyboardShortcut("d", modifiers: .command)
-            .disabled(!canDuplicate)
+                Picker("", selection: $model.profileFilter) {
+                    Text("All customers").tag(Int64?.none)
+                    ForEach(model.profiles, id: \.profile.id) { item in
+                        Text(item.profile.name).tag(Int64?.some(item.profile.id))
+                    }
+                }
+                .frame(width: 150)
+                .fixedSize()
 
-            Button {
-                deleteSelectedEntry()
-            } label: {
-                Image(systemName: "trash")
-                    .accessibilityLabel("Delete")
+                // Fixed size, otherwise this vertical line stretches the whole toolbar.
+                Rectangle()
+                    .fill(.separator)
+                    .frame(width: 1, height: 22)
+
+                Button {
+                    addNewBlock()
+                } label: {
+                    Image(systemName: "plus")
+                        .accessibilityLabel("Add block")
+                }
+                .help("Add a new block")
+                .disabled(addProfileId == nil)
+
+                Button {
+                    duplicateSelectedEntry()
+                } label: {
+                    Image(systemName: "plus.on.rectangle")
+                        .accessibilityLabel("Duplicate")
+                }
+                .help("Duplicate the selected block (⌘D)")
+                .keyboardShortcut("d", modifiers: .command)
+                .disabled(!canDuplicate)
+
+                Button {
+                    deleteSelectedEntry()
+                } label: {
+                    Image(systemName: "trash")
+                        .accessibilityLabel("Delete")
+                }
+                .help("Delete the selected block (Delete or ⌘Delete)")
+                .keyboardShortcut(.delete, modifiers: .command)
+                .disabled(!canDelete)
             }
-            .help("Delete the selected block (Delete or ⌘Delete)")
-            .keyboardShortcut(.delete, modifiers: .command)
-            .disabled(!canDelete)
+
+            Text(rangeLabel)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
         .padding(10)
     }

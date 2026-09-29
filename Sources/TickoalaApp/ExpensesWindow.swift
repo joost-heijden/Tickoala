@@ -27,7 +27,8 @@ struct ExpensesWindow: View {
                 content(for: profileId)
             }
         }
-        .frame(minWidth: 760, minHeight: 460)
+        // Narrower and the mileage "/ km" label wraps onto two lines.
+        .frame(minWidth: 820, minHeight: 460)
         .tickoalaWindowBackground()
         .onAppear(perform: loadKmRate)
         .onChange(of: profileId) { _ in loadKmRate() }

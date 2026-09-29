@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import TickoalaCore
 
@@ -52,6 +53,7 @@ struct CustomersWindow: View {
             }
         }
         .scrollContentBackground(.hidden)
+        .background(Color(nsColor: .tickoalaWindow))
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button {

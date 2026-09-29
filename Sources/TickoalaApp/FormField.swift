@@ -1,4 +1,15 @@
+import AppKit
 import SwiftUI
+
+extension NSColor {
+    /// The app's window background: white in light mode, the system colour in
+    /// dark mode. Shared so every window and the customer list's sidebar match.
+    static let tickoalaWindow = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? .windowBackgroundColor
+            : .white
+    }
+}
 
 /// A titled card with form rows. Replaces SwiftUI's grouped `Form`, which
 /// right-aligns its controls on macOS and makes text start on the right.

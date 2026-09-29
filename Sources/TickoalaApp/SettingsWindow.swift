@@ -12,6 +12,8 @@ struct SettingsWindow: View {
         TabView {
             GeneralSettings(model: model)
                 .tabItem { Label("General", systemImage: "gearshape") }
+            ManageSettings(model: model)
+                .tabItem { Label("Manage", systemImage: "rectangle.3.group") }
             DetectionSettings(model: model)
                 .tabItem { Label("Detection", systemImage: "wifi") }
             BreakWindow(model: model)
@@ -164,6 +166,89 @@ private struct DetectionSettings: View {
             return "Network: \(ssid)\(model.isKnownNetwork(ssid) ? "" : " (not linked)")"
         }
         return "No network connection"
+    }
+}
+
+/// The way in to everything that is not an app-wide setting: customers, projects,
+/// corrections, invoices, expenses and the VAT return each have their own window.
+/// This tab is the map, so it is clear where a thing is configured.
+private struct ManageSettings: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    private struct Destination: Identifiable {
+        let id: String
+        let title: String
+        let summary: String
+        let symbol: String
+    }
+
+    private let destinations: [Destination] = [
+        Destination(
+            id: "customers", title: "Customers", summary: "Names, hourly, travel and commute rates, billing details, billing rules, a retainer, and the Wi-Fi networks and location used for detection.",
+            symbol: "person.2"
+        ),
+        Destination(
+            id: "projects", title: "Projects", summary: "Project numbers and names, the active project, and an optional hour budget with a burn-down.",
+            symbol: "folder"
+        ),
+        Destination(
+            id: "overview", title: "Overview and corrections", summary: "Day, week and month totals. Correct, add, duplicate or delete blocks in a table or on a draggable timeline.",
+            symbol: "calendar"
+        ),
+        Destination(
+            id: "invoices", title: "Invoices", summary: "The monthly invoices: PDF, UBL/Peppol, hours CSV, sending by email, and the full history.",
+            symbol: "doc.text"
+        ),
+        Destination(
+            id: "expenses", title: "Expenses and mileage", summary: "Parking, materials and kilometres per customer, added to the invoice as their own lines.",
+            symbol: "creditcard"
+        ),
+        Destination(
+            id: "vat", title: "VAT return", summary: "The quarterly turnover and VAT per rate, ready to copy into the Belastingdienst form.",
+            symbol: "percent"
+        ),
+    ]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                FormSection(title: "Manage") {
+                    Text("Each of these opens its own window. The tabs around this one hold the app-wide settings.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    ForEach(destinations) { destination in
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Image(systemName: destination.symbol)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 20)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(destination.title).font(.headline)
+                                Text(destination.summary)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 8)
+                            Button("Open") {
+                                NSApp.activateForUI()
+                                openWindow(id: destination.id)
+                            }
+                        }
+                    }
+                }
+
+                FormSection(title: "Settings tabs") {
+                    Text("General — start at login, the running month revenue and budget warnings.")
+                    Text("Detection — Wi-Fi network or location, plus the Location Services permission.")
+                    Text("Workday — day start and end, the project prompt, the automatic break deduction and the holidays and vacation days.")
+                    Text("Invoices — your sender details, VAT rate, logo, numbering and the email (SMTP) server.")
+                    Text("Updates — the version you are running and the daily check.")
+                }
+                .font(.callout)
+            }
+            .padding(14)
+        }
     }
 }
 

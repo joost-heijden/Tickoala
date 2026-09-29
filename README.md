@@ -236,8 +236,10 @@ tickoala location set --profile "Acme" --lat 52.37000 --lon 4.89000 --radius 200
 ```
 
 All of this can also be done from the windows: **Manage customers**, **Manage
-projects**, **Overview and corrections**, and under **Settings** the general
-options, break rule, invoices, detection and updates. The menu bar itself keeps
+projects**, **Overview and corrections**, and under **Settings** the app-wide
+options (General, Detection, Workday, Invoices, Updates) plus a **Manage** tab
+that lists every one of those windows with a button to open it, so it is clear
+where each thing is configured. The menu bar itself keeps
 the daily work — the status per client, Start/Pause/Stop, **Overview**,
 **Invoices** and **Settings** — and **Open Tickoala** opens the hub with the
 same status per client plus the way into every window. While a window is open

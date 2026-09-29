@@ -19,7 +19,7 @@ struct OverviewWindow: View {
                 if showBars {
                     TimelinePane(model: model, selection: $selection)
                 } else {
-                    table
+                    table.padding(.leading, 14)
                 }
                 Divider()
                 footer

@@ -119,6 +119,7 @@ struct OverviewWindow: View {
                 }
                 .frame(width: 150)
                 .fixedSize()
+                .accessibilityLabel("Customer filter")
 
                 // Fixed size, otherwise this vertical line stretches the whole toolbar.
                 Rectangle()
@@ -212,52 +213,61 @@ struct OverviewWindow: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 16) {
-            // lineLimit + fixedSize: these figures are the point of the footer, so
-            // they must not wrap; the project summaries below give way first.
-            Text("Total \(Formatting.duration(model.overviewTotal))  (\(Formatting.decimalHours(model.overviewTotal)) hours)")
-                .font(.headline)
-                .lineLimit(1)
-                .fixedSize()
-                .help("Net hours, after the automatic break deduction")
-
-            if model.overviewBreak > 0 {
-                Text("break −\(Formatting.duration(model.overviewBreak))")
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .help("Automatic break deduction, calculated per customer per day")
-            }
-
-            if model.overviewAmountCents > 0 {
-                Text("Amount \(Formatting.money(cents: model.overviewAmountCents, currency: model.overviewCurrency))")
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 16) {
+                // lineLimit + fixedSize: these figures are the point of the footer,
+                // so they must not wrap.
+                Text("Total \(Formatting.duration(model.overviewTotal))  (\(Formatting.decimalHours(model.overviewTotal)) hours)")
                     .font(.headline)
                     .lineLimit(1)
                     .fixedSize()
-                    .help("Net hours × the customer's hourly rate")
-            }
+                    .help("Net hours, after the automatic break deduction")
 
-            ForEach(model.overviewByProject.prefix(4), id: \.label) { item in
-                Text("\(item.label): \(Formatting.duration(item.total))")
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            Button("Projects") {
-                NSApp.activateForUI()
-                openWindow(id: "projects")
-            }
-            .fixedSize()
-
-            Menu("Add block") {
-                ForEach(model.profiles, id: \.profile.id) { item in
-                    Button(item.profile.name) { addingFor = item.profile.id }
+                if model.overviewBreak > 0 {
+                    Text("break −\(Formatting.duration(model.overviewBreak))")
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help("Automatic break deduction, calculated per customer per day")
                 }
+
+                if model.overviewAmountCents > 0 {
+                    Text("Amount \(Formatting.money(cents: model.overviewAmountCents, currency: model.overviewCurrency))")
+                        .font(.headline)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help("Net hours × the customer's hourly rate")
+                }
+
+                Spacer()
+
+                Button("Projects") {
+                    NSApp.activateForUI()
+                    openWindow(id: "projects")
+                }
+                .fixedSize()
+
+                Menu("Add block") {
+                    ForEach(model.profiles, id: \.profile.id) { item in
+                        Button(item.profile.name) { addingFor = item.profile.id }
+                    }
+                }
+                .frame(width: 160)
+                .fixedSize()
             }
-            .frame(width: 160)
-            .fixedSize()
+
+            // The per-project totals get their own line: in the row above they
+            // were squeezed down to an unreadable fragment on a narrow window.
+            if !model.overviewByProject.isEmpty {
+                HStack(spacing: 12) {
+                    ForEach(model.overviewByProject.prefix(4), id: \.label) { item in
+                        Text("\(item.label): \(Formatting.duration(item.total))")
+                            .lineLimit(1)
+                    }
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(10)
     }

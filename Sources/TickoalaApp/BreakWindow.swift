@@ -122,9 +122,11 @@ private struct NonWorkingDaysSection: View {
                 }
                 .labelsHidden()
                 .frame(width: 120)
+                .accessibilityLabel("Kind")
                 TextField("", text: $label, prompt: Text("Label (optional)"))
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.leading)
+                    .accessibilityLabel("Label")
                 Button("Add") { add() }
             }
             if model.nonWorkingDays.isEmpty {

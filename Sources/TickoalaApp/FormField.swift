@@ -13,10 +13,25 @@ extension NSColor {
 
 extension View {
     /// Fills the window behind the content: white in light mode, the system
-    /// background in dark mode. SwiftUI's hosting view does not honour
-    /// `NSWindow.backgroundColor`, so every window root paints this itself.
+    /// background in dark mode and with increased contrast. SwiftUI's hosting
+    /// view does not honour `NSWindow.backgroundColor`, so every window root
+    /// paints this itself.
     func tickoalaWindowBackground() -> some View {
-        background(Color(nsColor: .tickoalaWindow).ignoresSafeArea())
+        modifier(TickoalaWindowBackground())
+    }
+}
+
+private struct TickoalaWindowBackground: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        content.background {
+            (scheme == .dark || contrast == .increased
+                ? Color(nsColor: .windowBackgroundColor)
+                : Color.white)
+                .ignoresSafeArea()
+        }
     }
 }
 
@@ -25,6 +40,8 @@ extension View {
 struct FormSection<Content: View>: View {
     var title: String?
     @ViewBuilder var content: Content
+
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -36,8 +53,17 @@ struct FormSection<Content: View>: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.gray.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
+            .background(cardColor, in: RoundedRectangle(cornerRadius: 10))
+            // Increased contrast gets a hairline so the card edge stays visible.
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(.primary.opacity(contrast == .increased ? 0.3 : 0), lineWidth: 1)
+            )
         }
+    }
+
+    private var cardColor: Color {
+        Color.gray.opacity(contrast == .increased ? 0.16 : 0.09)
     }
 }
 
@@ -54,6 +80,8 @@ struct FormField<Content: View>: View {
                 .frame(width: labelWidth, alignment: .leading)
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // VoiceOver otherwise reaches the field without a name.
+                .accessibilityLabel(label)
         }
     }
 }
@@ -70,6 +98,7 @@ struct FormFieldStacked<Content: View>: View {
                 .foregroundStyle(.secondary)
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel(label)
         }
     }
 }

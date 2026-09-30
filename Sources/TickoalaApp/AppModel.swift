@@ -445,6 +445,20 @@ final class AppModel: ObservableObject {
         checkInvoiceReminder()
     }
 
+    /// A pending coalesced refresh, so typing or a held stepper does not reload
+    /// every profile, project and overview row on every single change. The store
+    /// write still happens at once; only this heavier read-back is delayed.
+    private var pendingRefresh: Task<Void, Never>?
+
+    private func refreshSoon() {
+        pendingRefresh?.cancel()
+        pendingRefresh = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            self?.refresh()
+        }
+    }
+
     /// Advances the overview anchor when the day has rolled over and the anchor
     /// was still on the day the app started; a day the user chose stays.
     private func followTodayIfNeeded() {
@@ -508,7 +522,7 @@ final class AppModel: ObservableObject {
             try tracker.store.updateProfileLocation(
                 id: id, latitude: latitude, longitude: longitude, radiusMeters: radiusMeters
             )
-            refresh()
+            refreshSoon()
         } catch {
             errorMessage = "\(error)"
         }
@@ -609,7 +623,7 @@ final class AppModel: ObservableObject {
         }
         do {
             try tracker.store.updateProfile(id: id, name: name, hourlyRateCents: hourlyRateCents, currency: currency)
-            refresh()
+            refreshSoon()
         } catch {
             errorMessage = "\(error)"
         }
@@ -619,7 +633,7 @@ final class AppModel: ObservableObject {
         guard let tracker else { return }
         do {
             try tracker.store.updateBillingRules(profileId: profileId, rules: rules)
-            refresh()
+            refreshSoon()
         } catch {
             errorMessage = "\(error)"
         }
@@ -631,7 +645,7 @@ final class AppModel: ObservableObject {
             try tracker.store.updateProfile(
                 id: id, travelRateCents: travelRateCents, commuteRateCents: commuteRateCents
             )
-            refresh()
+            refreshSoon()
         } catch {
             errorMessage = "\(error)"
         }
@@ -667,7 +681,7 @@ final class AppModel: ObservableObject {
             try tracker.store.setRetainer(
                 profileId: profileId, description: description, amountCents: amountCents, active: active
             )
-            refresh()
+            refreshSoon()
         } catch {
             errorMessage = "\(error)"
         }
@@ -677,7 +691,7 @@ final class AppModel: ObservableObject {
         guard let tracker else { return }
         do {
             try tracker.store.clearRetainer(profileId: profileId)
-            refresh()
+            refreshSoon()
         } catch {
             errorMessage = "\(error)"
         }
@@ -826,7 +840,7 @@ final class AppModel: ObservableObject {
         guard let tracker else { return }
         do {
             try tracker.store.updateBreakRule(profileId: profileId, rule: rule)
-            refresh()
+            refreshSoon()
         } catch {
             errorMessage = "\(error)"
         }
@@ -1746,7 +1760,7 @@ final class AppModel: ObservableObject {
                 vatRatePercent: vatRatePercent, poNumber: poNumber,
                 billingEmail: billingEmail, billingCc: billingCc
             )
-            refresh()
+            refreshSoon()
         } catch {
             errorMessage = "\(error)"
         }

@@ -156,6 +156,8 @@ private struct SectionBox<Content: View>: View {
     let symbolColor: Color
     @ViewBuilder var content: Content
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(title, systemImage: symbol)
@@ -165,6 +167,10 @@ private struct SectionBox<Content: View>: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.gray.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.gray.opacity(contrast == .increased ? 0.16 : 0.09), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(.primary.opacity(contrast == .increased ? 0.3 : 0), lineWidth: 1)
+        )
     }
 }

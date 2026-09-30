@@ -132,6 +132,8 @@ private struct CustomerCard: View {
     @ObservedObject var model: AppModel
     let item: ProfileStatus
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -184,7 +186,11 @@ private struct CustomerCard: View {
             }
         }
         .padding(14)
-        .background(Color.gray.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.gray.opacity(contrast == .increased ? 0.16 : 0.08), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(.primary.opacity(contrast == .increased ? 0.3 : 0), lineWidth: 1)
+        )
     }
 
     @ViewBuilder

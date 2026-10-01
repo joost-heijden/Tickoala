@@ -19,7 +19,7 @@ struct OverviewWindow: View {
                 if showBars {
                     TimelinePane(model: model, selection: $selection)
                 } else {
-                    table.padding(.leading, 14)
+                    table
                 }
                 Divider()
                 footer
@@ -96,19 +96,6 @@ struct OverviewWindow: View {
                 .fixedSize()
                 .help("Show as a table or as a timeline with draggable bars")
 
-                Button {
-                    model.shiftPeriod(-1)
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                Button("Today") { model.anchor = Date() }
-                    .fixedSize()
-                Button {
-                    model.shiftPeriod(1)
-                } label: {
-                    Image(systemName: "chevron.right")
-                }
-
                 Spacer(minLength: 8)
 
                 Picker("", selection: $model.profileFilter) {
@@ -156,10 +143,38 @@ struct OverviewWindow: View {
                 .disabled(!canDelete)
             }
 
-            Text(rangeLabel)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            // The arrows flank the range so it is obvious they step the shown
+            // period; kept apart from the Day/Week/Month picker they read as part
+            // of it and the previous period was hard to find.
+            HStack(spacing: 6) {
+                Button {
+                    model.shiftPeriod(-1)
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .help("Previous \(model.period.label.lowercased())")
+                .accessibilityLabel("Previous \(model.period.label.lowercased())")
+
+                Text(rangeLabel)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(minWidth: 190, alignment: .center)
+
+                Button {
+                    model.shiftPeriod(1)
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .help("Next \(model.period.label.lowercased())")
+                .accessibilityLabel("Next \(model.period.label.lowercased())")
+
+                Button("Today") { model.anchor = Date() }
+                    .fixedSize()
+                    .help("Jump to today")
+
+                Spacer(minLength: 0)
+            }
         }
         .padding(10)
     }

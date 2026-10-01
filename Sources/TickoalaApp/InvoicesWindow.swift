@@ -182,10 +182,10 @@ struct InvoicesWindow: View {
                             if sendingId == invoice.profileId {
                                 ProgressView().controlSize(.small)
                             }
-                            Button("PDF…") { saveHistoryPDF(invoice) }
-                            Button("UBL…") { saveHistoryUBL(invoice) }
-                            Button("CSV…") { exportHistoryCSV(invoice) }
-                            Button("Resend…") { resendHistory(invoice) }
+                            Button("PDF") { saveHistoryPDF(invoice) }
+                            Button("UBL") { saveHistoryUBL(invoice) }
+                            Button("CSV") { exportHistoryCSV(invoice) }
+                            Button("Resend") { resendHistory(invoice) }
                             Button {
                                 deleteTarget = invoice
                             } label: {
@@ -239,12 +239,12 @@ struct InvoicesWindow: View {
                 }
 
                 HStack(spacing: 8) {
-                    Button("Create PDF…") { createPDF(candidate) }
+                    Button("Create PDF") { createPDF(candidate) }
                         .disabled(!missing.isEmpty)
-                    Button("Export UBL…") { exportUBL(candidate) }
+                    Button("Export UBL") { exportUBL(candidate) }
                         .disabled(!missing.isEmpty)
                         .help("Peppol/UBL invoice for your bookkeeping")
-                    Button("Export CSV…") { exportCSV(candidate) }
+                    Button("Export CSV") { exportCSV(candidate) }
                     Spacer()
                     Toggle("Include hours CSV", isOn: csvBinding(candidate))
                         .toggleStyle(.checkbox)

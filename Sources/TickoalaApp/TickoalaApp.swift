@@ -97,7 +97,12 @@ private struct MenuBarLabel: View {
     var body: some View {
         HStack(spacing: 4) {
             TickoalaMenuBarIcon(mode: model.status?.mode ?? .stopped)
-            if let earnings = model.menuBarEarnings {
+            // The timer wins when both options are on, so the clock is not pushed
+            // out by the revenue; the revenue is still in the menu per customer.
+            if let timer = model.menuBarTimer {
+                Text(timer)
+                    .monospacedDigit()
+            } else if let earnings = model.menuBarEarnings {
                 Text(earnings)
                     .monospacedDigit()
             }

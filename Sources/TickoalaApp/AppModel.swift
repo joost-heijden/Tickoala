@@ -44,6 +44,16 @@ final class AppModel: ObservableObject {
     }
     private static let showEarningsInIconKey = "menu-bar-earnings"
 
+    /// Show the running timer's elapsed time next to the menu bar icon, so the
+    /// clock is readable without opening the menu. Off by default.
+    @Published var showTimerInIcon = false {
+        didSet {
+            guard showTimerInIcon != oldValue else { return }
+            UserDefaults.standard.set(showTimerInIcon, forKey: Self.showTimerInIconKey)
+        }
+    }
+    private static let showTimerInIconKey = "menu-bar-timer"
+
     /// Gimmick: show the current month's revenue per customer in the menu.
     @Published var showEarningsInMenu = false {
         didSet {
@@ -301,6 +311,7 @@ final class AppModel: ObservableObject {
         // Both revenue gimmicks are off unless the user ticked them in Settings.
         showEarningsInIcon = UserDefaults.standard.bool(forKey: Self.showEarningsInIconKey)
         showEarningsInMenu = UserDefaults.standard.bool(forKey: Self.showEarningsInMenuKey)
+        showTimerInIcon = UserDefaults.standard.bool(forKey: Self.showTimerInIconKey)
         // Restore the workday end from the database.
         if let settings = try? tracker?.store.settings() {
             workdayEndMinutes = settings.workdayEndMinutes
@@ -486,6 +497,13 @@ final class AppModel: ObservableObject {
     var menuBarEarnings: String? {
         guard showEarningsInIcon, let primary = status?.primary else { return nil }
         return Formatting.money(cents: primary.monthAmountCents, currency: primary.profile.currency)
+    }
+
+    /// The running timer's elapsed time for the menu bar, `nil` when the option
+    /// is off or nothing is running. Ticks every second with `refresh()`.
+    var menuBarTimer: String? {
+        guard showTimerInIcon, let primary = status?.primary, primary.mode == .working else { return nil }
+        return Formatting.duration(primary.elapsedCurrent)
     }
 
     /// Once per second: finalize delayed stops and refresh the status.

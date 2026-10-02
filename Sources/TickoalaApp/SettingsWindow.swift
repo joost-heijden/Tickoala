@@ -60,6 +60,17 @@ private struct GeneralSettings: View {
                     }
                 }
 
+                FormSection(title: "Menu bar") {
+                    Toggle(isOn: $model.showTimerInIcon) {
+                        Text("Show the running timer next to the menu bar icon")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Text("The elapsed time of the running block, ticking every second, so you can "
+                         + "read the clock without opening the menu. Off by default.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 FormSection(title: "Month revenue") {
                     Toggle(isOn: $model.showEarningsInIcon) {
                         Text("Show this month's revenue next to the menu bar icon")
@@ -69,7 +80,8 @@ private struct GeneralSettings: View {
                         Text("Show this month's revenue per customer in the menu")
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    Text("The amount counts up every second while you work. Both are off by default.")
+                    Text("The amount counts up every second while you work. Both are off by default. "
+                         + "If the running timer is also shown, it takes the icon and the revenue stays in the menu.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

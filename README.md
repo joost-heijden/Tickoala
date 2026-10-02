@@ -115,6 +115,9 @@ just uses that.
   reference to the original — see [Invoices](#invoices)
 - **Email invoices** straight from the app over SMTP, with the PDF attached and
   optionally the hours CSV
+- **Optional running timer** next to the menu bar icon — the running block's
+  elapsed time, ticking every second, so the clock is readable without opening
+  the menu; off by default under **Settings → General**
 - **Optional running month revenue** next to the menu bar icon and per customer
   in the menu — a per-second total of what you have earned this month; off by
   default under **Settings → General**

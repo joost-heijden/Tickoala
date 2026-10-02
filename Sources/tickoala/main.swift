@@ -102,6 +102,11 @@ Import from another tracker (Toggl Track, Harvest or Clockify CSV export):
 Settings:
   tickoala config list
   tickoala config set <key> <value>
+
+Backup and restore (the whole database, one file):
+  tickoala backup [--out <file>]
+  tickoala restore --from <file> [--yes]
+  tickoala restore --peek <file>
 """
 
 func makeTracker() throws -> Tracker {
@@ -250,6 +255,12 @@ func run() throws {
 
     case "import":
         try runImport(arguments)
+
+    case "backup":
+        try runBackup(arguments)
+
+    case "restore":
+        try runRestore(arguments)
 
     case "config":
         try runConfig(arguments)
@@ -1290,6 +1301,60 @@ func runImport(_ arguments: Arguments) throws {
         entries, to: tracker.store, tagsEnabled: try tracker.store.settings().tagsEnabled
     )
     print("imported \(summary.description)")
+}
+
+// MARK: - Backup and restore
+
+/// Writes a clean copy of the whole database. Without `--out` the file lands next
+/// to the database with a dated name.
+func runBackup(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    let url = try backupDestination(arguments)
+    try Backup.write(store: tracker.store, to: url)
+    var line = "backup written to \(url.path)"
+    if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+       let size = attributes[.size] as? Int {
+        line += " (\(size / 1024) KB)"
+    }
+    print(line)
+    if let peeked = try? Backup.peek(at: url) { print("contains \(peeked.summary)") }
+}
+
+/// With `--peek` it only reads a backup's contents; otherwise it replaces the
+/// live database with it. A restore asks for confirmation unless `--yes` is given.
+func runRestore(_ arguments: Arguments) throws {
+    if let peekFile = arguments.string("peek") {
+        let url = URL(fileURLWithPath: (peekFile as NSString).expandingTildeInPath)
+        let peeked = try Backup.peek(at: url)
+        print("\(url.lastPathComponent): schema \(peeked.schemaVersion), \(peeked.summary)")
+        return
+    }
+    let source = URL(fileURLWithPath: (try arguments.require("from") as NSString).expandingTildeInPath)
+    let peeked = try Backup.peek(at: source)
+    print("this will replace the current database with:")
+    print("  \(source.path)")
+    print("  schema \(peeked.schemaVersion), \(peeked.summary)")
+
+    let destination = URL(fileURLWithPath: try Store.defaultDatabasePath())
+    if !arguments.flag("yes") {
+        print("type 'restore' to confirm: ", terminator: "")
+        let answer = readLine()?.trimmingCharacters(in: .whitespaces).lowercased()
+        guard answer == "restore" else {
+            print("cancelled")
+            return
+        }
+    }
+    try Backup.restore(from: source, to: destination)
+    print("restored. The previous database was kept beside it as \(destination.lastPathComponent).pre-restore-*")
+}
+
+/// The backup file to write: `--out`, or a dated name beside the database.
+private func backupDestination(_ arguments: Arguments) throws -> URL {
+    if let out = arguments.string("out") {
+        return URL(fileURLWithPath: (out as NSString).expandingTildeInPath)
+    }
+    let directory = URL(fileURLWithPath: try Store.defaultDatabasePath()).deletingLastPathComponent()
+    return directory.appendingPathComponent(Backup.suggestedFileName())
 }
 
 // MARK: - Settings

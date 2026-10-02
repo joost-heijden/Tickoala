@@ -125,6 +125,9 @@ just uses that.
 - **Import from Toggl Track, Harvest or Clockify** — bring your history over from
   a CSV export (menu: **Import time entries…**, or the CLI); clients and projects
   are created as needed and running the same file twice changes nothing
+- **Backup and restore** — a full copy of the database to one file, and back;
+  the menu has **Data → Back up everything…** and **Restore from a backup…**,
+  the CLI has `tickoala backup` and `tickoala restore`
 - **Full command-line interface** for everything the app does
 
 ## Requirements
@@ -731,6 +734,9 @@ tickoala invoices --overdue     # what is unpaid and past its due date
 tickoala paid --number 2026-0114
 tickoala import --from toggl --file ~/Downloads/toggl_export.csv --dry-run
 tickoala import --from toggl --file team_export.csv --user "Jane"   # only your rows
+tickoala backup --out ~/Desktop/tickoala-2026-10-02.sqlite3
+tickoala restore --peek ~/Desktop/tickoala-2026-10-02.sqlite3        # what is in it?
+tickoala restore --from ~/Desktop/tickoala-2026-10-02.sqlite3        # asks to confirm
 tickoala events                 # what was received and what happened with it
 tickoala config list            # dedupe window and thresholds
 tickoala db                     # path to the database

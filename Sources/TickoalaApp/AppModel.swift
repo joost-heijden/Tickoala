@@ -2281,6 +2281,81 @@ final class AppModel: ObservableObject {
         alert.runModal()
     }
 
+    // MARK: - Backup and restore
+
+    /// Writes a full copy of the database to a file the user picks.
+    func backupToFilePanel() {
+        guard let tracker else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = Backup.suggestedFileName()
+        panel.message = "Save a full backup of your Tickoala data"
+        NSApp.activateForUI()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try Backup.write(store: tracker.store, to: url)
+            let peeked = try? Backup.peek(at: url)
+            let detail = peeked.map { "\n\nContains \($0.summary)." } ?? ""
+            presentAlert(title: "Backup saved", message: "\(url.path)\(detail)")
+        } catch {
+            errorMessage = "\(error)"
+            presentAlert(title: "Backup failed", message: "\(error)")
+        }
+    }
+
+    /// Replaces the whole database with a backup file the user picks. This is a
+    /// one-way door, so it asks for confirmation first and names what the backup
+    /// holds. The current database is closed, replaced and reopened in place.
+    func restoreFromFilePanel() {
+        let open = NSOpenPanel()
+        open.allowsMultipleSelection = false
+        open.message = "Choose a Tickoala backup to restore"
+        NSApp.activateForUI()
+        guard open.runModal() == .OK, let url = open.url else { return }
+
+        let peeked: Backup.Peek
+        do {
+            peeked = try Backup.peek(at: url)
+        } catch {
+            presentAlert(title: "Not a backup", message: "\(error)")
+            return
+        }
+        let confirm = NSAlert()
+        confirm.messageText = "Restore this backup?"
+        confirm.informativeText = "This replaces everything currently in Tickoala with:\n\n"
+            + "\(peeked.summary)\n\nYour current data is kept beside the database as a safety copy. "
+            + "Tickoala's windows will close and reopen."
+        confirm.addButton(withTitle: "Restore")
+        confirm.addButton(withTitle: "Cancel")
+        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            let destination = URL(fileURLWithPath: try Store.defaultDatabasePath())
+            // Close the live handle so the file can be replaced, then reopen.
+            tracker = nil
+            try Backup.restore(from: url, to: destination)
+            tracker = Tracker(store: try Store(path: try Store.defaultDatabasePath()))
+            clearOpenQuestions()
+            refresh()
+            presentAlert(title: "Restored", message: "Your data is back from \(url.lastPathComponent).")
+        } catch {
+            // Try to reopen the old database so the app keeps working.
+            tracker = try? Tracker(store: try Store(path: try Store.defaultDatabasePath()))
+            errorMessage = "\(error)"
+            presentAlert(title: "Restore failed", message: "\(error)")
+        }
+    }
+
+    /// Drops any pending prompts whose subjects may no longer exist after a
+    /// restore (a network switch, a project choice, an idle question).
+    private func clearOpenQuestions() {
+        pendingNetworkSwitch = nil
+        pendingWifiProjectSelection = nil
+        pendingIdle = nil
+        undoStack.removeAll()
+        redoStack.removeAll()
+        updateUndoAvailability()
+    }
+
     /// The Dock icon was clicked while a window was open: show Settings again.
     func requestSettingsWindow() {
         shouldOpenSettings = true

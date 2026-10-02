@@ -28,17 +28,25 @@ public enum SQLValue: Equatable {
 public final class Database {
     private var handle: OpaquePointer?
 
-    public init(path: String) throws {
+    /// Opens the database read-write, with WAL so the menu bar app and the
+    /// adapter command can work at the same time. With `readOnly` the file is
+    /// opened for reading only and the journal mode is left as it is, so peeking
+    /// at a backup never creates `-wal`/`-shm` sidecars beside it.
+    public init(path: String, readOnly: Bool = false) throws {
         var db: OpaquePointer?
-        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+        let flags = readOnly
+            ? SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
+            : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
         guard sqlite3_open_v2(path, &db, flags, nil) == SQLITE_OK, let db else {
             let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
             sqlite3_close_v2(db)
             throw DatabaseError.open(message)
         }
         self.handle = db
-        // WAL lets the menu bar app and the adapter command work at the same time.
-        try execute("PRAGMA journal_mode = WAL;")
+        if !readOnly {
+            // WAL lets the menu bar app and the adapter command work at the same time.
+            try execute("PRAGMA journal_mode = WAL;")
+        }
         try execute("PRAGMA foreign_keys = ON;")
         try execute("PRAGMA busy_timeout = 5000;")
     }

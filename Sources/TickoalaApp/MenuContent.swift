@@ -141,8 +141,11 @@ struct MenuContent: View {
 
         Divider()
 
-        Button("Import time entries…") {
-            model.importEntriesPanel()
+        Menu("Data") {
+            Button("Import time entries…") { model.importEntriesPanel() }
+            Divider()
+            Button("Back up everything…") { model.backupToFilePanel() }
+            Button("Restore from a backup…") { model.restoreFromFilePanel() }
         }
 
         Button("Settings…") {

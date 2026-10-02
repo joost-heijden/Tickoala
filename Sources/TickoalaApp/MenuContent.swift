@@ -29,6 +29,7 @@ struct MenuContent: View {
 
         idlePrompt
         networkPrompts
+        quickStartSection
 
         if !model.profiles.isEmpty {
             // Choose the customer right away: the menu opens the Customers window
@@ -167,6 +168,47 @@ struct MenuContent: View {
 
         Button("Quit Tickoala") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
+    }
+
+    /// Quick start: pinned favourites and recent client+project pairs, one click
+    /// each, so the timer starts without opening a window.
+    @ViewBuilder
+    private var quickStartSection: some View {
+        let favorites = model.favoriteStarts
+        let recents = model.recentStarts
+        if !favorites.isEmpty || !recents.isEmpty {
+            Menu("Start") {
+                if !favorites.isEmpty {
+                    Section("Favorites") {
+                        ForEach(favorites) { start in
+                            quickStartButton(start)
+                        }
+                    }
+                }
+                if !recents.isEmpty {
+                    Section("Recent") {
+                        ForEach(recents) { start in
+                            quickStartButton(start)
+                        }
+                    }
+                }
+                Divider()
+                Text("Pin a pair from a customer's menu below")
+            }
+        }
+    }
+
+    /// One quick-start row: starts on click, with a context menu to pin or unpin.
+    @ViewBuilder
+    private func quickStartButton(_ start: AppModel.QuickStart) -> some View {
+        Button(start.label) {
+            model.startQuick(profileId: start.profileId, projectId: start.projectId)
+        }
+        .contextMenu {
+            Button(start.isFavorite ? "Unpin" : "Pin as favorite") {
+                model.toggleFavoriteStart(profileId: start.profileId, projectId: start.projectId)
+            }
+        }
     }
 
     /// The idle question, kept in the menu so it can still be answered after the

@@ -911,6 +911,103 @@ final class AppModel: ObservableObject {
         return profiles.first?.profile
     }
 
+    // MARK: - Quick start (menu bar)
+
+    /// A client-and-project pair the menu can start in one click: a pinned
+    /// favourite or a recently used combination.
+    struct QuickStart: Identifiable, Equatable {
+        var profileId: Int64
+        var projectId: Int64?
+        var customerName: String
+        var projectLabel: String
+        var isFavorite: Bool
+        var id: String { "\(profileId)-\(projectId.map(String.init) ?? "none")" }
+
+        /// "Efteling · 001 — AI Platform", or just the customer with no project.
+        var label: String { projectLabel.isEmpty ? customerName : "\(customerName) · \(projectLabel)" }
+    }
+
+    private static let favoriteStartsKey = "favorite-starts"
+
+    /// The one key format for a client+project pair, used for storage, dedup and
+    /// lookup alike: `profileId:projectId`, with an empty project id for none.
+    private static func startKey(profileId: Int64, projectId: Int64?) -> String {
+        "\(profileId):\(projectId.map(String.init) ?? "")"
+    }
+
+    /// The pinned favourites, in the order they were pinned. Stored in
+    /// UserDefaults as `profileId:projectId` strings; no schema of its own.
+    var favoriteStarts: [QuickStart] {
+        let raw = UserDefaults.standard.stringArray(forKey: Self.favoriteStartsKey) ?? []
+        return raw.compactMap { quickStart(fromKey: $0, isFavorite: true) }
+    }
+
+    /// Recently used client+project pairs from the last 30 days, favourites
+    /// first and without repeating what is already pinned.
+    var recentStarts: [QuickStart] {
+        guard let tracker else { return [] }
+        var seen = Set(favoriteStarts.map { Self.startKey(profileId: $0.profileId, projectId: $0.projectId) })
+        let recents = (try? tracker.store.recentProjects(limit: 8)) ?? []
+        var result: [QuickStart] = []
+        for recent in recents {
+            let key = Self.startKey(profileId: recent.profileId, projectId: recent.projectId)
+            guard seen.insert(key).inserted else { continue }
+            if let start = quickStart(fromKey: key, isFavorite: false) {
+                result.append(start)
+                if result.count >= 4 { break }
+            }
+        }
+        return result
+    }
+
+    /// Turns a stored `profileId:projectId` key into a `QuickStart`, resolving
+    /// the names. Returns `nil` when the client or project has since gone.
+    private func quickStart(fromKey key: String, isFavorite: Bool) -> QuickStart? {
+        let parts = key.split(separator: ":")
+        guard let profileId = parts.first.flatMap({ Int64($0) }),
+              let profile = profile(id: profileId) else { return nil }
+        var projectId: Int64?
+        var projectLabel = ""
+        if parts.count > 1, let id = Int64(parts[1]) {
+            guard let project = try? tracker?.store.project(id: id), project.active else { return nil }
+            projectId = project.id
+            projectLabel = project.label
+        }
+        return QuickStart(
+            profileId: profileId, projectId: projectId,
+            customerName: profile.name, projectLabel: projectLabel, isFavorite: isFavorite
+        )
+    }
+
+    /// Pins or unpins a client+project pair for the quick-start section.
+    func toggleFavoriteStart(profileId: Int64, projectId: Int64?) {
+        let key = Self.startKey(profileId: profileId, projectId: projectId)
+        var raw = UserDefaults.standard.stringArray(forKey: Self.favoriteStartsKey) ?? []
+        if raw.contains(key) {
+            raw.removeAll { $0 == key }
+        } else {
+            raw.insert(key, at: 0)
+            if raw.count > 8 { raw.removeLast() }
+        }
+        UserDefaults.standard.set(raw, forKey: Self.favoriteStartsKey)
+        objectWillChange.send()
+    }
+
+    func isFavoriteStart(profileId: Int64, projectId: Int64?) -> Bool {
+        favoriteStarts.contains { $0.profileId == profileId && $0.projectId == projectId }
+    }
+
+    /// Starts a client+project in one click: switch the active project first
+    /// (which also opens the right block if something else was running) and then
+    /// start. No project means just start the client.
+    func startQuick(profileId: Int64, projectId: Int64?) {
+        selectedCustomerId = profileId
+        if let projectId {
+            selectProject(profileId: profileId, projectId: projectId)
+        }
+        start(profileId: profileId)
+    }
+
     // MARK: - Project management
 
     /// All projects of a profile, including deactivated ones. For the management screen.

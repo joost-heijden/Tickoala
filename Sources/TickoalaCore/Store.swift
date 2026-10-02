@@ -567,6 +567,35 @@ public final class Store {
         ).first != nil
     }
 
+    /// A client-and-project pair that was used before, with when it was last
+    /// started. Feeds the "recent" list in the menu.
+    public struct RecentProject: Equatable, Sendable {
+        public var profileId: Int64
+        public var projectId: Int64?
+        public var startedAt: Date
+    }
+
+    /// The most recently started distinct client+project pairs, newest first,
+    /// looking back `days` days. At most `limit` rows.
+    public func recentProjects(limit: Int = 5, days: Int = 30, now: Date = Date()) throws -> [RecentProject] {
+        let since = Int64(now.addingTimeInterval(-Double(days) * 86400).timeIntervalSince1970)
+        let rows = try database.query(
+            """
+            SELECT profile_id, project_id, MAX(started_at) AS last_start
+            FROM time_entries
+            WHERE started_at >= ?
+            GROUP BY profile_id, project_id
+            ORDER BY last_start DESC
+            LIMIT ?;
+            """,
+            [.int(since), .int(Int64(max(1, limit)))]
+        )
+        return rows.compactMap { row in
+            guard let profileId = row.int("profile_id"), let last = row.date("last_start") else { return nil }
+            return RecentProject(profileId: profileId, projectId: row.int("project_id"), startedAt: last)
+        }
+    }
+
     public func runningEntry(profileId: Int64) throws -> TimeEntry? {
         try database.query(
             "SELECT * FROM time_entries WHERE profile_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1;",

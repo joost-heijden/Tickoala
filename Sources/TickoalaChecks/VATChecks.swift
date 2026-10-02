@@ -81,5 +81,51 @@ func vatChecks() {
             expect(report.lines.isEmpty, "nothing in Q3")
             expectEqual(report.totalVatCents, 0)
         }
+
+        test("a credit note cancels the original in the quarter it is issued") {
+            let fixture = try Fixture()
+            try fixture.store.updateProfile(id: fixture.profileA.id, hourlyRateCents: 10000)
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: nil,
+                startedAt: at("2026-08-10 09:00"), endedAt: at("2026-08-10 17:00"),
+                status: .completed, source: .manual, note: nil
+            )
+            let august = Invoicing.previousMonthRange(containing: at("2026-09-01"))
+            let invoice = try Invoicing.invoice(
+                store: fixture.store, profileId: fixture.profileA.id, period: august,
+                issuedAt: at("2026-09-01 09:00")
+            )
+            _ = try Invoicing.credit(
+                store: fixture.store, originalNumber: invoice.number, issuedAt: at("2026-09-20 09:00")
+            )
+
+            let q3 = try VAT.report(store: fixture.store, period: VATPeriod(year: 2026, quarter: 3))
+            expectEqual(q3.totalNetCents, 0, "the original and its credit cancel out")
+            expectEqual(q3.totalVatCents, 0)
+        }
+
+        test("a credit issued later is booked in its own quarter") {
+            let fixture = try Fixture()
+            try fixture.store.updateProfile(id: fixture.profileA.id, hourlyRateCents: 10000)
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: nil,
+                startedAt: at("2026-08-10 09:00"), endedAt: at("2026-08-10 17:00"),
+                status: .completed, source: .manual, note: nil
+            )
+            let august = Invoicing.previousMonthRange(containing: at("2026-09-01"))
+            let invoice = try Invoicing.invoice(
+                store: fixture.store, profileId: fixture.profileA.id, period: august,
+                issuedAt: at("2026-09-01 09:00")
+            )
+            _ = try Invoicing.credit(
+                store: fixture.store, originalNumber: invoice.number, issuedAt: at("2026-10-05 09:00")
+            )
+
+            let q3 = try VAT.report(store: fixture.store, period: VATPeriod(year: 2026, quarter: 3))
+            expectEqual(q3.totalVatCents, 16800, "Q3 keeps the original invoice")
+            let q4 = try VAT.report(store: fixture.store, period: VATPeriod(year: 2026, quarter: 4))
+            expectEqual(q4.totalNetCents, -80000, "Q4 reverses it as negative turnover")
+            expectEqual(q4.totalVatCents, -16800, "and negative VAT")
+        }
     }
 }

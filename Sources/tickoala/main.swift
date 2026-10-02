@@ -84,6 +84,9 @@ Overview and export:
   tickoala export [--period month] [--date <day>] [--from <time> --to <time>] [--profile <name>] [--out <file>]
   tickoala invoice [--profile <name>] [--month YYYY-MM] [--po <number>] [--out <file.pdf>] [--ubl <file.xml>]
 
+Credit note (reverses an issued invoice, with its own number):
+  tickoala credit --number <invoice number> [--out <file.pdf>] [--ubl <file.xml>]
+
 Settings:
   tickoala config list
   tickoala config set <key> <value>
@@ -223,6 +226,9 @@ func run() throws {
 
     case "invoice":
         try runInvoice(arguments)
+
+    case "credit":
+        try runCredit(arguments)
 
     case "config":
         try runConfig(arguments)
@@ -1074,6 +1080,32 @@ func runInvoice(_ arguments: Arguments) throws {
     }
     print("period \(Formatting.day(invoice.periodStart)) to \(Formatting.day(invoice.periodEnd.addingTimeInterval(-86400)))")
     print("net \(Formatting.decimalHours(invoice.netSeconds)) hours, total \(Formatting.money(cents: invoice.totalCents, currency: invoice.currency))")
+}
+
+/// Makes the credit note that reverses an existing invoice and writes its PDF
+/// and/or UBL. The original keeps its number; the credit gets its own and points
+/// at it, which is what the Belastingdienst asks of a document that changes an
+/// earlier invoice.
+func runCredit(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    let original = try arguments.require("number")
+    let credit = try Invoicing.credit(store: tracker.store, originalNumber: original)
+    if let ubl = arguments.string("ubl") {
+        let url = URL(fileURLWithPath: (ubl as NSString).expandingTildeInPath)
+        try UBLExport.data(for: credit).write(to: url)
+        print("UBL \(credit.number) written to \(url.path)")
+    }
+    if let out = arguments.string("out") {
+        let url = URL(fileURLWithPath: (out as NSString).expandingTildeInPath)
+        try InvoicePDF.data(for: credit).write(to: url)
+        print("credit \(credit.number) for invoice \(original) written to \(url.path)")
+    } else if arguments.string("ubl") == nil {
+        let url = URL(fileURLWithPath: ("credit-\(credit.number).pdf" as NSString).expandingTildeInPath)
+        try InvoicePDF.data(for: credit).write(to: url)
+        print("credit \(credit.number) for invoice \(original) written to \(url.path)")
+    }
+    print("period \(Formatting.day(credit.periodStart)) to \(Formatting.day(credit.periodEnd.addingTimeInterval(-86400)))")
+    print("total \(Formatting.money(cents: credit.totalCents, currency: credit.currency)) (reverses invoice \(original))")
 }
 
 // MARK: - Settings

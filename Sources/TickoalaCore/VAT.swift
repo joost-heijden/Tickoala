@@ -91,7 +91,22 @@ public enum VAT {
             line.vatCents += vat
             byRate[rate] = line
         }
-        let lines = byRate.values.sorted { $0.ratePercent < $1.ratePercent }
+        // A credit note reverses turnover and VAT. The Belastingdienst books it in
+        // the period it is issued, as negative turnover in the same rate, so a
+        // quarter that already declared the original is not reopened.
+        for credit in try store.issuedInvoices()
+        where credit.isCredit && credit.issuedAt >= period.start && credit.issuedAt < period.end {
+            guard let reversed = try? Invoicing.restoredCredit(store: store, credit: credit),
+                  reversed.subtotalCents != 0 || reversed.vatCents != 0 else { continue }
+            let rate = max(0, reversed.vatRatePercent)
+            var line = byRate[rate] ?? VATLine(ratePercent: rate, netCents: 0, vatCents: 0)
+            line.netCents += reversed.subtotalCents
+            line.vatCents += reversed.vatCents
+            byRate[rate] = line
+        }
+        let lines = byRate.values
+            .filter { $0.netCents != 0 || $0.vatCents != 0 }
+            .sorted { $0.ratePercent < $1.ratePercent }
         return VATReport(period: period, lines: lines)
     }
 }

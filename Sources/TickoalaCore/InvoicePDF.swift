@@ -133,15 +133,24 @@ private final class InvoicePageView: NSView {
         }
 
         var rightY = top
-        rightY += draw("INVOICE", x: rightX - 240, y: rightY, width: 240, font: .boldSystemFont(ofSize: 22), color: palette.accent, alignment: .right, kern: 3)
+        let title = invoice.isCredit ? "CREDIT INVOICE" : "INVOICE"
+        rightY += draw(title, x: rightX - 240, y: rightY, width: 240, font: .boldSystemFont(ofSize: 22), color: palette.accent, alignment: .right, kern: 3)
         rightY += 8
 
-        let meta: [(String, String)] = [
-            ("Invoice number", invoice.number),
-            ("Invoice date", Formatting.day(invoice.issuedAt)),
-            ("Period", "\(Formatting.day(invoice.periodStart)) – \(Formatting.day(invoice.periodEnd.addingTimeInterval(-86400)))"),
-            ("Due date", Formatting.day(invoice.dueAt)),
-        ] + (invoice.poNumber.map { [("PO number", $0)] } ?? [])
+        // A credit note points at the invoice it changes; the Belastingdienst
+        // asks for that reference on any document that amends an earlier one.
+        var meta: [(String, String)] = invoice.isCredit
+            ? [("Credit number", invoice.number)]
+            : [("Invoice number", invoice.number)]
+        if invoice.isCredit, let original = invoice.creditForNumber {
+            meta.append(("Credits invoice", original))
+        }
+        meta.append(("Invoice date", Formatting.day(invoice.issuedAt)))
+        meta.append(("Period", "\(Formatting.day(invoice.periodStart)) – \(Formatting.day(invoice.periodEnd.addingTimeInterval(-86400)))"))
+        if !invoice.isCredit {
+            meta.append(("Due date", Formatting.day(invoice.dueAt)))
+        }
+        if let po = invoice.poNumber { meta.append(("PO number", po)) }
 
         for (label, value) in meta {
             let height = max(
@@ -250,9 +259,15 @@ private final class InvoicePageView: NSView {
     // MARK: - Footer
 
     private func drawFooter(at top: CGFloat) {
-        var lines = ["Please pay the total within \(invoice.sender.paymentTermDays) days, before \(Formatting.day(invoice.dueAt))."]
-        if !invoice.sender.senderIban.isEmpty {
-            lines.append("Transfer to IBAN \(invoice.sender.senderIban), quoting invoice number \(invoice.number).")
+        var lines: [String]
+        if invoice.isCredit {
+            let original = invoice.creditForNumber.map { " It reverses invoice \($0)." } ?? ""
+            lines = ["This credit note corrects an earlier invoice.\(original)"]
+        } else {
+            lines = ["Please pay the total within \(invoice.sender.paymentTermDays) days, before \(Formatting.day(invoice.dueAt))."]
+            if !invoice.sender.senderIban.isEmpty {
+                lines.append("Transfer to IBAN \(invoice.sender.senderIban), quoting invoice number \(invoice.number).")
+            }
         }
         var y = top
         for line in lines {

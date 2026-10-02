@@ -54,7 +54,7 @@ struct InvoiceSettingsWindow: View {
                         Text("Next number: \(settings.nextNumberText())")
                             .monospacedDigit()
                     }
-                    Text("Each customer and month gets one number. Reopening the same month keeps its number.")
+                    Text("Each customer and month gets one number. Reopening the same month keeps its number, and the counter never moves back, so a deleted number is not handed out twice.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -83,6 +83,7 @@ struct InvoiceSettingsWindow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Toggle("Use TLS (port 465)", isOn: binding(\.smtpUseTLS))
+                    Toggle("Attach the UBL/Peppol XML to the invoice email", isOn: binding(\.attachUBL))
                     Toggle("Attach the hours CSV to the invoice email", isOn: binding(\.attachHoursCSV))
                     FormField(label: "Password") {
                         SecureField("", text: $password)
@@ -196,6 +197,9 @@ struct InvoiceSettingsWindow: View {
     private func save() {
         guard loaded else { return }
         model.saveInvoiceSettings(settings)
+        // The counter only ever moves forward, so a lowering edit is corrected
+        // here; showing the stored figure keeps the stepper honest.
+        settings.nextInvoiceNumber = model.invoiceSettings().nextInvoiceNumber
     }
 
     private func sendTest() {

@@ -217,6 +217,35 @@ enum Schema {
             kind TEXT NOT NULL DEFAULT 'holiday'
         );
         """,
+
+        // Credit notes. A credit is an invoice in reverse: it shares the credited
+        // invoice's customer and period, carries its own number and points at the
+        // invoice it changes. That is what the Belastingdienst asks of a document
+        // that amends an earlier invoice. The uniqueness moves to the pair
+        // (customer, period, kind) so one invoice and one credit can coexist; the
+        // table is rebuilt because SQLite cannot drop the old unique constraint.
+        """
+        CREATE TABLE invoices_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+            period_start INTEGER NOT NULL,
+            period_end INTEGER NOT NULL,
+            number TEXT NOT NULL UNIQUE,
+            po_number TEXT,
+            issued_at INTEGER NOT NULL,
+            total_cents INTEGER NOT NULL,
+            currency TEXT NOT NULL,
+            is_credit INTEGER NOT NULL DEFAULT 0,
+            credit_for TEXT,
+            UNIQUE (profile_id, period_start, is_credit)
+        );
+        INSERT INTO invoices_new
+            (id, profile_id, period_start, period_end, number, po_number, issued_at, total_cents, currency, is_credit, credit_for)
+            SELECT id, profile_id, period_start, period_end, number, po_number, issued_at, total_cents, currency, 0, NULL
+            FROM invoices;
+        DROP TABLE invoices;
+        ALTER TABLE invoices_new RENAME TO invoices;
+        """,
     ]
 
     static func migrate(_ database: Database) throws {

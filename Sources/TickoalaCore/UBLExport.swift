@@ -17,6 +17,20 @@ public enum UBLExport {
         let taxCategory = taxCategoryID(for: invoice)
         let exemption = invoice.profile.vatRatePercent == 0 && !taxCategoryIsZeroRated(taxCategory)
 
+        // A credit note is its own UBL document (`CreditNote`, type 381). EN 16931
+        // keeps the line amounts positive there; the document type carries the
+        // direction, so the figures are taken as absolute values.
+        let isCredit = invoice.isCredit
+        let root = isCredit ? "CreditNote" : "Invoice"
+        let rootNamespace = isCredit
+            ? "urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2"
+            : "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+        let typeCode = isCredit ? "381" : "380"
+        let lineTag = isCredit ? "CreditNoteLine" : "InvoiceLine"
+        let quantityTag = isCredit ? "CreditedQuantity" : "InvoicedQuantity"
+        // The figures live in the Invoice as negatives; UBL wants them positive.
+        func amt(_ cents: Int) -> String { Formatting.decimalAmount(cents: isCredit ? abs(cents) : cents) }
+
         var lines = ""
         lines += "  <cac:AccountingSupplierParty>\n    <cac:Party>\n"
         lines += "      <cac:PartyName>\n        <cbc:Name>\(escaped(invoice.sender.senderName))</cbc:Name>\n      </cac:PartyName>\n"
@@ -37,17 +51,18 @@ public enum UBLExport {
         lines += "      <cac:PartyLegalEntity>\n        <cbc:RegistrationName>\(escaped(invoice.profile.name))</cbc:RegistrationName>\n      </cac:PartyLegalEntity>\n"
         lines += "    </cac:Party>\n  </cac:AccountingCustomerParty>\n"
 
-        if !invoice.sender.senderIban.isEmpty {
+        // A credit note is not paid; there is no payment means or due date on it.
+        if !isCredit, !invoice.sender.senderIban.isEmpty {
             lines += "  <cac:PaymentMeans>\n    <cbc:PaymentMeansCode>30</cbc:PaymentMeansCode>\n"
             lines += "    <cbc:PaymentID>\(escaped(invoice.number))</cbc:PaymentID>\n"
             lines += "    <cac:PayeeFinancialAccount>\n      <cbc:ID>\(escaped(invoice.sender.senderIban))</cbc:ID>\n    </cac:PayeeFinancialAccount>\n"
             lines += "  </cac:PaymentMeans>\n"
         }
 
-        lines += "  <cac:TaxTotal>\n    <cbc:TaxAmount currencyID=\"\(currency)\">\(amount(invoice.vatCents))</cbc:TaxAmount>\n"
+        lines += "  <cac:TaxTotal>\n    <cbc:TaxAmount currencyID=\"\(currency)\">\(amt(invoice.vatCents))</cbc:TaxAmount>\n"
         lines += "    <cac:TaxSubtotal>\n"
-        lines += "      <cbc:TaxableAmount currencyID=\"\(currency)\">\(amount(invoice.subtotalCents))</cbc:TaxableAmount>\n"
-        lines += "      <cbc:TaxAmount currencyID=\"\(currency)\">\(amount(invoice.vatCents))</cbc:TaxAmount>\n"
+        lines += "      <cbc:TaxableAmount currencyID=\"\(currency)\">\(amt(invoice.subtotalCents))</cbc:TaxableAmount>\n"
+        lines += "      <cbc:TaxAmount currencyID=\"\(currency)\">\(amt(invoice.vatCents))</cbc:TaxAmount>\n"
         lines += "      <cac:TaxCategory>\n        <cbc:ID>\(taxCategory)</cbc:ID>\n"
         lines += "        <cbc:Percent>\(invoice.profile.vatRatePercent)</cbc:Percent>\n"
         if exemption {
@@ -57,31 +72,45 @@ public enum UBLExport {
         lines += "      </cac:TaxCategory>\n    </cac:TaxSubtotal>\n  </cac:TaxTotal>\n"
 
         lines += "  <cac:LegalMonetaryTotal>\n"
-        lines += "    <cbc:LineExtensionAmount currencyID=\"\(currency)\">\(amount(invoice.subtotalCents))</cbc:LineExtensionAmount>\n"
-        lines += "    <cbc:TaxExclusiveAmount currencyID=\"\(currency)\">\(amount(invoice.subtotalCents))</cbc:TaxExclusiveAmount>\n"
-        lines += "    <cbc:TaxInclusiveAmount currencyID=\"\(currency)\">\(amount(invoice.totalCents))</cbc:TaxInclusiveAmount>\n"
-        lines += "    <cbc:PayableAmount currencyID=\"\(currency)\">\(amount(invoice.totalCents))</cbc:PayableAmount>\n"
+        lines += "    <cbc:LineExtensionAmount currencyID=\"\(currency)\">\(amt(invoice.subtotalCents))</cbc:LineExtensionAmount>\n"
+        lines += "    <cbc:TaxExclusiveAmount currencyID=\"\(currency)\">\(amt(invoice.subtotalCents))</cbc:TaxExclusiveAmount>\n"
+        lines += "    <cbc:TaxInclusiveAmount currencyID=\"\(currency)\">\(amt(invoice.totalCents))</cbc:TaxInclusiveAmount>\n"
+        lines += "    <cbc:PayableAmount currencyID=\"\(currency)\">\(amt(invoice.totalCents))</cbc:PayableAmount>\n"
         lines += "  </cac:LegalMonetaryTotal>\n"
 
         var number = 0
-        for line in invoice.lines where !line.isDeduction {
+        // Credit lines carry negative seconds in the model but positive UBL
+        // quantities, so the deduction filter does not apply to them.
+        for line in invoice.lines where isCredit || !line.isDeduction {
             number += 1
-            lines += invoiceLine(number: number, line: line, currency: currency)
+            lines += invoiceLine(
+                number: number, line: line, currency: currency,
+                tag: lineTag, quantityTag: quantityTag, positive: isCredit
+            )
         }
 
+        let documentType = isCredit ? "<cbc:CreditNoteTypeCode>" : "<cbc:InvoiceTypeCode>"
+        let documentTypeClose = isCredit ? "</cbc:CreditNoteTypeCode>" : "</cbc:InvoiceTypeCode>"
+        // The Belastingdienst asks a document that amends an earlier invoice to
+        // name it; EN 16931 carries that in BillingReference.
+        let reference: String
+        if isCredit, let original = invoice.creditForNumber {
+            reference = "  <cac:BillingReference>\n    <cac:InvoiceDocumentReference>\n      <cbc:ID>\(escaped(original))</cbc:ID>\n    </cac:InvoiceDocumentReference>\n  </cac:BillingReference>\n"
+        } else {
+            reference = ""
+        }
         return """
         <?xml version="1.0" encoding="UTF-8"?>
-        <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+        <\(root) xmlns="\(rootNamespace)"
                  xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
                  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
           <cbc:CustomizationID>urn:cen.eu:en16931:2017</cbc:CustomizationID>
           <cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</cbc:ProfileID>
           <cbc:ID>\(escaped(invoice.number))</cbc:ID>
-          <cbc:IssueDate>\(Formatting.day(invoice.issuedAt))</cbc:IssueDate>
-          <cbc:DueDate>\(Formatting.day(invoice.dueAt))</cbc:DueDate>
-          <cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>
+        \(reference)  <cbc:IssueDate>\(Formatting.day(invoice.issuedAt))</cbc:IssueDate>
+        \(isCredit ? "" : "  <cbc:DueDate>\(Formatting.day(invoice.dueAt))</cbc:DueDate>\n")  \(documentType)\(typeCode)\(documentTypeClose)
           <cbc:DocumentCurrencyCode>\(currency)</cbc:DocumentCurrencyCode>
-        \(invoice.poNumber.map { "  <cbc:BuyerReference>\(escaped($0))</cbc:BuyerReference>\n" } ?? "")\(lines)</Invoice>
+        \(invoice.poNumber.map { "  <cbc:BuyerReference>\(escaped($0))</cbc:BuyerReference>\n" } ?? "")\(lines)</\(root)>
 
         """
     }
@@ -93,29 +122,40 @@ public enum UBLExport {
 
     // MARK: - Building blocks
 
-    private static func invoiceLine(number: Int, line: InvoiceLine, currency: String) -> String {
+    private static func invoiceLine(
+        number: Int,
+        line: InvoiceLine,
+        currency: String,
+        tag: String,
+        quantityTag: String,
+        positive: Bool
+    ) -> String {
         // Hours lines carry the seconds at the client's rate; expenses and mileage
-        // carry their own quantity, unit and rate.
+        // carry their own quantity, unit and rate. A credit's line is stored
+        // negative but written positive, as the document type implies the sign.
+        let sign: (Double) -> Double = positive ? { abs($0) } : { $0 }
         let quantity: Double
         let unit: String
         let price: Int
         if line.isExpense {
-            quantity = line.quantity ?? 1
+            quantity = sign(line.quantity ?? 1)
             unit = unitCode(line.unit)
-            price = line.unitRateCents ?? (line.quantity.map { $0 > 0 ? Int((Double(line.amountCents) / $0).rounded()) : 0 } ?? 0)
+            price = line.unitRateCents ?? (line.quantity.map { $0 != 0 ? Int((Double(line.amountCents) / $0).rounded()) : 0 } ?? 0)
         } else {
-            quantity = line.seconds / 3600
+            quantity = sign(line.seconds / 3600)
             unit = "HUR"
             price = line.hourlyRateCents
         }
 
-        var xml = "  <cac:InvoiceLine>\n"
+        func shown(_ cents: Int) -> String { Formatting.decimalAmount(cents: positive ? abs(cents) : cents) }
+
+        var xml = "  <cac:\(tag)>\n"
         xml += "    <cbc:ID>\(number)</cbc:ID>\n"
-        xml += "    <cbc:InvoicedQuantity unitCode=\"\(unit)\">\(Formatting.quantity(quantity))</cbc:InvoicedQuantity>\n"
-        xml += "    <cbc:LineExtensionAmount currencyID=\"\(currency)\">\(amount(line.amountCents))</cbc:LineExtensionAmount>\n"
+        xml += "    <cbc:\(quantityTag) unitCode=\"\(unit)\">\(Formatting.quantity(quantity))</cbc:\(quantityTag)>\n"
+        xml += "    <cbc:LineExtensionAmount currencyID=\"\(currency)\">\(shown(line.amountCents))</cbc:LineExtensionAmount>\n"
         xml += "    <cac:Item>\n      <cbc:Name>\(escaped(line.label))</cbc:Name>\n    </cac:Item>\n"
-        xml += "    <cac:Price>\n      <cbc:PriceAmount currencyID=\"\(currency)\">\(amount(price))</cbc:PriceAmount>\n    </cac:Price>\n"
-        xml += "  </cac:InvoiceLine>\n"
+        xml += "    <cac:Price>\n      <cbc:PriceAmount currencyID=\"\(currency)\">\(shown(price))</cbc:PriceAmount>\n    </cac:Price>\n"
+        xml += "  </cac:\(tag)>\n"
         return xml
     }
 
@@ -238,8 +278,6 @@ public enum UBLExport {
     private static func taxCategoryIsZeroRated(_ id: String) -> Bool { id == "Z" }
 
     // MARK: - Primitives
-
-    private static func amount(_ cents: Int) -> String { Formatting.decimalAmount(cents: cents) }
 
     private static func unitCode(_ unit: String?) -> String {
         switch unit {

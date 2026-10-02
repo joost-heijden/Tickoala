@@ -95,6 +95,8 @@ just uses that.
 - **PDF invoices** with VAT, PO number, your logo and a running invoice number
 - **Invoice history** — every invoice ever issued, with a click to jump to its
   month and buttons to rebuild the PDF, export the hours or send it again
+- **Credit notes** — reverse an invoice that went wrong with its own number and a
+  reference to the original — see [Invoices](#invoices)
 - **Email invoices** straight from the app over SMTP, with the PDF attached and
   optionally the hours CSV
 - **Optional running month revenue** next to the menu bar icon and per customer
@@ -110,6 +112,15 @@ just uses that.
 - No other dependencies — zero third-party packages
 
 ## Install
+
+### Homebrew
+
+```bash
+brew install --cask joost-heijden/tap/tickoala
+```
+
+Because Homebrew downloads the app itself, macOS does not quarantine it and the
+"cannot be verified" warning below is skipped.
 
 ### Download the app
 
@@ -567,6 +578,11 @@ invoice uses: net hours × the client's rate, plus the billable expenses, with t
 client's VAT rate over the sum. A client with 0% (reverse charge) lands in a 0%
 line; a quarter without work shows nothing.
 
+A **credit note** is counted as negative turnover and negative VAT in the quarter
+it was issued, the way the Belastingdienst wants a correction booked. That also
+means a credit issued in a later quarter reduces that quarter, without reopening
+the quarter of the original invoice.
+
 ```bash
 tickoala vat --year 2026 --quarter 3
 ```
@@ -604,14 +620,23 @@ reverse charge), a default PO number and the invoice email address.
 
 Invoice numbers are handed out once per customer per month and never repeat:
 reopening the same month keeps its number, and the counter skips any number that
-already exists after a manual edit. A four-digit year in the prefix follows the
+already exists after a manual edit. The counter only ever moves forward, so a
+number stays spent even after its invoice was removed — deleting a document can
+never hand the same number out twice. A four-digit year in the prefix follows the
 calendar, so `2026-` becomes `2027-` on its own; a prefix without a year is left
 alone.
 
 Below the customer list, **Invoice history** shows every invoice ever issued
 with its month, customer, number, total and issue date. Click a row to jump the
-window to that month, or use its **PDF…**, **CSV…** or **Resend…** buttons to
+window to that month, or use its **PDF**, **CSV** or **Resend** buttons to
 rebuild the document, export the hours or send the invoice again.
+
+When an invoice went out wrong, **Credit** makes the credit note that reverses it:
+the same customer and period with negative lines, its own number, and a reference
+to the original. The original stays in the history and keeps its number. A credit
+is stored like an invoice, gets its own **PDF** and UBL (a `CreditNote` with type
+381 and a `BillingReference` to the original) and can be sent to the customer.
+On the command line: `tickoala credit --number 2026-0007 --out ~/Desktop/credit.pdf`.
 
 ### Sending by email
 
@@ -659,6 +684,7 @@ tickoala entry add --number 2401 --start "2026-09-10 09:00" --end "2026-09-10 17
 tickoala entry edit --id 12 --end "2026-09-10 16:30"
 tickoala export --period month --out ~/Desktop/hours-september.csv
 tickoala invoice --profile "Acme" --month 2026-08 --po "PO-2026-114" --out ~/Desktop/invoice.pdf
+tickoala credit --number 2026-0114 --out ~/Desktop/credit.pdf   # reverse an invoice
 tickoala events                 # what was received and what happened with it
 tickoala config list            # dedupe window and thresholds
 tickoala db                     # path to the database

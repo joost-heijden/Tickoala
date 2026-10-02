@@ -1619,6 +1619,29 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Creates the credit note that reverses an issued invoice, with its own
+    /// number and a reference to the original.
+    func makeCredit(originalNumber: String) -> Invoice? {
+        guard let tracker else { return nil }
+        do {
+            return try Invoicing.credit(store: tracker.store, originalNumber: originalNumber)
+        } catch {
+            errorMessage = "\(error)"
+            return nil
+        }
+    }
+
+    /// Rebuilds a stored credit note for its PDF or UBL export.
+    func makeCredit(_ credit: Store.IssuedInvoice) -> Invoice? {
+        guard let tracker else { return nil }
+        do {
+            return try Invoicing.restoredCredit(store: tracker.store, credit: credit)
+        } catch {
+            errorMessage = "\(error)"
+            return nil
+        }
+    }
+
     func profile(id: Int64) -> Profile? {
         try? tracker?.store.profile(id: id)
     }
@@ -1671,7 +1694,8 @@ final class AppModel: ObservableObject {
             csv = Data(text.utf8)
         }
         let message = InvoiceEmail.message(
-            for: invoice, to: recipient, pdf: InvoicePDF.data(for: invoice), csv: csv
+            for: invoice, to: recipient, pdf: InvoicePDF.data(for: invoice),
+            csv: csv, includeUBL: settings.attachUBL
         )
         try await Task.detached(priority: .userInitiated) {
             try SMTPClient.send(message, configuration: configuration)

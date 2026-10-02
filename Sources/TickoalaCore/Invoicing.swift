@@ -35,6 +35,9 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
     public var smtpUseTLS: Bool
     /// Attach the hour sheet (CSV) to the invoice email by default.
     public var attachHoursCSV: Bool
+    /// Attach the UBL/Peppol XML to the invoice email. On by default, so
+    /// bookkeeping on the other side can import the invoice.
+    public var attachUBL: Bool
 
     public static let `default` = InvoiceSettings()
 
@@ -57,7 +60,8 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         smtpFromEmail: String = "",
         smtpCcEmails: String = "",
         smtpUseTLS: Bool = true,
-        attachHoursCSV: Bool = false
+        attachHoursCSV: Bool = false,
+        attachUBL: Bool = true
     ) {
         self.senderName = senderName
         self.senderAddress = senderAddress
@@ -78,6 +82,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         self.smtpCcEmails = smtpCcEmails
         self.smtpUseTLS = smtpUseTLS
         self.attachHoursCSV = attachHoursCSV
+        self.attachUBL = attachUBL
     }
 
     /// Splits a free-form list of addresses (commas, semicolons or new lines)
@@ -146,6 +151,7 @@ public struct InvoiceSettings: Equatable, Sendable, Codable {
         smtpCcEmails = try container.decodeIfPresent(String.self, forKey: .smtpCcEmails) ?? fallback.smtpCcEmails
         smtpUseTLS = try container.decodeIfPresent(Bool.self, forKey: .smtpUseTLS) ?? fallback.smtpUseTLS
         attachHoursCSV = try container.decodeIfPresent(Bool.self, forKey: .attachHoursCSV) ?? fallback.attachHoursCSV
+        attachUBL = try container.decodeIfPresent(Bool.self, forKey: .attachUBL) ?? fallback.attachUBL
     }
 }
 
@@ -187,6 +193,11 @@ public struct Invoice: Equatable, Sendable {
     public var vatCents: Int
     public var totalCents: Int
     public var currency: Currency
+    /// True for a credit note: every amount is negative and it points at the
+    /// invoice it reverses.
+    public var isCredit: Bool = false
+    /// The number of the invoice this credit note changes, when it is a credit.
+    public var creditForNumber: String? = nil
 }
 
 /// How much time one invoice covers. The month is the default; a week or two
@@ -318,8 +329,21 @@ public enum Invoicing {
         return missing
     }
 
-    /// Builds the invoice for one client and one month. The number is allocated
-    /// on first generation and reused afterwards, so the same month can never
+    /// The figures of an invoice, before a number is allocated. A credit note
+    /// reuses this and flips the sign, so both always describe the same work.
+    private struct Computed {
+        var profile: Profile
+        var sender: InvoiceSettings
+        var period: DateRange
+        var lines: [InvoiceLine]
+        var expensesCents: Int
+        var subtotalCents: Int
+        var vatCents: Int
+        var netSeconds: TimeInterval
+    }
+
+    /// Builds the invoice for one client and one period. The number is allocated
+    /// on first generation and reused afterwards, so the same period can never
     /// produce a duplicate.
     public static func invoice(
         store: Store,
@@ -330,10 +354,88 @@ public enum Invoicing {
         now: Date = Date(),
         calendar: Calendar = Formatting.calendar
     ) throws -> Invoice {
+        let computed = try compute(
+            store: store, profileId: profileId, period: period, now: now, calendar: calendar
+        )
+        let stored = try store.storeInvoice(
+            profileId: profileId,
+            periodStart: computed.period.start,
+            periodEnd: computed.period.end,
+            poNumber: poNumber,
+            issuedAt: issuedAt,
+            totalCents: computed.subtotalCents + computed.vatCents,
+            currency: computed.profile.currency
+        )
+        return assemble(
+            computed, number: stored.number, poNumber: stored.poNumber,
+            issuedAt: issuedAt, isCredit: false, creditFor: nil, calendar: calendar
+        )
+    }
+
+    /// The credit note that reverses an issued invoice: the same customer and
+    /// period, the same lines with a negative sign, its own number and a
+    /// reference to the original. The Belastingdienst wants that reference on any
+    /// document that changes an earlier invoice, so it is kept and shown.
+    public static func credit(
+        store: Store,
+        originalNumber: String,
+        issuedAt: Date = Date(),
+        now: Date = Date(),
+        calendar: Calendar = Formatting.calendar
+    ) throws -> Invoice {
+        guard let original = try store.issuedInvoice(number: originalNumber), !original.isCredit else {
+            throw TrackerError.invalidRange("unknown invoice: \(originalNumber)")
+        }
+        let period = DateRange(start: original.periodStart, end: original.periodEnd)
+        let computed = try compute(
+            store: store, profileId: original.profileId, period: period, now: now, calendar: calendar
+        )
+        let stored = try store.storeInvoice(
+            profileId: original.profileId,
+            periodStart: original.periodStart,
+            periodEnd: original.periodEnd,
+            poNumber: original.poNumber,
+            issuedAt: issuedAt,
+            totalCents: -(computed.subtotalCents + computed.vatCents),
+            currency: computed.profile.currency,
+            creditFor: originalNumber
+        )
+        return assemble(
+            computed, number: stored.number, poNumber: stored.poNumber,
+            issuedAt: issuedAt, isCredit: true, creditFor: originalNumber, calendar: calendar
+        )
+    }
+
+    /// Rebuilds a stored credit note for its PDF or UBL export. The figures come
+    /// from the credited period again, exactly as a rebuild of the original does.
+    public static func restoredCredit(
+        store: Store,
+        credit: Store.IssuedInvoice,
+        calendar: Calendar = Formatting.calendar
+    ) throws -> Invoice {
+        let period = DateRange(start: credit.periodStart, end: credit.periodEnd)
+        let computed = try compute(
+            store: store, profileId: credit.profileId, period: period,
+            now: credit.issuedAt, calendar: calendar
+        )
+        return assemble(
+            computed, number: credit.number, poNumber: credit.poNumber,
+            issuedAt: credit.issuedAt, isCredit: true, creditFor: credit.creditForNumber, calendar: calendar
+        )
+    }
+
+    private static func compute(
+        store: Store,
+        profileId: Int64,
+        period: DateRange,
+        now: Date,
+        calendar: Calendar
+    ) throws -> Computed {
         guard let profile = try store.profile(id: profileId) else {
             throw TrackerError.unknownProfile(String(profileId))
         }
-        let missing = missingRequiredFields(profile: profile, sender: try store.invoiceSettings())
+        let sender = try store.invoiceSettings()
+        let missing = missingRequiredFields(profile: profile, sender: sender)
         guard missing.isEmpty else {
             throw TrackerError.invalidRange(
                 "cannot issue an invoice: fill in \(missing.joined(separator: ", ")) first"
@@ -458,35 +560,68 @@ public enum Invoicing {
         let expensesTotal = expenses.reduce(0) { $0 + $1.amountCents }
         let vat = Int((Double(subtotal) * Double(max(0, profile.vatRatePercent)) / 100).rounded())
 
-        let stored = try store.storeInvoice(
-            profileId: profileId,
-            periodStart: report.range.start,
-            periodEnd: report.range.end,
-            poNumber: poNumber,
-            issuedAt: issuedAt,
-            totalCents: subtotal + vat,
-            currency: profile.currency
-        )
-
-        let dueAt = calendar.date(byAdding: .day, value: max(0, stored.sender.paymentTermDays), to: issuedAt) ?? issuedAt
-
-        return Invoice(
-            number: stored.number,
-            poNumber: stored.poNumber,
-            sender: stored.sender,
+        return Computed(
             profile: profile,
-            periodStart: report.range.start,
-            periodEnd: report.range.end,
+            sender: sender,
+            period: report.range,
+            lines: lines,
+            expensesCents: expensesTotal,
+            subtotalCents: subtotal,
+            vatCents: vat,
+            netSeconds: lines.reduce(0) { $0 + max(0, $1.seconds) }
+        )
+    }
+
+    /// Turns the computed figures into an `Invoice`. A credit flips every amount,
+    /// including each line, so the document reads as a reversal.
+    private static func assemble(
+        _ computed: Computed,
+        number: String,
+        poNumber: String?,
+        issuedAt: Date,
+        isCredit: Bool,
+        creditFor: String?,
+        calendar: Calendar
+    ) -> Invoice {
+        let sign = isCredit ? -1 : 1
+        let lines = isCredit ? computed.lines.map(negated) : computed.lines
+        // A credit note has no payment term: there is nothing to pay on it.
+        let dueAt = isCredit
+            ? issuedAt
+            : calendar.date(byAdding: .day, value: max(0, computed.sender.paymentTermDays), to: issuedAt) ?? issuedAt
+        return Invoice(
+            number: number,
+            poNumber: poNumber,
+            sender: computed.sender,
+            profile: computed.profile,
+            periodStart: computed.period.start,
+            periodEnd: computed.period.end,
             issuedAt: issuedAt,
             dueAt: dueAt,
             lines: lines,
-            netSeconds: lines.reduce(0) { $0 + max(0, $1.seconds) },
-            expensesCents: expensesTotal,
-            subtotalCents: subtotal,
-            vatRatePercent: profile.vatRatePercent,
-            vatCents: vat,
-            totalCents: subtotal + vat,
-            currency: profile.currency
+            netSeconds: TimeInterval(sign) * computed.netSeconds,
+            expensesCents: sign * computed.expensesCents,
+            subtotalCents: sign * computed.subtotalCents,
+            vatRatePercent: computed.profile.vatRatePercent,
+            vatCents: sign * computed.vatCents,
+            totalCents: sign * (computed.subtotalCents + computed.vatCents),
+            currency: computed.profile.currency,
+            isCredit: isCredit,
+            creditForNumber: creditFor
+        )
+    }
+
+    /// The mirror of an invoice line: same wording, rates and quantity, every
+    /// count and amount negative.
+    private static func negated(_ line: InvoiceLine) -> InvoiceLine {
+        InvoiceLine(
+            label: line.label,
+            seconds: -line.seconds,
+            hourlyRateCents: line.hourlyRateCents,
+            amountCents: -line.amountCents,
+            quantity: line.quantity.map { -$0 },
+            unit: line.unit,
+            unitRateCents: line.unitRateCents
         )
     }
 }
@@ -494,15 +629,21 @@ public enum Invoicing {
 /// The email that carries the invoice PDF.
 public enum InvoiceEmail {
     public static func subject(for invoice: Invoice) -> String {
+        let kind = invoice.isCredit ? "Credit note" : "Invoice"
         let sender = invoice.sender.senderName.trimmingCharacters(in: .whitespaces)
-        return sender.isEmpty ? "Invoice \(invoice.number)" : "Invoice \(invoice.number) - \(sender)"
+        return sender.isEmpty ? "\(kind) \(invoice.number)" : "\(kind) \(invoice.number) - \(sender)"
     }
 
     public static func body(for invoice: Invoice) -> String {
+        var opening = "Here is \(invoice.isCredit ? "credit note" : "invoice") \(invoice.number) "
+            + "for \(Invoicing.periodText(start: invoice.periodStart, end: invoice.periodEnd))."
+        if invoice.isCredit, let original = invoice.creditForNumber {
+            opening += " It reverses invoice \(original)."
+        }
         var lines = [
             "Dear \(invoice.profile.name),",
             "",
-            "Here is invoice \(invoice.number) for \(Invoicing.periodText(start: invoice.periodStart, end: invoice.periodEnd)).",
+            opening,
         ]
         if let po = invoice.poNumber, !po.isEmpty {
             lines.append("Purchase order: \(po)")
@@ -517,12 +658,20 @@ public enum InvoiceEmail {
         return lines.joined(separator: "\r\n")
     }
 
-    /// The message as the app sends it, with the rendered PDF and optionally the
-    /// hour sheet attached.
-    public static func message(for invoice: Invoice, to recipient: String, pdf: Data, csv: Data? = nil) -> EmailMessage {
+    /// The message as the app sends it: the rendered PDF, optionally the
+    /// UBL/Peppol XML and the hour sheet.
+    public static func message(
+        for invoice: Invoice, to recipient: String, pdf: Data, csv: Data? = nil, includeUBL: Bool = true
+    ) -> EmailMessage {
+        let base = "\(invoice.isCredit ? "credit" : "invoice")-\(invoice.number)"
         var attachments = [
-            EmailAttachment(name: "invoice-\(invoice.number).pdf", mimeType: "application/pdf", data: pdf)
+            EmailAttachment(name: "\(base).pdf", mimeType: "application/pdf", data: pdf)
         ]
+        if includeUBL {
+            attachments.append(EmailAttachment(
+                name: "\(base).xml", mimeType: "application/xml", data: UBLExport.data(for: invoice)
+            ))
+        }
         if let csv {
             let client = invoice.profile.name
                 .replacingOccurrences(of: "/", with: "-")
@@ -571,7 +720,13 @@ extension Store {
         return decoded
     }
 
+    /// Writes the settings. The invoice counter only ever moves forward: a number
+    /// that was handed out is never handed out again, not even after its invoice
+    /// was deleted or after a settings window writes back an older figure. That is
+    /// what keeps a deleted number from reappearing as a duplicate.
     public func updateInvoiceSettings(_ settings: InvoiceSettings) throws {
+        var settings = settings
+        settings.nextInvoiceNumber = max(settings.nextInvoiceNumber, try invoiceSettings().nextInvoiceNumber)
         let data = try JSONEncoder().encode(settings)
         let json = String(data: data, encoding: .utf8) ?? "{}"
         try database.run(
@@ -585,10 +740,14 @@ extension Store {
         public var number: String
         public var poNumber: String?
         public var sender: InvoiceSettings
+        public var isCredit: Bool = false
+        public var creditForNumber: String? = nil
     }
 
-    /// Allocates the number for this client and month on the first call and
+    /// Allocates the number for this client and period on the first call and
     /// reuses it on every later call. New numbers skip any that already exist.
+    /// With `creditFor` set, a credit note is stored instead: it gets its own
+    /// number and only one credit per original invoice is allowed.
     @discardableResult
     public func storeInvoice(
         profileId: Int64,
@@ -597,11 +756,14 @@ extension Store {
         poNumber: String?,
         issuedAt: Date,
         totalCents: Int,
-        currency: Currency
+        currency: Currency,
+        creditFor: String? = nil
     ) throws -> StoredInvoice {
         let start = Int64(periodStart.timeIntervalSince1970)
-        if let row = try database.query(
-            "SELECT * FROM invoices WHERE profile_id = ? AND period_start = ?;",
+        // A credit never reuses the original's number; only a regular invoice
+        // reopens the one it already had for this period.
+        if creditFor == nil, let row = try database.query(
+            "SELECT * FROM invoices WHERE profile_id = ? AND period_start = ? AND is_credit = 0;",
             [.int(profileId), .int(start)]
         ).first, let number = row.string("number") {
             let effectivePO = poNumber ?? row.string("po_number")
@@ -617,6 +779,9 @@ extension Store {
             )
             return StoredInvoice(number: number, poNumber: effectivePO, sender: try invoiceSettings())
         }
+        if let creditFor, let existing = try creditNumber(creditFor: creditFor) {
+            throw TrackerError.invalidRange("invoice \(creditFor) already has credit note \(existing)")
+        }
 
         // The year in the prefix follows the system clock, not the invoice's
         // issue date, so rebuilding an old invoice never rewinds the year.
@@ -631,8 +796,8 @@ extension Store {
 
         try database.run(
             """
-            INSERT INTO invoices (profile_id, period_start, period_end, number, po_number, issued_at, total_cents, currency)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO invoices (profile_id, period_start, period_end, number, po_number, issued_at, total_cents, currency, is_credit, credit_for)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             [
                 .int(profileId),
@@ -643,9 +808,14 @@ extension Store {
                 .int(Int64(issuedAt.timeIntervalSince1970)),
                 .int(Int64(totalCents)),
                 .text(currency.rawValue),
+                .int(creditFor == nil ? 0 : 1),
+                creditFor.map { SQLValue.text($0) } ?? .null,
             ]
         )
-        return StoredInvoice(number: number, poNumber: poNumber, sender: settings)
+        return StoredInvoice(
+            number: number, poNumber: poNumber, sender: settings,
+            isCredit: creditFor != nil, creditForNumber: creditFor
+        )
     }
 
     /// A stored invoice as the history list shows it, with the client's name.
@@ -660,34 +830,59 @@ extension Store {
         public var totalCents: Int
         public var currency: Currency
         public var poNumber: String?
+        /// True when this row is a credit note rather than an invoice.
+        public var isCredit: Bool = false
+        /// For a credit note: the number of the invoice it reverses.
+        public var creditForNumber: String? = nil
     }
 
-    /// Every invoice ever issued, newest month first: when you invoiced and whom.
+    /// Every invoice and credit ever issued, newest month first: when you
+    /// invoiced and whom.
     public func issuedInvoices() throws -> [IssuedInvoice] {
         try database.query(
             """
             SELECT i.number, i.profile_id, p.name AS profile_name, i.period_start,
-                   i.period_end, i.issued_at, i.total_cents, i.currency, i.po_number
+                   i.period_end, i.issued_at, i.total_cents, i.currency, i.po_number,
+                   i.is_credit, i.credit_for
             FROM invoices i JOIN profiles p ON p.id = i.profile_id
-            ORDER BY i.period_start DESC, p.name COLLATE NOCASE ASC;
+            ORDER BY i.period_start DESC, i.issued_at DESC, p.name COLLATE NOCASE ASC;
             """
-        ).compactMap { row in
-            guard let number = row.string("number"),
-                  let profileId = row.int("profile_id"),
-                  let periodStart = row.date("period_start"),
-                  let issuedAt = row.date("issued_at") else { return nil }
-            return IssuedInvoice(
-                number: number,
-                profileId: profileId,
-                profileName: row.string("profile_name") ?? "",
-                periodStart: periodStart,
-                periodEnd: row.date("period_end") ?? periodStart,
-                issuedAt: issuedAt,
-                totalCents: row.int("total_cents").map(Int.init) ?? 0,
-                currency: row.string("currency").flatMap(Currency.init(rawValue:)) ?? .eur,
-                poNumber: row.string("po_number")
-            )
-        }
+        ).compactMap(issuedInvoice(from:))
+    }
+
+    /// One stored invoice or credit by its number, for rebuilding a document or
+    /// checking whether a credit already exists.
+    public func issuedInvoice(number: String) throws -> IssuedInvoice? {
+        try database.query(
+            """
+            SELECT i.number, i.profile_id, p.name AS profile_name, i.period_start,
+                   i.period_end, i.issued_at, i.total_cents, i.currency, i.po_number,
+                   i.is_credit, i.credit_for
+            FROM invoices i JOIN profiles p ON p.id = i.profile_id
+            WHERE i.number = ?;
+            """,
+            [.text(number)]
+        ).first.flatMap(issuedInvoice(from:))
+    }
+
+    private func issuedInvoice(from row: Row) -> IssuedInvoice? {
+        guard let number = row.string("number"),
+              let profileId = row.int("profile_id"),
+              let periodStart = row.date("period_start"),
+              let issuedAt = row.date("issued_at") else { return nil }
+        return IssuedInvoice(
+            number: number,
+            profileId: profileId,
+            profileName: row.string("profile_name") ?? "",
+            periodStart: periodStart,
+            periodEnd: row.date("period_end") ?? periodStart,
+            issuedAt: issuedAt,
+            totalCents: row.int("total_cents").map(Int.init) ?? 0,
+            currency: row.string("currency").flatMap(Currency.init(rawValue:)) ?? .eur,
+            poNumber: row.string("po_number"),
+            isCredit: row.bool("is_credit"),
+            creditForNumber: row.string("credit_for")
+        )
     }
 
     /// Removes an issued invoice from the history. The recorded hours stay; only
@@ -696,11 +891,20 @@ extension Store {
         try database.run("DELETE FROM invoices WHERE number = ?;", [.text(number)])
     }
 
-    /// The number already handed out for this client and month, if any.
+    /// The number already handed out for this client and period, if any. A credit
+    /// note does not count: the period belongs to its regular invoice.
     public func issuedInvoiceNumber(profileId: Int64, periodStart: Date) throws -> String? {
         try database.query(
-            "SELECT number FROM invoices WHERE profile_id = ? AND period_start = ?;",
+            "SELECT number FROM invoices WHERE profile_id = ? AND period_start = ? AND is_credit = 0;",
             [.int(profileId), .int(Int64(periodStart.timeIntervalSince1970))]
+        ).first?.string("number")
+    }
+
+    /// The number of the credit note already made for an invoice, if any. Only
+    /// one credit per original invoice is allowed.
+    public func creditNumber(creditFor: String) throws -> String? {
+        try database.query(
+            "SELECT number FROM invoices WHERE credit_for = ? LIMIT 1;", [.text(creditFor)]
         ).first?.string("number")
     }
 

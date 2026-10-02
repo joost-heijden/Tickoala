@@ -15,6 +15,7 @@ struct InvoicesWindow: View {
     @State private var sendingId: Int64?
     @State private var sendTarget: AppModel.InvoiceCandidate?
     @State private var deleteTarget: Store.IssuedInvoice?
+    @State private var creditTarget: Store.IssuedInvoice?
     @State private var showHistory = true
 
     var body: some View {
@@ -58,9 +59,7 @@ struct InvoicesWindow: View {
             }
             Button("Cancel", role: .cancel) { sendTarget = nil }
         } message: {
-            Text(includeCSV(sendTarget)
-                ? "The invoice PDF and the hours CSV are attached. This cannot be undone."
-                : "The invoice PDF is attached. This cannot be undone.")
+            Text(attachmentSummary(sendTarget))
         }
         .alert(
             "Delete invoice \(deleteTarget?.number ?? "")?",
@@ -74,6 +73,21 @@ struct InvoicesWindow: View {
             Button("Cancel", role: .cancel) { deleteTarget = nil }
         } message: {
             Text("Removes it from the history. The recorded hours stay, so you can issue it again.")
+        }
+        .confirmationDialog(
+            "Credit invoice \(creditTarget?.number ?? "")?",
+            isPresented: Binding(get: { creditTarget != nil }, set: { if !$0 { creditTarget = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let target = creditTarget {
+                Button("Create credit note for \(target.profileName)") {
+                    creditTarget = nil
+                    credit(target)
+                }
+            }
+            Button("Cancel", role: .cancel) { creditTarget = nil }
+        } message: {
+            Text("Creates a credit note that reverses this invoice, with its own number and a reference to the original. The original stays in the history.")
         }
     }
 
@@ -162,8 +176,8 @@ struct InvoicesWindow: View {
                                         .frame(width: 150, alignment: .leading)
                                     Text(invoice.profileName).lineLimit(1)
                                     Spacer(minLength: 8)
-                                    Text("Invoice \(invoice.number)")
-                                        .foregroundStyle(.secondary)
+                                    Text(documentLabel(invoice))
+                                        .foregroundStyle(invoice.isCredit ? .orange : .secondary)
                                         .lineLimit(1)
                                         .fixedSize()
                                     Text(Formatting.money(cents: invoice.totalCents, currency: invoice.currency))
@@ -177,22 +191,28 @@ struct InvoicesWindow: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .help("Show the period of this invoice")
+                            .help("Show the period of this document")
 
                             if sendingId == invoice.profileId {
                                 ProgressView().controlSize(.small)
                             }
                             Button("PDF") { saveHistoryPDF(invoice) }
                             Button("UBL") { saveHistoryUBL(invoice) }
-                            Button("CSV") { exportHistoryCSV(invoice) }
-                            Button("Resend") { resendHistory(invoice) }
+                            if !invoice.isCredit {
+                                Button("CSV") { exportHistoryCSV(invoice) }
+                            }
+                            Button("Resend") { resend(invoice) }
+                            if !invoice.isCredit {
+                                Button("Credit") { creditTarget = invoice }
+                                    .help("Create a credit note that reverses this invoice")
+                            }
                             Button {
                                 deleteTarget = invoice
                             } label: {
                                 Image(systemName: "trash")
                             }
-                            .accessibilityLabel("Delete invoice \(invoice.number)")
-                            .help("Delete this invoice from the history")
+                            .accessibilityLabel("Delete \(documentLabel(invoice))")
+                            .help("Delete this document from the history")
                         }
                         .controlSize(.small)
                         .disabled(sendingId != nil)
@@ -327,6 +347,17 @@ struct InvoicesWindow: View {
         return attachCSV[candidate.id] ?? model.invoiceSettings().attachHoursCSV
     }
 
+    /// What will be attached to the invoice email, for the send confirmation.
+    private func attachmentSummary(_ candidate: AppModel.InvoiceCandidate?) -> String {
+        var parts = ["the invoice PDF"]
+        if model.invoiceSettings().attachUBL { parts.append("the UBL/Peppol XML") }
+        if includeCSV(candidate) { parts.append("the hours CSV") }
+        let list = parts.count == 1
+            ? parts[0]
+            : parts.dropLast().joined(separator: ", ") + " and " + (parts.last ?? "")
+        return "Attached: \(list). This cannot be undone."
+    }
+
     private func email(_ candidate: AppModel.InvoiceCandidate) -> String {
         (emails[candidate.id] ?? candidate.profile.billingEmail ?? "").trimmingCharacters(in: .whitespaces)
     }
@@ -412,20 +443,37 @@ struct InvoicesWindow: View {
         Invoicing.periodTag(start: invoice.periodStart, end: invoice.periodEnd)
     }
 
+    /// How a stored document reads in the history: a credit names the invoice it
+    /// reverses, so the reference the Belastingdienst asks for is visible.
+    private func documentLabel(_ invoice: Store.IssuedInvoice) -> String {
+        guard invoice.isCredit else { return "Invoice \(invoice.number)" }
+        let original = invoice.creditForNumber.map { " for \($0)" } ?? ""
+        return "Credit \(invoice.number)\(original)"
+    }
+
+    /// What a history row shows as its file name stem.
+    private func documentFile(_ invoice: Store.IssuedInvoice) -> String {
+        "\(invoice.isCredit ? "credit" : "invoice")-\(invoice.number)-\(safeName(invoice.profileName))"
+    }
+
+    /// Rebuilds a stored invoice or credit from the recorded hours.
+    private func rebuild(_ item: Store.IssuedInvoice) -> Invoice? {
+        if item.isCredit { return model.makeCredit(item) }
+        return model.makeInvoice(profileId: item.profileId, period: historyPeriod(item), poNumber: item.poNumber)
+    }
+
     private func saveHistoryPDF(_ item: Store.IssuedInvoice) {
-        guard let invoice = model.makeInvoice(
-            profileId: item.profileId, period: historyPeriod(item), poNumber: item.poNumber
-        ) else {
+        guard let invoice = rebuild(item) else {
             status = model.errorMessage ?? "Could not rebuild the invoice."
             return
         }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
-        panel.nameFieldStringValue = "invoice-\(item.number)-\(safeName(item.profileName)).pdf"
-        panel.message = "Save the invoice for \(item.profileName)"
+        panel.nameFieldStringValue = "\(documentFile(item)).pdf"
+        panel.message = "Save the \(item.isCredit ? "credit note" : "invoice") for \(item.profileName)"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         if model.write(invoice, to: url) {
-            status = "Invoice \(invoice.number) saved."
+            status = "\(item.isCredit ? "Credit" : "Invoice") \(invoice.number) saved."
             NSWorkspace.shared.open(url)
         }
         model.refresh()
@@ -433,16 +481,14 @@ struct InvoicesWindow: View {
     }
 
     private func saveHistoryUBL(_ item: Store.IssuedInvoice) {
-        guard let invoice = model.makeInvoice(
-            profileId: item.profileId, period: historyPeriod(item), poNumber: item.poNumber
-        ) else {
+        guard let invoice = rebuild(item) else {
             status = model.errorMessage ?? "Could not rebuild the invoice."
             return
         }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.xml]
-        panel.nameFieldStringValue = "invoice-\(item.number)-\(safeName(item.profileName)).xml"
-        panel.message = "Save the UBL/Peppol invoice for \(item.profileName)"
+        panel.nameFieldStringValue = "\(documentFile(item)).xml"
+        panel.message = "Save the UBL/Peppol \(item.isCredit ? "credit note" : "invoice") for \(item.profileName)"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         if model.writeUBL(invoice, to: url) {
             status = "UBL \(invoice.number) saved."
@@ -450,6 +496,30 @@ struct InvoicesWindow: View {
         }
         model.refresh()
         loadFields()
+    }
+
+    /// Makes the credit note for an invoice, then offers to save its PDF.
+    private func credit(_ item: Store.IssuedInvoice) {
+        guard let credit = model.makeCredit(originalNumber: item.number) else {
+            status = model.errorMessage ?? "Could not create the credit note."
+            return
+        }
+        status = "Credit \(credit.number) for invoice \(item.number) created."
+        model.refresh()
+        loadFields()
+        saveCreditPDF(credit)
+    }
+
+    private func saveCreditPDF(_ credit: Invoice) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "credit-\(credit.number)-\(safeName(credit.profile.name)).pdf"
+        panel.message = "Save the credit note for \(credit.profile.name)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if model.write(credit, to: url) {
+            status = "Credit \(credit.number) saved."
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func exportHistoryCSV(_ item: Store.IssuedInvoice) {
@@ -464,12 +534,42 @@ struct InvoicesWindow: View {
         }
     }
 
+    private func resend(_ item: Store.IssuedInvoice) {
+        if item.isCredit { resendCredit(item) } else { resendHistory(item) }
+    }
+
     private func resendHistory(_ item: Store.IssuedInvoice) {
         model.showInvoicePeriod(historyPeriod(item))
         if let candidate = model.invoiceCandidates().first(where: { $0.id == item.profileId }) {
             sendTarget = candidate
         } else {
             status = "No invoice to rebuild for \(item.profileName)."
+        }
+    }
+
+    /// Emails a stored credit note to the customer's billing address.
+    private func resendCredit(_ item: Store.IssuedInvoice) {
+        guard let recipient = model.profile(id: item.profileId)?.billingEmail?
+            .trimmingCharacters(in: .whitespaces), !recipient.isEmpty else {
+            status = "No email address for \(item.profileName)."
+            return
+        }
+        guard let credit = model.makeCredit(item) else {
+            status = model.errorMessage ?? "Could not rebuild the credit note."
+            return
+        }
+        sendingId = item.profileId
+        status = "Sending credit \(credit.number)…"
+        Task {
+            do {
+                try await model.sendInvoice(credit, to: recipient, attachCSV: false)
+                status = "Credit \(credit.number) sent to \(recipient)."
+            } catch {
+                status = "Sending failed: \(error)"
+            }
+            sendingId = nil
+            model.refresh()
+            loadFields()
         }
     }
 

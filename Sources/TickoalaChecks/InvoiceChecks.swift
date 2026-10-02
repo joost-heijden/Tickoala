@@ -184,6 +184,18 @@ func invoiceChecks() {
             let invoice = try Invoicing.invoice(store: fixture.store, profileId: fixture.profileA.id, period: period)
             let message = InvoiceEmail.message(for: invoice, to: "client@example.com", pdf: Data("x".utf8))
             expectEqual(message.cc, ["books@example.com", "second@example.com", "client-books@example.com"])
+            expectEqual(
+                message.attachments.map(\.name),
+                ["invoice-\(invoice.number).pdf", "invoice-\(invoice.number).xml"]
+            )
+            expect(
+                message.attachments.last?.data == UBLExport.data(for: invoice),
+                "the UBL/Peppol XML travels with the invoice email"
+            )
+            let withoutUBL = InvoiceEmail.message(
+                for: invoice, to: "client@example.com", pdf: Data("x".utf8), includeUBL: false
+            )
+            expectEqual(withoutUBL.attachments.map(\.name), ["invoice-\(invoice.number).pdf"])
         }
 
         test("a manual number edit skips numbers that already exist") {
@@ -295,6 +307,85 @@ func invoiceChecks() {
 
             let history = try fixture.store.issuedInvoices()
             expectEqual(Formatting.day(history.first?.periodEnd ?? Date()), "2026-09-21")
+        }
+
+        test("a credit note reverses an invoice with its own number") {
+            let fixture = try Fixture()
+            try fixture.store.updateProfile(id: fixture.profileA.id, hourlyRateCents: 10000)
+            let period = Invoicing.previousMonthRange(containing: at("2026-09-01"))
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: nil,
+                startedAt: at("2026-08-10 09:00"), endedAt: at("2026-08-10 17:00"),
+                status: .completed, source: .manual, note: nil
+            )
+            let original = try Invoicing.invoice(
+                store: fixture.store, profileId: fixture.profileA.id, period: period,
+                issuedAt: at("2026-09-01 09:00")
+            )
+            expectEqual(original.number, "0001")
+            expectEqual(original.totalCents, 96800, "8 hours at €100 plus 21% VAT")
+
+            let credit = try Invoicing.credit(
+                store: fixture.store, originalNumber: original.number, issuedAt: at("2026-09-05 09:00")
+            )
+            expectEqual(credit.number, "0002", "the credit gets its own number")
+            expectEqual(credit.creditForNumber, "0001", "and points at the original")
+            expect(credit.isCredit)
+            expectEqual(credit.subtotalCents, -80000)
+            expectEqual(credit.vatCents, -16800)
+            expectEqual(credit.totalCents, -96800, "the whole invoice is reversed")
+            expectEqual(credit.lines.first?.amountCents, -80000)
+            expectEqual(credit.dueAt, credit.issuedAt, "a credit note has no payment term")
+
+            let history = try fixture.store.issuedInvoices()
+            expectEqual(history.map(\.number), ["0002", "0001"], "the newer credit comes first")
+            expectEqual(history.first?.isCredit, true)
+            expectEqual(history.first?.creditForNumber, "0001")
+            expectEqual(
+                try fixture.store.issuedInvoiceNumber(profileId: fixture.profileA.id, periodStart: period.start),
+                "0001",
+                "the original still owns the period, so it is not reinvoiced"
+            )
+
+            // The reference the Belastingdienst asks for is on the document.
+            let xml = UBLExport.document(for: credit)
+            expect(xml.contains("<CreditNote "), "a credit is its own UBL document")
+            expect(xml.contains("<cbc:CreditNoteTypeCode>381</cbc:CreditNoteTypeCode>"))
+            expect(xml.contains("<cac:CreditNoteLine>"))
+            expect(xml.contains("<cbc:ID>0001</cbc:ID>"), "the UBL names the invoice it reverses")
+
+            // Crediting the same invoice twice is refused.
+            expectThrows { _ = try Invoicing.credit(store: fixture.store, originalNumber: "0001") }
+        }
+
+        test("a deleted invoice's number is never handed out again") {
+            let fixture = try Fixture()
+            let august = Invoicing.previousMonthRange(containing: at("2026-09-01"))
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileA.id, projectId: nil,
+                startedAt: at("2026-08-10 09:00"), endedAt: at("2026-08-10 10:00"),
+                status: .completed, source: .manual, note: nil
+            )
+            let first = try Invoicing.invoice(store: fixture.store, profileId: fixture.profileA.id, period: august)
+            expectEqual(first.number, "0001")
+
+            // The invoice was not good enough and is deleted; its number stays spent.
+            try fixture.store.deleteInvoice(number: "0001")
+            expectEqual(try fixture.store.issuedInvoices().count, 0)
+
+            // Even a settings write that carries an older counter cannot rewind it.
+            var settings = try fixture.store.invoiceSettings()
+            settings.nextInvoiceNumber = 1
+            try fixture.store.updateInvoiceSettings(settings)
+            expectEqual(try fixture.store.invoiceSettings().nextInvoiceNumber, 2, "the counter never moves back")
+
+            _ = try fixture.store.createEntry(
+                profileId: fixture.profileB.id, projectId: nil,
+                startedAt: at("2026-08-11 09:00"), endedAt: at("2026-08-11 10:00"),
+                status: .completed, source: .manual, note: nil
+            )
+            let replacement = try Invoicing.invoice(store: fixture.store, profileId: fixture.profileB.id, period: august)
+            expectEqual(replacement.number, "0002", "the deleted number is not reused")
         }
     }
 }

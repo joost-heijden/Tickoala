@@ -99,8 +99,8 @@ just uses that.
 - **Day / week / month totals**, per project and per day
 - **Timeline with draggable bars** — the overview as bars instead of a table, so
   a correction is drag-and-drop
-- **Charts** — the overview as an hours-per-day chart (Swift Charts), with one bar
-  per day or stacked by project
+- **Charts** — the overview as a per-day chart (Swift Charts), showing hours or
+  the invoiced amount, with one bar per day or stacked by project
 - **Shortcuts, Siri and a global hotkey** — start, stop and read today's hours
   without opening the menu bar; see [Shortcuts and the hotkey](#shortcuts-and-the-hotkey)
 - **CSV export** for invoicing

@@ -220,11 +220,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// One day's hours for one project, the unit the chart plots.
+    /// One day's hours and amount for one project, the unit the chart plots. The
+    /// chart shows either `seconds` or `cents`, so both travel together.
     struct DayProjectTotal: Identifiable, Equatable {
         var day: Date
         var project: String
         var seconds: TimeInterval
+        /// The amount at the client's rate, in cents, for the same hours.
+        var cents: Int
         var id: String { "\(day.timeIntervalSince1970)-\(project)" }
     }
 
@@ -1515,8 +1518,9 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The per-day, per-project hours the chart plots. Built from the same
-    /// entries the table shows, so a tag or customer filter is reflected here too.
+    /// The per-day, per-project hours and amounts the chart plots. Built from the
+    /// same entries the table shows, so a tag or customer filter is reflected
+    /// here too. The amount uses the client's rate for the entry's kind.
     private func chartRows(
         store: Store,
         report: Report,
@@ -1524,7 +1528,9 @@ final class AppModel: ObservableObject {
     ) throws -> [DayProjectTotal] {
         let calendar = Formatting.calendar
         var projectCache: [Int64: String] = [:]
-        var grouped: [Date: [String: TimeInterval]] = [:]
+        var profileCache: [Int64: Profile] = [:]
+        // Second pass groups both figures at once; a tuple keyed by day then label.
+        var grouped: [Date: [String: (seconds: TimeInterval, cents: Int)]] = [:]
         for entry in entries {
             guard entry.kind == .work else { continue }
             let day = calendar.startOfDay(for: entry.startedAt)
@@ -1540,13 +1546,37 @@ final class AppModel: ObservableObject {
             } else {
                 label = "(no project)"
             }
-            grouped[day, default: [:]][label, default: 0] += entry.duration()
+            var profile = profileCache[entry.profileId]
+            if profile == nil {
+                profile = try store.profile(id: entry.profileId)
+                profileCache[entry.profileId] = profile
+            }
+            let seconds = entry.duration()
+            let cents = profile?.amountCents(for: seconds) ?? 0
+            var bucket = grouped[day, default: [:]][label, default: (0, 0)]
+            bucket.seconds += seconds
+            bucket.cents += cents
+            grouped[day, default: [:]][label] = bucket
         }
         return grouped
             .flatMap { day, projects in
-                projects.map { DayProjectTotal(day: day, project: $0.key, seconds: $0.value) }
+                projects.map { DayProjectTotal(day: day, project: $0.key, seconds: $0.value.seconds, cents: $0.value.cents) }
             }
             .sorted { ($0.day, $0.project) < ($1.day, $1.project) }
+    }
+
+    /// The currency of the amounts shown in the chart. Uses the single currency
+    /// in view, or the chosen customer's; euros when several currencies mix.
+    var chartCurrency: Currency {
+        let currencies = Set(profiles.map { $0.profile.currency })
+        if currencies.count == 1, let only = currencies.first { return only }
+        return selectedCustomer?.currency ?? .eur
+    }
+
+    /// Whether the chart has any amount at all, so the "show amount" toggle only
+    /// appears when there is something to show.
+    var chartHasAmount: Bool {
+        overviewByDayProject.contains { $0.cents > 0 }
     }
 
     var overviewRange: DateRange {

@@ -86,6 +86,37 @@ private struct GeneralSettings: View {
                         .foregroundStyle(.secondary)
                 }
 
+                FormSection(title: "Weekly summary") {
+                    Toggle(isOn: $model.weeklySummaryEnabled) {
+                        Text("Review last week once a week")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Toggle(isOn: $model.weeklySummaryEmail) {
+                        Text("Also email it to me")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .disabled(!model.weeklySummaryEnabled)
+                    if model.weeklySummaryEnabled && model.weeklySummaryEmail {
+                        if model.invoiceSettings().canSendEmail {
+                            HStack {
+                                Text("Sent over the SMTP server from Invoice settings, to your sender address.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Send now") { model.sendWeeklySummaryNow() }
+                            }
+                        } else {
+                            Text("Set the SMTP server under Invoice settings first.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    Text("A short recap of the hours, clients and amount of the week that just "
+                         + "ended, on the first day of the new week. Off by default.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 FormSection(title: "Project budgets") {
                     Toggle(isOn: $model.showBudgetWarnings) {
                         Text("Warn when a project reaches 80% and 100% of its hour budget")

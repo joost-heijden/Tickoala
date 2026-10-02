@@ -99,6 +99,9 @@ Payments:
 Import from another tracker (Toggl Track, Harvest or Clockify CSV export):
   tickoala import --from toggl|harvest|clockify --file <export.csv> [--profile <name>] [--user <name>] [--dry-run]
 
+Weekly review:
+  tickoala weekly [--week <YYYY-MM-DD>]   (default: last week)
+
 Settings:
   tickoala config list
   tickoala config set <key> <value>
@@ -255,6 +258,9 @@ func run() throws {
 
     case "import":
         try runImport(arguments)
+
+    case "weekly":
+        try runWeekly(arguments)
 
     case "backup":
         try runBackup(arguments)
@@ -1301,6 +1307,16 @@ func runImport(_ arguments: Arguments) throws {
         entries, to: tracker.store, tagsEnabled: try tracker.store.settings().tagsEnabled
     )
     print("imported \(summary.description)")
+}
+
+// MARK: - Weekly review
+
+/// Prints the review of the week before the given day (or last week by default).
+func runWeekly(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    let anchor = try arguments.date("week", default: nil) ?? Date()
+    let summary = try WeeklySummary.make(store: tracker.store, weekContaining: anchor)
+    print(summary.body)
 }
 
 // MARK: - Backup and restore

@@ -54,6 +54,29 @@ final class AppModel: ObservableObject {
     }
     private static let showTimerInIconKey = "menu-bar-timer"
 
+    /// Once a week, show a short review of the week that just ended. Off by
+    /// default; the option lives in Settings.
+    @Published var weeklySummaryEnabled = false {
+        didSet {
+            guard weeklySummaryEnabled != oldValue else { return }
+            UserDefaults.standard.set(weeklySummaryEnabled, forKey: Self.weeklySummaryEnabledKey)
+        }
+    }
+    private static let weeklySummaryEnabledKey = "weekly-summary-enabled"
+
+    /// Also email the weekly review to yourself, over the invoice SMTP settings.
+    @Published var weeklySummaryEmail = false {
+        didSet {
+            guard weeklySummaryEmail != oldValue else { return }
+            UserDefaults.standard.set(weeklySummaryEmail, forKey: Self.weeklySummaryEmailKey)
+        }
+    }
+    private static let weeklySummaryEmailKey = "weekly-summary-email"
+
+    /// Set once a week with the review; the app delegate turns it into a
+    /// notification.
+    @Published private(set) var weeklySummaryNotice: WeeklySummaryNotice?
+
     /// Gimmick: show the current month's revenue per customer in the menu.
     @Published var showEarningsInMenu = false {
         didSet {
@@ -276,6 +299,12 @@ final class AppModel: ObservableObject {
         var seconds: TimeInterval
     }
 
+    /// The week-in-review notice: a title and a short body.
+    struct WeeklySummaryNotice: Equatable {
+        var title: String
+        var body: String
+    }
+
     /// An unpaid invoice that has passed its due date, announced once a day.
     struct OverdueAlert: Equatable {
         var count: Int
@@ -333,6 +362,8 @@ final class AppModel: ObservableObject {
         showEarningsInIcon = UserDefaults.standard.bool(forKey: Self.showEarningsInIconKey)
         showEarningsInMenu = UserDefaults.standard.bool(forKey: Self.showEarningsInMenuKey)
         showTimerInIcon = UserDefaults.standard.bool(forKey: Self.showTimerInIconKey)
+        weeklySummaryEnabled = UserDefaults.standard.bool(forKey: Self.weeklySummaryEnabledKey)
+        weeklySummaryEmail = UserDefaults.standard.bool(forKey: Self.weeklySummaryEmailKey)
         // Restore the workday end from the database.
         if let settings = try? tracker?.store.settings() {
             workdayEndMinutes = settings.workdayEndMinutes
@@ -586,6 +617,7 @@ final class AppModel: ObservableObject {
         reloadOverview()
         checkInvoiceReminder()
         checkOverdueReminder()
+        checkWeeklySummary()
     }
 
     /// Watches how long the Mac has had no keyboard or mouse input. While a block
@@ -2236,6 +2268,75 @@ final class AppModel: ObservableObject {
     /// The label opened the window; no need to ask again.
     func acknowledgeInvoiceReminder() {
         shouldOpenInvoices = false
+    }
+
+    /// Once a week, review the week that just ended. The week is remembered, so
+    /// it fires once per week and not on every refresh; an empty week is skipped.
+    private func checkWeeklySummary() {
+        guard weeklySummaryEnabled, let tracker else { return }
+        let weekStart = Formatting.day(Reporting.range(.week, containing: Date()).start)
+        let key = "weekly-summary-shown"
+        guard UserDefaults.standard.string(forKey: key) != weekStart else { return }
+        // Mark it done before looking, so a week with no work is not retried all
+        // week long.
+        UserDefaults.standard.set(weekStart, forKey: key)
+        do {
+            let summary = try WeeklySummary.make(store: tracker.store)
+            guard summary.report.total > 0 else { return }
+            weeklySummaryNotice = WeeklySummaryNotice(
+                title: "Your week in review", body: summary.notificationText
+            )
+            if weeklySummaryEmail { sendWeeklySummaryEmail(summary) }
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// Emails the weekly review to yourself over the invoice SMTP settings.
+    private func sendWeeklySummaryEmail(_ summary: WeeklySummary) {
+        let settings = invoiceSettings()
+        guard settings.canSendEmail else { return }
+        let recipient = (settings.senderEmail.isEmpty ? settings.smtpFromEmail : settings.senderEmail)
+            .trimmingCharacters(in: .whitespaces)
+        guard !recipient.isEmpty else { return }
+        let password = Keychain.smtpPassword()
+        guard !password.isEmpty else { return }
+        let configuration = SMTPConfiguration(
+            host: settings.smtpHost,
+            port: settings.smtpPort,
+            username: settings.smtpUsername,
+            password: password,
+            from: settings.smtpFromEmail,
+            useTLS: settings.smtpUseTLS
+        )
+        let message = EmailMessage(
+            from: settings.smtpFromEmail.isEmpty ? settings.senderEmail : settings.smtpFromEmail,
+            to: [recipient],
+            subject: summary.subject,
+            body: summary.body
+        )
+        // Silent on failure: the review is a nicety, not something to nag about.
+        Task.detached(priority: .utility) {
+            try? SMTPClient.send(message, configuration: configuration)
+        }
+    }
+
+    /// Builds the review now and emails it, for the "Send now" button.
+    func sendWeeklySummaryNow() {
+        guard let tracker else { return }
+        do {
+            let summary = try WeeklySummary.make(store: tracker.store)
+            guard invoiceSettings().canSendEmail else {
+                errorMessage = "Set the SMTP server under Invoice settings to email the summary."
+                return
+            }
+            sendWeeklySummaryEmail(summary)
+            weeklySummaryNotice = WeeklySummaryNotice(
+                title: "Your week in review", body: summary.notificationText
+            )
+        } catch {
+            errorMessage = "\(error)"
+        }
     }
 
     /// Once a day, announce the oldest invoice that is past its due date. The

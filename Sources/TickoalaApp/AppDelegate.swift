@@ -56,6 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var idleObserver: AnyCancellable?
     /// Watches an invoice passing its due date.
     private var overdueObserver: AnyCancellable?
+    /// Watches the weekly review.
+    private var weeklyObserver: AnyCancellable?
     /// Whether the system allows notifications; otherwise the alert is the fallback.
     private var notificationsAllowed = false
     /// The system-wide start/stop hotkey (⌃⌥T), registered with Carbon so it needs
@@ -122,6 +124,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .compactMap { $0 }
             .sink { [weak self] alert in
                 DispatchQueue.main.async { self?.announceOverdue(alert) }
+            }
+        // The weekly review, once a week.
+        weeklyObserver = model.$weeklySummaryNotice
+            .compactMap { $0 }
+            .sink { [weak self] notice in
+                DispatchQueue.main.async { self?.announceWeeklySummary(notice) }
             }
     }
 
@@ -328,6 +336,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             model.keepIdleTime()
         }
+    }
+
+    /// Shows the weekly review. Prefers a quiet notification; falls back to an
+    /// alert when notifications are refused.
+    private func announceWeeklySummary(_ notice: AppModel.WeeklySummaryNotice) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        guard notificationsAllowed else {
+            let fallback = NSAlert()
+            fallback.messageText = notice.title
+            fallback.informativeText = notice.body
+            fallback.addButton(withTitle: "OK")
+            NSApp.activateForUI()
+            fallback.runModal()
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = notice.title
+        content.body = notice.body
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: "weekly-\(UUID().uuidString)", content: content, trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
     /// Says once a day that an invoice is past its due date. Prefers a quiet

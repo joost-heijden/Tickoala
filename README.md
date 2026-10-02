@@ -127,6 +127,10 @@ just uses that.
 - **Import from Toggl Track, Harvest or Clockify** — bring your history over from
   a CSV export (menu: **Import time entries…**, or the CLI); clients and projects
   are created as needed and running the same file twice changes nothing
+- **Weekly review** *(optional)* — a short recap of the week that just ended
+  (hours, clients, amount, tags), once a week; optionally emailed to yourself
+  over the invoice SMTP settings. Off by default under **Settings → General**;
+  `tickoala weekly` prints it any time
 - **Goals** *(optional)* — a daily and/or weekly hour target across all clients,
   shown with your progress in the menu and the overview footer; off by default
   under **Settings → Workday**
@@ -739,6 +743,7 @@ tickoala invoices --overdue     # what is unpaid and past its due date
 tickoala paid --number 2026-0114
 tickoala import --from toggl --file ~/Downloads/toggl_export.csv --dry-run
 tickoala import --from toggl --file team_export.csv --user "Jane"   # only your rows
+tickoala weekly                      # review of last week
 tickoala backup --out ~/Desktop/tickoala-2026-10-02.sqlite3
 tickoala restore --peek ~/Desktop/tickoala-2026-10-02.sqlite3        # what is in it?
 tickoala restore --from ~/Desktop/tickoala-2026-10-02.sqlite3        # asks to confirm

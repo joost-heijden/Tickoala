@@ -119,6 +119,22 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// How much to work on a day, in minutes, across all clients. Zero is off.
+    @Published var dailyGoalMinutes = TrackerSettings.default.dailyGoalMinutes {
+        didSet {
+            guard dailyGoalMinutes != oldValue else { return }
+            persistSetting(key: "daily-goal-minutes", value: dailyGoalMinutes)
+        }
+    }
+
+    /// How much to work in a week, in minutes, across all clients. Zero is off.
+    @Published var weeklyGoalMinutes = TrackerSettings.default.weeklyGoalMinutes {
+        didSet {
+            guard weeklyGoalMinutes != oldValue else { return }
+            persistSetting(key: "weekly-goal-minutes", value: weeklyGoalMinutes)
+        }
+    }
+
     /// The tag the overview is filtered on, or `nil` for all blocks. Only used
     /// when tags are enabled.
     @Published var tagFilter: String?
@@ -323,6 +339,8 @@ final class AppModel: ObservableObject {
             showBudgetWarnings = settings.budgetWarningsEnabled
             idleThresholdMinutes = settings.idleThresholdMinutes
             tagsEnabled = settings.tagsEnabled
+            dailyGoalMinutes = settings.dailyGoalMinutes
+            weeklyGoalMinutes = settings.weeklyGoalMinutes
         }
         // A coordinate only becomes a signal when it is near a stored location.
         wifi.resolveLocationContext = { [weak self] latitude, longitude in
@@ -507,6 +525,27 @@ final class AppModel: ObservableObject {
     var menuBarTimer: String? {
         guard showTimerInIcon, let primary = status?.primary, primary.mode == .working else { return nil }
         return Formatting.duration(primary.elapsedCurrent)
+    }
+
+    /// Progress towards today's goal, summed over every client; `nil` when no
+    /// daily goal is set.
+    var todayGoal: Goal? {
+        Goal(minutes: dailyGoalMinutes, workedSeconds: profiles.reduce(0) { $0 + $1.todayTotal })
+    }
+
+    /// Progress towards this week's goal, summed over every client.
+    var weekGoal: Goal? {
+        Goal(minutes: weeklyGoalMinutes, workedSeconds: profiles.reduce(0) { $0 + $1.weekTotal })
+    }
+
+    /// The goal that fits the overview's shown period, working against the shown
+    /// total so the footer matches what is on screen. A month has no goal.
+    var overviewGoal: Goal? {
+        switch period {
+        case .day: return Goal(minutes: dailyGoalMinutes, workedSeconds: overviewTotal)
+        case .week: return Goal(minutes: weeklyGoalMinutes, workedSeconds: overviewTotal)
+        case .month: return nil
+        }
     }
 
     /// Once per second: finalize delayed stops and refresh the status.

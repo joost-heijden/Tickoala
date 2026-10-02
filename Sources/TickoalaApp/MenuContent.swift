@@ -107,6 +107,7 @@ struct MenuContent: View {
             }
         }
 
+        goalsSection
         outstandingSection
 
         Divider()
@@ -227,6 +228,23 @@ struct MenuContent: View {
                 Button("Keep it") { model.keepIdleTime() }
             }
             Divider()
+        }
+    }
+
+    /// Progress towards the day and week goals, summed over every client.
+    @ViewBuilder
+    private var goalsSection: some View {
+        let today = model.todayGoal
+        let week = model.weekGoal
+        if today != nil || week != nil {
+            Section("Goals") {
+                if let today {
+                    Text("Today \(today.summary)")
+                }
+                if let week {
+                    Text("Week \(week.summary)")
+                }
+            }
         }
     }
 

@@ -343,6 +343,21 @@ struct OverviewWindow: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
             }
+
+            // The goal that fits the shown period, when one is set.
+            if let goal = model.overviewGoal {
+                HStack(spacing: 8) {
+                    Image(systemName: goal.isReached ? "flag.checkered" : "target")
+                    Text("\(model.period == .day ? "Daily" : "Weekly") goal \(goal.summary)")
+                        .lineLimit(1)
+                        .fixedSize()
+                    ProgressView(value: goal.fraction)
+                        .frame(width: 140)
+                        .controlSize(.small)
+                }
+                .font(.callout)
+                .foregroundStyle(goal.isReached ? Color.green : Color.secondary)
+            }
         }
         .padding(10)
     }

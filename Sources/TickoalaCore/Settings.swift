@@ -46,6 +46,12 @@ public struct TrackerSettings: Equatable, Sendable {
     /// the overview column and the tag filter stay hidden, and imported tags are
     /// kept in the database but not surfaced until this is switched on.
     public var tagsEnabled: Bool
+    /// How much to work on a day, in minutes, across all clients. Zero turns the
+    /// daily goal off, which is the default.
+    public var dailyGoalMinutes: Int
+    /// How much to work in a week, in minutes, across all clients. Zero turns the
+    /// weekly goal off, which is the default.
+    public var weeklyGoalMinutes: Int
 
     public static let `default` = TrackerSettings(
         dedupeWindowSeconds: 30,
@@ -55,7 +61,9 @@ public struct TrackerSettings: Equatable, Sendable {
         projectPrompt: .never,
         budgetWarningsEnabled: false,
         idleThresholdMinutes: 0,
-        tagsEnabled: false
+        tagsEnabled: false,
+        dailyGoalMinutes: 0,
+        weeklyGoalMinutes: 0
     )
 
     public init(
@@ -66,7 +74,9 @@ public struct TrackerSettings: Equatable, Sendable {
         projectPrompt: ProjectPrompt = .never,
         budgetWarningsEnabled: Bool = false,
         idleThresholdMinutes: Int = 0,
-        tagsEnabled: Bool = false
+        tagsEnabled: Bool = false,
+        dailyGoalMinutes: Int = 0,
+        weeklyGoalMinutes: Int = 0
     ) {
         self.dedupeWindowSeconds = dedupeWindowSeconds
         self.maxEntrySeconds = maxEntrySeconds
@@ -76,13 +86,15 @@ public struct TrackerSettings: Equatable, Sendable {
         self.budgetWarningsEnabled = budgetWarningsEnabled
         self.idleThresholdMinutes = max(0, idleThresholdMinutes)
         self.tagsEnabled = tagsEnabled
+        self.dailyGoalMinutes = max(0, dailyGoalMinutes)
+        self.weeklyGoalMinutes = max(0, weeklyGoalMinutes)
     }
 
     static let keys = [
         "dedupe-window-seconds", "max-entry-seconds",
         "workday-end-minutes", "workday-start-minutes",
         "project-prompt", "budget-warnings", "idle-threshold-minutes",
-        "tags-enabled",
+        "tags-enabled", "daily-goal-minutes", "weekly-goal-minutes",
     ]
 
     mutating func set(_ key: String, _ value: Int) -> Bool {
@@ -96,6 +108,8 @@ public struct TrackerSettings: Equatable, Sendable {
         case "budget-warnings": budgetWarningsEnabled = value != 0
         case "idle-threshold-minutes": idleThresholdMinutes = min(max(0, value), 24 * 60)
         case "tags-enabled": tagsEnabled = value != 0
+        case "daily-goal-minutes": dailyGoalMinutes = min(max(0, value), 24 * 60)
+        case "weekly-goal-minutes": weeklyGoalMinutes = min(max(0, value), 7 * 24 * 60)
         default: return false
         }
         return true

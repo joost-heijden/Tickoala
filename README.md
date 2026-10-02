@@ -125,6 +125,9 @@ just uses that.
 - **Import from Toggl Track, Harvest or Clockify** — bring your history over from
   a CSV export (menu: **Import time entries…**, or the CLI); clients and projects
   are created as needed and running the same file twice changes nothing
+- **Goals** *(optional)* — a daily and/or weekly hour target across all clients,
+  shown with your progress in the menu and the overview footer; off by default
+  under **Settings → Workday**
 - **Backup and restore** — a full copy of the database to one file, and back;
   the menu has **Data → Back up everything…** and **Restore from a backup…**,
   the CLI has `tickoala backup` and `tickoala restore`

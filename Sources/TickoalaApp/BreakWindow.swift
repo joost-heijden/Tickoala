@@ -83,6 +83,43 @@ private struct WorkdaySettings: View {
                 .foregroundStyle(.secondary)
         }
 
+        FormSection(title: "Goals") {
+            Toggle("Daily goal", isOn: Binding(
+                get: { model.dailyGoalMinutes > 0 },
+                set: { model.dailyGoalMinutes = $0 ? 8 * 60 : 0 }
+            ))
+            if model.dailyGoalMinutes > 0 {
+                HStack {
+                    Text("Work per day")
+                    Spacer()
+                    Stepper(value: $model.dailyGoalMinutes, in: 15...24 * 60, step: 15) {
+                        Text(Formatting.duration(TimeInterval(model.dailyGoalMinutes) * 60))
+                            .monospacedDigit()
+                    }
+                    .frame(width: 180, alignment: .trailing)
+                }
+            }
+            Toggle("Weekly goal", isOn: Binding(
+                get: { model.weeklyGoalMinutes > 0 },
+                set: { model.weeklyGoalMinutes = $0 ? 40 * 60 : 0 }
+            ))
+            if model.weeklyGoalMinutes > 0 {
+                HStack {
+                    Text("Work per week")
+                    Spacer()
+                    Stepper(value: $model.weeklyGoalMinutes, in: 30...7 * 24 * 60, step: 30) {
+                        Text(Formatting.duration(TimeInterval(model.weeklyGoalMinutes) * 60))
+                            .monospacedDigit()
+                    }
+                    .frame(width: 180, alignment: .trailing)
+                }
+            }
+            Text("A target for the day and the week, across all clients, shown with your "
+                 + "progress in the menu and the overview. Off by default.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
         FormSection(title: "Tags") {
             Toggle("Enable tags on blocks", isOn: $model.tagsEnabled)
             Text("A free-form label beside the client and project (\"meeting\", \"admin\"). "

@@ -1372,6 +1372,8 @@ func runConfig(_ arguments: Arguments) throws {
         print("budget-warnings       \(settings.budgetWarningsEnabled ? 1 : 0)   warn when a project budget reaches 80% and 100%")
         print("idle-threshold-minutes \(settings.idleThresholdMinutes)   ask about discarded idle time after this many minutes away (0 = off)")
         print("tags-enabled          \(settings.tagsEnabled ? 1 : 0)   show and edit tags on blocks (0 off, 1 on)")
+        print("daily-goal-minutes    \(settings.dailyGoalMinutes)   work goal per day across all clients (0 = off)")
+        print("weekly-goal-minutes   \(settings.weeklyGoalMinutes)   work goal per week across all clients (0 = off)")
     case "set":
         guard let key = arguments.word(2), let raw = arguments.word(3), let value = Int(raw) else {
             throw CLIError.usage("usage: tickoala config set <key> <value>")

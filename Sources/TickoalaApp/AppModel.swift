@@ -165,6 +165,8 @@ final class AppModel: ObservableObject {
     /// Net hours per day, for the chart. Each day carries its per-project split,
     /// so the chart can show one total bar per day or a stacked one.
     @Published private(set) var overviewByDayProject: [DayProjectTotal] = []
+    /// Net seconds per weekday and hour of day, for the heatmap.
+    @Published private(set) var heatmapCells: [HeatmapCell] = []
     @Published private(set) var overviewAmountCents: Int = 0
 
     /// Burn-down per project that has a budget, keyed by project id. Empty when
@@ -1552,6 +1554,7 @@ final class AppModel: ObservableObject {
             overviewByTag = report.byTag
             overviewAmountCents = report.amountCents
             overviewByDayProject = try chartRows(store: tracker.store, report: report, entries: entries)
+            heatmapCells = Heatmap.cells(entries: entries)
         } catch {
             errorMessage = "\(error)"
         }

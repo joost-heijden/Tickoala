@@ -9,16 +9,17 @@ struct OverviewWindow: View {
     @State private var addingFor: Int64?
     @State private var confirmDelete = false
     @State private var deleteTarget: Int64?
-    @State private var viewMode: ViewMode = .table
+    @AppStorage("overview-view") private var viewMode: ViewMode = .table
 
     private enum ViewMode: String, CaseIterable {
-        case table, timeline, chart
+        case table, timeline, chart, heatmap
 
         var symbol: String {
             switch self {
             case .table: return "list.bullet"
             case .timeline: return "chart.bar"
             case .chart: return "chart.xyaxis.line"
+            case .heatmap: return "square.grid.3x3.fill"
             }
         }
 
@@ -27,6 +28,7 @@ struct OverviewWindow: View {
             case .table: return "Table"
             case .timeline: return "Timeline with draggable bars"
             case .chart: return "Chart of hours per day"
+            case .heatmap: return "Heatmap of when you work"
             }
         }
     }
@@ -40,6 +42,7 @@ struct OverviewWindow: View {
                 case .table: table
                 case .timeline: TimelinePane(model: model, selection: $selection)
                 case .chart: ChartPane(model: model)
+                case .heatmap: HeatmapPane(model: model)
                 }
                 Divider()
                 footer
@@ -115,9 +118,9 @@ struct OverviewWindow: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 116)
+                .frame(width: 152)
                 .fixedSize()
-                .help("Table, timeline or chart")
+                .help("Table, timeline, chart or heatmap")
 
                 Spacer(minLength: 8)
 

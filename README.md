@@ -101,6 +101,8 @@ just uses that.
   a correction is drag-and-drop
 - **Charts** — the overview as a per-day chart (Swift Charts), showing hours or
   the invoiced amount, with one bar per day or stacked by project
+- **Heatmap** — when you work: a weekday × hour grid shaded by the time that fell
+  in each cell, so the shape of your week is visible at a glance
 - **Shortcuts, Siri and a global hotkey** — start, stop and read today's hours
   without opening the menu bar; see [Shortcuts and the hotkey](#shortcuts-and-the-hotkey)
 - **CSV export** for invoicing

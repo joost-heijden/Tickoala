@@ -27,6 +27,7 @@ struct MenuContent: View {
             Button("Add customer…") { openCustomers() }
         }
 
+        idlePrompt
         networkPrompts
 
         if !model.profiles.isEmpty {
@@ -105,6 +106,8 @@ struct MenuContent: View {
             }
         }
 
+        outstandingSection
+
         Divider()
 
         Button("Open Tickoala") {
@@ -137,6 +140,10 @@ struct MenuContent: View {
 
         Divider()
 
+        Button("Import time entries…") {
+            model.importEntriesPanel()
+        }
+
         Button("Settings…") {
             NSApp.activateForUI()
             openWindow(id: "settings")
@@ -160,6 +167,43 @@ struct MenuContent: View {
 
         Button("Quit Tickoala") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
+    }
+
+    /// The idle question, kept in the menu so it can still be answered after the
+    /// notification has gone.
+    @ViewBuilder
+    private var idlePrompt: some View {
+        if let pending = model.pendingIdle {
+            Section("Away from the Mac") {
+                Text("Away for \(Formatting.duration(pending.seconds))")
+                    .font(.headline)
+                Text("Discard that time from the block, or keep it?")
+                Button("Discard the idle time") { model.discardIdleTime() }
+                Button("Keep it") { model.keepIdleTime() }
+            }
+            Divider()
+        }
+    }
+
+    /// Open invoices, so an unpaid or overdue one is not missed.
+    @ViewBuilder
+    private var outstandingSection: some View {
+        let totals = model.outstandingTotals
+        if !totals.isEmpty {
+            let overdue = model.overdueInvoices.count
+            Section("Invoices") {
+                ForEach(totals.indices, id: \.self) { index in
+                    Text("Outstanding \(Formatting.money(cents: totals[index].cents, currency: totals[index].currency))")
+                }
+                if overdue > 0 {
+                    Text("⚠︎ \(overdue) overdue")
+                }
+                Button("Open invoices") {
+                    NSApp.activateForUI()
+                    openWindow(id: "invoices")
+                }
+            }
+        }
     }
 
     /// A question the user has to answer right now, so it stays in the menu even

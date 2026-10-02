@@ -244,7 +244,7 @@ private struct ManageSettings: View {
                 FormSection(title: "Settings tabs") {
                     Text("General — start at login, the running month revenue and budget warnings.")
                     Text("Detection — Wi-Fi network or location, plus the Location Services permission.")
-                    Text("Workday — day start and end, the project prompt, the automatic break deduction and the holidays and vacation days.")
+                    Text("Workday — day start and end, the project prompt, tags, idle detection, the automatic break deduction and the holidays and vacation days.")
                     Text("Invoices — your sender details, VAT rate, logo, numbering and the email (SMTP) server.")
                     Text("Updates — the version you are running and the daily check.")
                 }

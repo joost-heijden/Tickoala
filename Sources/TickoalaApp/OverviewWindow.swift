@@ -9,17 +9,37 @@ struct OverviewWindow: View {
     @State private var addingFor: Int64?
     @State private var confirmDelete = false
     @State private var deleteTarget: Int64?
-    @State private var showBars = false
+    @State private var viewMode: ViewMode = .table
+
+    private enum ViewMode: String, CaseIterable {
+        case table, timeline, chart
+
+        var symbol: String {
+            switch self {
+            case .table: return "list.bullet"
+            case .timeline: return "chart.bar"
+            case .chart: return "chart.xyaxis.line"
+            }
+        }
+
+        var help: String {
+            switch self {
+            case .table: return "Table"
+            case .timeline: return "Timeline with draggable bars"
+            case .chart: return "Chart of hours per day"
+            }
+        }
+    }
 
     var body: some View {
         HSplitView {
             VStack(alignment: .leading, spacing: 0) {
                 toolbar
                 Divider()
-                if showBars {
-                    TimelinePane(model: model, selection: $selection)
-                } else {
-                    table
+                switch viewMode {
+                case .table: table
+                case .timeline: TimelinePane(model: model, selection: $selection)
+                case .chart: ChartPane(model: model)
                 }
                 Divider()
                 footer
@@ -87,14 +107,17 @@ struct OverviewWindow: View {
                 .frame(width: 190)
                 .fixedSize()
 
-                Picker("", selection: $showBars) {
-                    Image(systemName: "list.bullet").tag(false)
-                    Image(systemName: "chart.bar").tag(true)
+                Picker("", selection: $viewMode) {
+                    ForEach(ViewMode.allCases, id: \.self) { mode in
+                        Image(systemName: mode.symbol)
+                            .tag(mode)
+                            .help(mode.help)
+                    }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 76)
+                .frame(width: 116)
                 .fixedSize()
-                .help("Show as a table or as a timeline with draggable bars")
+                .help("Table, timeline or chart")
 
                 Spacer(minLength: 8)
 
@@ -107,6 +130,18 @@ struct OverviewWindow: View {
                 .frame(width: 150)
                 .fixedSize()
                 .accessibilityLabel("Customer filter")
+
+                if model.tagsEnabled, !model.overviewByTag.isEmpty {
+                    Picker("", selection: $model.tagFilter) {
+                        Text("All tags").tag(String?.none)
+                        ForEach(model.overviewByTag, id: \.label) { item in
+                            Text(item.label).tag(String?.some(item.label))
+                        }
+                    }
+                    .frame(width: 130)
+                    .fixedSize()
+                    .accessibilityLabel("Tag filter")
+                }
 
                 // Fixed size, otherwise this vertical line stretches the whole toolbar.
                 Rectangle()
@@ -207,7 +242,19 @@ struct OverviewWindow: View {
                         .foregroundStyle(.secondary)
                 }
             }.width(90)
-            TableColumn("Note") { Text($0.entry.note ?? "") }
+            // Tags share the note column: `Table` allows at most ten, and tags are
+            // the label on the note anyway. A conditional column needs macOS 14.4,
+            // so the column always exists and only its content changes.
+            TableColumn(model.tagsEnabled ? "Note / tags" : "Note") { row in
+                VStack(alignment: .leading, spacing: 0) {
+                    if model.tagsEnabled, !row.entry.tags.isEmpty {
+                        Text(Tags.text(row.entry.tags))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(row.entry.note ?? "")
+                }
+            }
         } rows: {
             ForEach(model.overviewEntries) { row in
                 TableRow(row)
@@ -276,6 +323,19 @@ struct OverviewWindow: View {
             if !model.overviewByProject.isEmpty {
                 HStack(spacing: 12) {
                     ForEach(model.overviewByProject.prefix(4), id: \.label) { item in
+                        Text("\(item.label): \(Formatting.duration(item.total))")
+                            .lineLimit(1)
+                    }
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
+
+            // The per-tag totals, only once tags are switched on.
+            if model.tagsEnabled, !model.overviewByTag.isEmpty {
+                HStack(spacing: 12) {
+                    Image(systemName: "tag")
+                    ForEach(model.overviewByTag.prefix(5), id: \.label) { item in
                         Text("\(item.label): \(Formatting.duration(item.total))")
                             .lineLimit(1)
                     }
@@ -361,6 +421,7 @@ struct EntryEditor: View {
     @State private var end: Date
     @State private var hasEnd: Bool
     @State private var note: String
+    @State private var tags: String
     @State private var projectId: Int64?
     @State private var kind: EntryKind
     @State private var confirmDelete = false
@@ -380,6 +441,7 @@ struct EntryEditor: View {
         _end = State(initialValue: Formatting.minute(row.entry.endedAt ?? row.entry.startedAt.addingTimeInterval(3600)))
         _hasEnd = State(initialValue: row.entry.endedAt != nil)
         _note = State(initialValue: row.entry.note ?? "")
+        _tags = State(initialValue: Tags.text(row.entry.tags))
         _projectId = State(initialValue: row.entry.projectId)
         _kind = State(initialValue: row.entry.kind)
 
@@ -428,6 +490,13 @@ struct EntryEditor: View {
                             .lineLimit(2...4)
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.leading)
+                    }
+                    if model.tagsEnabled {
+                        FormField(label: "Tags") {
+                            TextField("", text: $tags, prompt: Text("meeting, admin"))
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.leading)
+                        }
                     }
                     LabeledContent("Duration", value: Formatting.duration(netDuration))
                     LabeledContent("Source", value: row.entry.source.rawValue)
@@ -497,6 +566,7 @@ struct EntryEditor: View {
             breakStart: hasBreak && hasEnd ? pauseStart : nil,
             breakEnd: hasBreak && hasEnd ? pauseEnd : nil,
             note: note,
+            tags: Tags.parse(tags),
             status: hasEnd ? .completed : (row.entry.status == .running ? .running : .open),
             kind: kind
         )
@@ -512,6 +582,7 @@ struct AddEntrySheet: View {
     @State private var start = Formatting.calendar.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var end = Formatting.calendar.date(bySettingHour: 17, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var note = ""
+    @State private var tags = ""
     @State private var projectId: Int64?
     @State private var kind: EntryKind = .work
     @State private var hasBreak = false
@@ -553,6 +624,13 @@ struct AddEntrySheet: View {
                     TextField("", text: $note)
                         .textFieldStyle(.roundedBorder)
                         .multilineTextAlignment(.leading)
+                }
+                if model.tagsEnabled {
+                    FormField(label: "Tags", labelWidth: 90) {
+                        TextField("", text: $tags, prompt: Text("meeting, admin"))
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
                 LabeledContent("Duration", value: Formatting.duration(end.timeIntervalSince(start)))
             }
@@ -600,6 +678,7 @@ struct AddEntrySheet: View {
             breakStart: hasBreak ? pauseStart : nil,
             breakEnd: hasBreak ? pauseEnd : nil,
             note: note,
+            tags: Tags.parse(tags),
             kind: kind
         )
         onClose()

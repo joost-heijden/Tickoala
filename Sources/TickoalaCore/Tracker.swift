@@ -449,6 +449,18 @@ public final class Tracker {
         try store.save(state)
     }
 
+    /// Takes discarded idle time off a block. Like the break deduction this is a
+    /// calculation on top of the raw block: its start and end are not touched, so
+    /// the idle time can always be reviewed. The amount is capped by what is left
+    /// of the block after its recorded break, so a duration never goes negative.
+    public func addIdle(entryId: Int64, seconds: TimeInterval) throws {
+        guard let entry = try store.entry(id: entryId) else { throw TrackerError.unknownEntry(entryId) }
+        let room = max(0, entry.grossDuration() - entry.breakDuration - entry.idleSeconds)
+        let add = min(max(0, seconds), room)
+        guard add > 0 else { return }
+        try store.updateEntry(id: entryId, idleSeconds: entry.idleSeconds + add)
+    }
+
     // MARK: - Status
 
     public func status(now: Date = Date()) throws -> TrackerStatus {

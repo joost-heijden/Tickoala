@@ -138,7 +138,12 @@ struct InvoicesWindow: View {
 
     private var footer: some View {
         HStack {
-            if model.invoiceSettings().senderName.isEmpty {
+            if let summary = outstandingSummary {
+                Text(summary)
+                    .font(.callout)
+                    .foregroundStyle(model.overdueInvoices.isEmpty ? Color.secondary : Color.orange)
+                Spacer()
+            } else if model.invoiceSettings().senderName.isEmpty {
                 Text("⚠︎ Fill in your sender details first, otherwise the invoice has no address.")
                     .font(.callout)
                     .foregroundStyle(.orange)
@@ -167,6 +172,17 @@ struct InvoicesWindow: View {
                 VStack(spacing: 0) {
                     ForEach(invoices) { invoice in
                         HStack(spacing: 8) {
+                            if !invoice.isCredit {
+                                Button {
+                                    model.setInvoicePaid(invoice, paid: !invoice.isPaid)
+                                } label: {
+                                    Image(systemName: invoice.isPaid ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(invoice.isPaid ? .green : .secondary)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel(invoice.isPaid ? "Mark unpaid" : "Mark paid")
+                                .help(invoice.isPaid ? "Paid — click to reopen" : "Mark this invoice as paid")
+                            }
                             Button {
                                 model.showInvoicePeriod(DateRange(start: invoice.periodStart, end: invoice.periodEnd))
                             } label: {
@@ -180,6 +196,11 @@ struct InvoicesWindow: View {
                                         .foregroundStyle(invoice.isCredit ? .orange : .secondary)
                                         .lineLimit(1)
                                         .fixedSize()
+                                    if invoice.isOverdue() {
+                                        Text("\(invoice.daysLate())d late")
+                                            .foregroundStyle(.orange)
+                                            .fixedSize()
+                                    }
                                     Text(Formatting.money(cents: invoice.totalCents, currency: invoice.currency))
                                         .monospacedDigit()
                                         .frame(width: 100, alignment: .trailing)
@@ -306,6 +327,18 @@ struct InvoicesWindow: View {
             return "This \(kind.noun) so far, ready to send."
         }
         return "Manually chosen \(kind.noun), ready to send."
+    }
+
+    /// The open amount and how much of it is late, for the footer.
+    private var outstandingSummary: String? {
+        let totals = model.outstandingTotals
+        guard !totals.isEmpty else { return nil }
+        let amounts = totals
+            .map { Formatting.money(cents: $0.cents, currency: $0.currency) }
+            .joined(separator: " · ")
+        let overdue = model.overdueInvoices.count
+        let tail = overdue > 0 ? " · ⚠︎ \(overdue) overdue" : ""
+        return "Outstanding \(amounts)\(tail)"
     }
 
     private func summary(_ candidate: AppModel.InvoiceCandidate) -> String {

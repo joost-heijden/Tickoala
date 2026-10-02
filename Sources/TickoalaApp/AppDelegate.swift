@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import Combine
 import Foundation
+import TickoalaCore
 import UserNotifications
 
 /// The system-wide hotkey callback. Carbon delivers the event on the main run
@@ -40,12 +41,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     static let updateCategory = "UPDATE_AVAILABLE"
     static let updateDownloadAction = "UPDATE_DOWNLOAD"
 
+    /// The notification with the two answers to the idle question.
+    static let idleCategory = "IDLE"
+    static let idleDiscardAction = "IDLE_DISCARD"
+    static let idleKeepAction = "IDLE_KEEP"
+
     /// Watches for a network change that needs the user's answer.
     private var networkObserver: AnyCancellable?
     /// Watches the version check so a new version is announced once.
     private var updateAnnounceObserver: AnyCancellable?
     /// Watches a project budget crossing 80% or 100%.
     private var budgetObserver: AnyCancellable?
+    /// Watches a stretch of idle time that needs the user's answer.
+    private var idleObserver: AnyCancellable?
+    /// Watches an invoice passing its due date.
+    private var overdueObserver: AnyCancellable?
     /// Whether the system allows notifications; otherwise the alert is the fallback.
     private var notificationsAllowed = false
     /// The system-wide start/stop hotkey (⌃⌥T), registered with Carbon so it needs
@@ -101,6 +111,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .sink { [weak self] alert in
                 DispatchQueue.main.async { self?.announceBudget(alert) }
             }
+        // Coming back after being away should not silently count as work.
+        idleObserver = model.$pendingIdle
+            .compactMap { $0 }
+            .sink { [weak self] pending in
+                DispatchQueue.main.async { self?.announceIdle(pending) }
+            }
+        // An unpaid invoice past its due date, said once a day.
+        overdueObserver = model.$overdueAlert
+            .compactMap { $0 }
+            .sink { [weak self] alert in
+                DispatchQueue.main.async { self?.announceOverdue(alert) }
+            }
     }
 
     /// Sets up the notification buttons that answer the switch question.
@@ -113,12 +135,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let start = UNNotificationAction(identifier: Self.switchNewAction, title: "Start new block")
         let stop = UNNotificationAction(identifier: Self.switchStopAction, title: "Stop")
         let download = UNNotificationAction(identifier: Self.updateDownloadAction, title: "Download")
+        let discardIdle = UNNotificationAction(identifier: Self.idleDiscardAction, title: "Discard the time")
+        let keepIdle = UNNotificationAction(identifier: Self.idleKeepAction, title: "Keep it")
         center.setNotificationCategories([
             UNNotificationCategory(
                 identifier: Self.switchCategory, actions: [keep, start, stop], intentIdentifiers: [], options: []
             ),
             UNNotificationCategory(
                 identifier: Self.updateCategory, actions: [download], intentIdentifiers: [], options: []
+            ),
+            UNNotificationCategory(
+                identifier: Self.idleCategory, actions: [discardIdle, keepIdle], intentIdentifiers: [], options: []
             )
         ])
         center.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
@@ -261,6 +288,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         content.sound = .default
         let request = UNNotificationRequest(
             identifier: "budget-\(alert.profileId)-\(alert.level.rawValue)", content: content, trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    /// Asks what to do with a stretch of idle time on a running block. Prefers a
+    /// quiet notification with the two answers; falls back to an alert when
+    /// notifications are refused, so an ad-hoc build is asked too.
+    private func announceIdle(_ pending: AppModel.PendingIdle) {
+        guard model.pendingIdle == pending else { return }
+        let body = "You were away for \(Formatting.duration(pending.seconds)). "
+            + "Discard that time from the block, or keep it?"
+        guard notificationsAllowed, Bundle.main.bundleIdentifier != nil else {
+            presentIdleAlert(pending, body: body)
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = "Away from the Mac"
+        content.body = body
+        content.categoryIdentifier = Self.idleCategory
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: "idle-\(UUID().uuidString)", content: content, trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    /// Fallback when notifications are refused: a modal question, like the switch.
+    private func presentIdleAlert(_ pending: AppModel.PendingIdle, body: String) {
+        guard model.pendingIdle == pending else { return }
+        let alert = NSAlert()
+        alert.messageText = "Away from the Mac"
+        alert.informativeText = body
+        alert.addButton(withTitle: "Keep the time")
+        alert.addButton(withTitle: "Discard the time")
+        NSApp.activateForUI()
+        if alert.runModal() == .alertSecondButtonReturn {
+            model.discardIdleTime()
+        } else {
+            model.keepIdleTime()
+        }
+    }
+
+    /// Says once a day that an invoice is past its due date. Prefers a quiet
+    /// notification; falls back to an alert when notifications are refused.
+    private func announceOverdue(_ alert: AppModel.OverdueAlert) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        guard notificationsAllowed else {
+            let fallback = NSAlert()
+            fallback.messageText = "Invoice overdue"
+            fallback.informativeText = alert.body
+            fallback.addButton(withTitle: "OK")
+            NSApp.activateForUI()
+            fallback.runModal()
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = "Invoice overdue"
+        content.body = alert.body
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: "overdue-\(alert.oldestNumber)", content: content, trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
     }
@@ -411,6 +499,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 model.startNewBlockAfterNetworkSwitch()
             } else if action == Self.switchStopAction {
                 model.stopAfterNetworkSwitch()
+            } else if action == Self.idleDiscardAction {
+                model.discardIdleTime()
+            } else if action == Self.idleKeepAction || category == Self.idleCategory {
+                // The Keep button, or a plain tap on the banner: keep the time.
+                model.keepIdleTime()
             }
             completionHandler()
         }

@@ -246,6 +246,43 @@ enum Schema {
         DROP TABLE invoices;
         ALTER TABLE invoices_new RENAME TO invoices;
         """,
+
+        // Idle time that was discarded on a block, in seconds. A calculation on
+        // top of the raw block, exactly like the break deduction: the recorded
+        // start and end stay untouched, only the worked duration drops. Zero on
+        // every existing block.
+        """
+        ALTER TABLE time_entries ADD COLUMN idle_seconds INTEGER NOT NULL DEFAULT 0;
+        """,
+
+        // Payment state of an issued invoice: when it was paid (NULL while it is
+        // still open) and when it was due. The due date is stored so later
+        // changing the payment term does not move it; rows issued before this
+        // column exists get it computed from the current term when read.
+        """
+        ALTER TABLE invoices ADD COLUMN due_at INTEGER;
+        ALTER TABLE invoices ADD COLUMN paid_at INTEGER;
+        """,
+
+        // Free-form labels on a block, stored comma-separated. NULL when a block
+        // has none, which is every block recorded before this column existed.
+        """
+        ALTER TABLE time_entries ADD COLUMN tags TEXT;
+        """,
+
+        // Tags brought in by an import while the tags feature was off, held aside
+        // so switching tags on later does not lose them. NULL in normal use.
+        """
+        ALTER TABLE time_entries ADD COLUMN imported_tags TEXT;
+        """,
+
+        // When a retainer runs to. NULL means open-ended (until switched off).
+        // Nesting is checked: setting a new end that would close before a nested
+        // retainer's own end is refused.
+        """
+        ALTER TABLE retainers ADD COLUMN ends_at INTEGER;
+        ALTER TABLE retainers ADD COLUMN recurrence TEXT NOT NULL DEFAULT 'monthly';
+        """,
     ]
 
     static func migrate(_ database: Database) throws {

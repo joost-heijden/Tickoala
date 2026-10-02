@@ -97,6 +97,9 @@ private struct CustomerForm: View {
     @State private var retainerDescription = ""
     @State private var retainerAmountText = ""
     @State private var retainerActive = false
+    @State private var retainerHasEnd = false
+    @State private var retainerEnd = Date()
+    @State private var retainerRecurrence: RetainerRecurrence = .monthly
     @State private var roundingMinutes = 0
     @State private var roundUp = false
     @State private var minimumText = ""
@@ -274,7 +277,26 @@ private struct CustomerForm: View {
                     }
                     Toggle("Add to every invoice", isOn: $retainerActive)
                         .onChange(of: retainerActive) { _ in saveRetainer() }
-                    Text("A fixed amount per month, put on the invoice automatically. Empty means none.")
+                    FormField(label: "Recurs") {
+                        Picker("", selection: $retainerRecurrence) {
+                            ForEach(RetainerRecurrence.allCases, id: \.self) { kind in
+                                Text(kind.label).tag(kind)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 140)
+                        .onChange(of: retainerRecurrence) { _ in saveRetainer() }
+                    }
+                    Toggle("Runs until a date", isOn: $retainerHasEnd)
+                        .onChange(of: retainerHasEnd) { _ in saveRetainer() }
+                    if retainerHasEnd {
+                        DatePicker("", selection: $retainerEnd, displayedComponents: .date)
+                            .labelsHidden()
+                            .onChange(of: retainerEnd) { _ in saveRetainer() }
+                    }
+                    Text("A fixed amount per period, put on the invoice automatically. Empty means none. "
+                         + "For a support contract without tracked hours, generate the invoice on its own "
+                         + "with `tickoala retainer render-invoices`.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -446,6 +468,9 @@ private struct CustomerForm: View {
             retainerDescription = retainer.description
             retainerAmountText = retainer.amountCents > 0 ? Formatting.decimalAmount(cents: retainer.amountCents) : ""
             retainerActive = retainer.active
+            retainerRecurrence = retainer.recurrence
+            retainerHasEnd = retainer.endsAt != nil
+            retainerEnd = retainer.endsAt ?? Date()
         }
         let rules = profile.billingRules
         roundingMinutes = rules.roundingMinutes
@@ -507,7 +532,9 @@ private struct CustomerForm: View {
                 profileId: profile.id,
                 description: retainerDescription,
                 amountCents: cents,
-                active: retainerActive && cents > 0
+                active: retainerActive && cents > 0,
+                endsAt: retainerHasEnd ? Formatting.calendar.startOfDay(for: retainerEnd) : nil,
+                recurrence: retainerRecurrence
             )
         }
     }

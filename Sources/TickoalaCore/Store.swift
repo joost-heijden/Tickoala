@@ -78,6 +78,29 @@ public final class Store {
         return Profile(id: id, name: name, contexts: contexts, hourlyRateCents: rate, currency: currency, vatRatePercent: vatRate)
     }
 
+    /// Returns the client with this name, or creates one. Used by the importer,
+    /// which meets clients that have no Wi-Fi network linked yet: a profile made
+    /// here starts without any context, exactly like one whose networks were all
+    /// unlinked, so detection ignores it until you link a network or location.
+    @discardableResult
+    public func ensureProfile(name: String) throws -> Profile {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw TrackerError.invalidRange("a client name must not be empty") }
+        if let row = try database.query(
+            "SELECT * FROM profiles WHERE name = ? COLLATE NOCASE LIMIT 1;", [.text(trimmed)]
+        ).first {
+            var profile = Self.profile(from: row)
+            profile.contexts = try contexts(profileId: profile.id)
+            return profile
+        }
+        let id = try database.run(
+            "INSERT INTO profiles (name, active, created_at) VALUES (?, 1, ?);",
+            [.text(trimmed), .int(Int64(Date().timeIntervalSince1970))]
+        )
+        try database.run("INSERT INTO profile_state (profile_id) VALUES (?);", [.int(id)])
+        return Profile(id: id, name: trimmed, contexts: [])
+    }
+
     public func profiles(includeInactive: Bool = true) throws -> [Profile] {
         let sql = includeInactive
             ? "SELECT * FROM profiles ORDER BY name;"
@@ -362,6 +385,14 @@ public final class Store {
         ).first.map(Self.project(from:))
     }
 
+    /// The next free plain number for a new project in this client. Numbers that
+    /// are not integers are ignored, so a hand-made code never blocks the count.
+    public func nextProjectNumber(profileId: Int64) throws -> String {
+        let existing = try projects(profileId: profileId, includeInactive: true)
+        let highest = existing.compactMap { Int($0.number) }.max() ?? 0
+        return String(highest + 1)
+    }
+
     public func updateProject(
         id: Int64,
         number: String? = nil,
@@ -396,7 +427,8 @@ public final class Store {
             SELECT project_id,
                    SUM(MAX(0, COALESCE(ended_at, ?) - started_at
                        - CASE WHEN break_started_at IS NOT NULL AND break_ended_at IS NOT NULL
-                              THEN break_ended_at - break_started_at ELSE 0 END)) AS seconds
+                              THEN break_ended_at - break_started_at ELSE 0 END
+                       - COALESCE(idle_seconds, 0))) AS seconds
             FROM time_entries
             WHERE project_id IS NOT NULL AND kind = 'work'
             GROUP BY project_id;
@@ -477,16 +509,20 @@ public final class Store {
         endedAt: Date?,
         breakStartedAt: Date? = nil,
         breakEndedAt: Date? = nil,
+        idleSeconds: TimeInterval = 0,
+        tags: [String] = [],
+        importedTags: [String] = [],
         status: EntryStatus,
         source: EntrySource,
         kind: EntryKind = .work,
         note: String?
     ) throws -> TimeEntry {
         let now = Date()
+        let idle = max(0, idleSeconds)
         let id = try database.run(
             """
-            INSERT INTO time_entries (profile_id, project_id, started_at, ended_at, break_started_at, break_ended_at, status, source, kind, note, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO time_entries (profile_id, project_id, started_at, ended_at, break_started_at, break_ended_at, idle_seconds, tags, imported_tags, status, source, kind, note, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             [
                 .int(profileId),
@@ -495,6 +531,9 @@ public final class Store {
                 endedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null,
                 breakStartedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null,
                 breakEndedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null,
+                .int(Int64(idle)),
+                Tags.join(tags).map { SQLValue.text($0) } ?? .null,
+                Tags.join(importedTags).map { SQLValue.text($0) } ?? .null,
                 .text(status.rawValue),
                 .text(source.rawValue),
                 .text(kind.rawValue),
@@ -505,13 +544,27 @@ public final class Store {
         )
         return TimeEntry(
             id: id, profileId: profileId, projectId: projectId, startedAt: startedAt, endedAt: endedAt,
-            breakStartedAt: breakStartedAt, breakEndedAt: breakEndedAt,
-            status: status, source: source, kind: kind, note: note, createdAt: now, updatedAt: now
+            breakStartedAt: breakStartedAt, breakEndedAt: breakEndedAt, idleSeconds: idle, tags: tags,
+            importedTags: importedTags, status: status, source: source, kind: kind, note: note,
+            createdAt: now, updatedAt: now
         )
     }
 
     public func entry(id: Int64) throws -> TimeEntry? {
         try database.query("SELECT * FROM time_entries WHERE id = ?;", [.int(id)]).first.map(Self.entry(from:))
+    }
+
+    /// Is there already a block for this client with exactly this start and end?
+    /// Used by the importer so running it twice does not duplicate the history.
+    public func entryExists(profileId: Int64, startedAt: Date, endedAt: Date) throws -> Bool {
+        try database.query(
+            "SELECT 1 FROM time_entries WHERE profile_id = ? AND started_at = ? AND ended_at = ? LIMIT 1;",
+            [
+                .int(profileId),
+                .int(Int64(startedAt.timeIntervalSince1970)),
+                .int(Int64(endedAt.timeIntervalSince1970)),
+            ]
+        ).first != nil
     }
 
     public func runningEntry(profileId: Int64) throws -> TimeEntry? {
@@ -551,6 +604,9 @@ public final class Store {
         endedAt: Date?? = nil,
         breakStartedAt: Date?? = nil,
         breakEndedAt: Date?? = nil,
+        idleSeconds: TimeInterval? = nil,
+        tags: [String]? = nil,
+        importedTags: [String]? = nil,
         status: EntryStatus? = nil,
         kind: EntryKind? = nil,
         note: String?? = nil
@@ -577,6 +633,18 @@ public final class Store {
         if let breakEndedAt {
             assignments.append("break_ended_at = ?")
             parameters.append(breakEndedAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null)
+        }
+        if let idleSeconds {
+            assignments.append("idle_seconds = ?")
+            parameters.append(.int(Int64(max(0, idleSeconds))))
+        }
+        if let tags {
+            assignments.append("tags = ?")
+            parameters.append(Tags.join(tags).map { SQLValue.text($0) } ?? .null)
+        }
+        if let importedTags {
+            assignments.append("imported_tags = ?")
+            parameters.append(Tags.join(importedTags).map { SQLValue.text($0) } ?? .null)
         }
         if let status {
             assignments.append("status = ?")
@@ -614,6 +682,9 @@ public final class Store {
             endedAt: entry.endedAt,
             breakStartedAt: entry.breakStartedAt,
             breakEndedAt: entry.breakEndedAt,
+            idleSeconds: entry.idleSeconds,
+            tags: entry.tags,
+            importedTags: entry.importedTags,
             status: entry.status,
             source: entry.source,
             kind: entry.kind,
@@ -763,26 +834,44 @@ public final class Store {
                 profileId: row.int("profile_id") ?? 0,
                 description: row.string("description") ?? "",
                 amountCents: Int(row.int("amount_cents") ?? 0),
-                active: row.bool("active")
+                active: row.bool("active"),
+                endsAt: row.date("ends_at"),
+                recurrence: RetainerRecurrence(rawValue: row.string("recurrence") ?? "") ?? .monthly
             )
         }
     }
 
     /// Sets (or replaces) the retainer of a client. A zero amount stores an
-    /// inactive retainer, so it never lands on an invoice.
-    public func setRetainer(profileId: Int64, description: String, amountCents: Int, active: Bool = true) throws {
+    /// inactive retainer, so it never lands on an invoice. A retainer may carry
+    /// an end date; it is refused when it would end before the current one,
+    /// which keeps a running agreement from being shortened by accident.
+    public func setRetainer(
+        profileId: Int64,
+        description: String,
+        amountCents: Int,
+        active: Bool = true,
+        endsAt: Date? = nil,
+        recurrence: RetainerRecurrence = .monthly
+    ) throws {
         guard try profile(id: profileId) != nil else { throw TrackerError.unknownProfile(String(profileId)) }
+        if let endsAt, let current = try? retainer(profileId: profileId), let currentEnd = current.endsAt,
+           endsAt < currentEnd {
+            throw TrackerError.invalidRange("the new end date is before the current one (\(Formatting.day(currentEnd)))")
+        }
         try database.run(
             """
-            INSERT INTO retainers (profile_id, description, amount_cents, active) VALUES (?, ?, ?, ?)
+            INSERT INTO retainers (profile_id, description, amount_cents, active, ends_at, recurrence) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(profile_id) DO UPDATE SET description = excluded.description,
-                amount_cents = excluded.amount_cents, active = excluded.active;
+                amount_cents = excluded.amount_cents, active = excluded.active,
+                ends_at = excluded.ends_at, recurrence = excluded.recurrence;
             """,
             [
                 .int(profileId),
                 .text(description.trimmingCharacters(in: .whitespacesAndNewlines)),
                 .int(Int64(max(0, amountCents))),
                 .int(active ? 1 : 0),
+                endsAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null,
+                .text(recurrence.rawValue),
             ]
         )
     }
@@ -964,6 +1053,9 @@ public final class Store {
             endedAt: row.date("ended_at"),
             breakStartedAt: row.date("break_started_at"),
             breakEndedAt: row.date("break_ended_at"),
+            idleSeconds: TimeInterval(row.int("idle_seconds") ?? 0),
+            tags: Tags.parse(row.string("tags")),
+            importedTags: Tags.parse(row.string("imported_tags")),
             status: EntryStatus(rawValue: row.string("status") ?? "") ?? .open,
             source: EntrySource(rawValue: row.string("source") ?? "") ?? .manual,
             kind: EntryKind(rawValue: row.string("kind") ?? "") ?? .work,

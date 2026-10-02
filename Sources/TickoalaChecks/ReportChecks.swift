@@ -104,7 +104,7 @@ func reportChecks() {
             let row = csv.split(separator: "\n").map(String.init)[1]
 
             expect(row.contains(",07:00,,"), "no end time: \(row)")
-            expect(row.hasSuffix("EUR,"), "the currency is named and the note stays empty: \(row)")
+            expect(row.hasSuffix("EUR,,"), "the currency is named and the note and tags stay empty: \(row)")
         }
 
         test("a reversed time window is refused") {

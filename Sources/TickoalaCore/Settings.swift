@@ -38,6 +38,14 @@ public struct TrackerSettings: Equatable, Sendable {
     /// Off by default: a project budget alone turns the burn-down on, this switch
     /// only adds the notification, so nothing is enforced.
     public var budgetWarningsEnabled: Bool
+    /// How long without keyboard or mouse input counts as being away, in minutes.
+    /// While a block runs, coming back after longer than this asks whether to
+    /// discard that time. Zero turns the check off, which is the default.
+    public var idleThresholdMinutes: Int
+    /// Whether tags are shown and editable at all. Off by default: the field,
+    /// the overview column and the tag filter stay hidden, and imported tags are
+    /// kept in the database but not surfaced until this is switched on.
+    public var tagsEnabled: Bool
 
     public static let `default` = TrackerSettings(
         dedupeWindowSeconds: 30,
@@ -45,7 +53,9 @@ public struct TrackerSettings: Equatable, Sendable {
         workdayEndMinutes: 18 * 60,
         workdayStartMinutes: 8 * 60,
         projectPrompt: .never,
-        budgetWarningsEnabled: false
+        budgetWarningsEnabled: false,
+        idleThresholdMinutes: 0,
+        tagsEnabled: false
     )
 
     public init(
@@ -54,7 +64,9 @@ public struct TrackerSettings: Equatable, Sendable {
         workdayEndMinutes: Int = 18 * 60,
         workdayStartMinutes: Int = 8 * 60,
         projectPrompt: ProjectPrompt = .never,
-        budgetWarningsEnabled: Bool = false
+        budgetWarningsEnabled: Bool = false,
+        idleThresholdMinutes: Int = 0,
+        tagsEnabled: Bool = false
     ) {
         self.dedupeWindowSeconds = dedupeWindowSeconds
         self.maxEntrySeconds = maxEntrySeconds
@@ -62,12 +74,15 @@ public struct TrackerSettings: Equatable, Sendable {
         self.workdayStartMinutes = workdayStartMinutes
         self.projectPrompt = projectPrompt
         self.budgetWarningsEnabled = budgetWarningsEnabled
+        self.idleThresholdMinutes = max(0, idleThresholdMinutes)
+        self.tagsEnabled = tagsEnabled
     }
 
     static let keys = [
         "dedupe-window-seconds", "max-entry-seconds",
         "workday-end-minutes", "workday-start-minutes",
-        "project-prompt", "budget-warnings",
+        "project-prompt", "budget-warnings", "idle-threshold-minutes",
+        "tags-enabled",
     ]
 
     mutating func set(_ key: String, _ value: Int) -> Bool {
@@ -79,6 +94,8 @@ public struct TrackerSettings: Equatable, Sendable {
         case "project-prompt":
             projectPrompt = ProjectPrompt(rawValue: min(max(0, value), ProjectPrompt.allCases.count - 1)) ?? .never
         case "budget-warnings": budgetWarningsEnabled = value != 0
+        case "idle-threshold-minutes": idleThresholdMinutes = min(max(0, value), 24 * 60)
+        case "tags-enabled": tagsEnabled = value != 0
         default: return false
         }
         return true

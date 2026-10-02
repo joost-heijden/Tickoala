@@ -3,7 +3,7 @@ import Foundation
 public enum CSVExport {
     public static let header = [
         "profile", "project_name", "date", "start", "end", "break",
-        "duration_hours", "hourly_rate", "currency", "note",
+        "duration_hours", "hourly_rate", "currency", "note", "tags",
     ]
 
     /// Exports all blocks that start in [from, to). A running or open block gets
@@ -69,6 +69,7 @@ public enum CSVExport {
                     Formatting.decimalAmount(cents: profile?.hourlyRateCents ?? 0),
                     (profile?.currency ?? .eur).rawValue,
                     entry.note ?? "",
+                    Tags.text(entry.tags),
                 ]
             ))
         }

@@ -68,8 +68,10 @@ just uses that.
   [Billing rules](#billing-rules)
 - **Travel time as its own line** — record a block as work, client travel or the
   commute, each with its own rate — see [Travel time](#travel-time)
-- **Retainers** — a fixed monthly amount per client, put on the invoice
-  automatically — see [Retainers](#retainers)
+- **Retainers** — a fixed amount per client (monthly, quarterly or yearly),
+  optionally with an end date, put on the invoice automatically; a support
+  contract with no tracked hours can be billed on its own with
+  `tickoala retainer render-invoices` — see [Retainers](#retainers)
 - **Holidays and vacation** — mark non-working days; the workday end no longer
   cuts them off — see [Holidays and vacation](#holidays-and-vacation)
 - **UBL/Peppol export** — the invoice as a UBL 2.1 file for your bookkeeping —
@@ -79,8 +81,17 @@ just uses that.
 - **Quarterly VAT return** per rate, built from the same hours and expenses the
   invoices show — see [VAT return](#vat-return)
 - **Projects** with number and name, switchable from the menu bar mid-session
+- **Tags** *(optional)* — free-form labels on a block ("meeting", "admin",
+  "research") beside the client and project hierarchy, with a tag breakdown and a
+  tag filter in the overview and a tags column in the CSV. Off by default under
+  **Settings → Workday**; tags that arrive with an import are kept aside until you
+  switch it on
 - **Automatic break deduction** per client — e.g. subtract 30 minutes on any day
   you worked 6 hours or more, with the duration and the threshold set separately
+- **Idle detection** — when you have been away from the Mac longer than a
+  configured time, Tickoala asks on return whether to discard that stretch from
+  the running block or keep it; the recorded start and end stay untouched, off by
+  default under **Settings → Workday**
 - **Dropouts don't end your day** — losing Wi-Fi keeps the current block running;
   it only closes once the day is over, so a flaky access point never splits your work
 - **Manual control** — pause, resume, stop, and correct, add, duplicate or delete
@@ -88,6 +99,8 @@ just uses that.
 - **Day / week / month totals**, per project and per day
 - **Timeline with draggable bars** — the overview as bars instead of a table, so
   a correction is drag-and-drop
+- **Charts** — the overview as an hours-per-day chart (Swift Charts), with one bar
+  per day or stacked by project
 - **Shortcuts, Siri and a global hotkey** — start, stop and read today's hours
   without opening the menu bar; see [Shortcuts and the hotkey](#shortcuts-and-the-hotkey)
 - **CSV export** for invoicing
@@ -95,6 +108,9 @@ just uses that.
 - **PDF invoices** with VAT, PO number, your logo and a running invoice number
 - **Invoice history** — every invoice ever issued, with a click to jump to its
   month and buttons to rebuild the PDF, export the hours or send it again
+- **Payment tracking** — mark an invoice paid, see the open amount at a glance,
+  and get one quiet nudge a day when something is past its due date — the due
+  date is fixed at issue so changing the payment term never moves old invoices
 - **Credit notes** — reverse an invoice that went wrong with its own number and a
   reference to the original — see [Invoices](#invoices)
 - **Email invoices** straight from the app over SMTP, with the PDF attached and
@@ -103,6 +119,9 @@ just uses that.
   in the menu — a per-second total of what you have earned this month; off by
   default under **Settings → General**
 - **First-run welcome screen** with a one-click toggle to launch at login
+- **Import from Toggl Track, Harvest or Clockify** — bring your history over from
+  a CSV export (menu: **Import time entries…**, or the CLI); clients and projects
+  are created as needed and running the same file twice changes nothing
 - **Full command-line interface** for everything the app does
 
 ## Requirements
@@ -537,6 +556,26 @@ tickoala retainer clear --profile "Acme"
 The amount is invoiced on top of the hours, and VAT is charged over it like any
 other line. An amount of zero, or an inactive retainer, is never billed.
 
+A retainer can **recur** monthly, quarterly or yearly, and can carry an **end
+date**; once it has ended it stops being added from the month after its last day,
+and a new end that would close before the current one is refused, so a running
+agreement is never shortened by accident.
+
+```bash
+tickoala retainer set --profile "Acme" --amount 1500 --recurrence quarterly --ends 2026-12-31
+```
+
+For a support contract that does not depend on tracked hours, the retainer can be
+billed **on its own**, as a fixed-fee invoice with a single line and no hours:
+
+```bash
+tickoala retainer render-invoices --month 2026-01              # report what would be billed
+tickoala retainer render-invoices --month 2026-01 --out ~/Desktop/invoices
+```
+
+Without `--profile` it does every client whose retainer covers that month; running
+it twice reuses the same number, so it is safe in a monthly cron.
+
 ## Holidays and vacation
 
 Under **Settings → Workday** you can mark public holidays and vacation days. A
@@ -681,10 +720,14 @@ tickoala timer start --profile "Acme" --kind travel   # work (default), travel o
 tickoala vat --year 2026 --quarter 3   # quarterly VAT return
 tickoala entry list --period week
 tickoala entry add --number 2401 --start "2026-09-10 09:00" --end "2026-09-10 17:00"
-tickoala entry edit --id 12 --end "2026-09-10 16:30"
+tickoala entry edit --id 12 --end "2026-09-10 16:30" --tag "meeting, admin"
 tickoala export --period month --out ~/Desktop/hours-september.csv
 tickoala invoice --profile "Acme" --month 2026-08 --po "PO-2026-114" --out ~/Desktop/invoice.pdf
 tickoala credit --number 2026-0114 --out ~/Desktop/credit.pdf   # reverse an invoice
+tickoala invoices --overdue     # what is unpaid and past its due date
+tickoala paid --number 2026-0114
+tickoala import --from toggl --file ~/Downloads/toggl_export.csv --dry-run
+tickoala import --from toggl --file team_export.csv --user "Jane"   # only your rows
 tickoala events                 # what was received and what happened with it
 tickoala config list            # dedupe window and thresholds
 tickoala db                     # path to the database

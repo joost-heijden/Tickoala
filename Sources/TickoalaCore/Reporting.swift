@@ -76,6 +76,12 @@ public struct Report: Sendable {
     /// Net seconds per kind (work, travel, commute). Work carries the automatic
     /// break deduction; travel and commute do not.
     public var byKind: [EntryKind: TimeInterval]
+    /// Net work seconds per tag, sorted by size. A block with several tags counts
+    /// in full for each, so the totals can overlap; empty when nothing is tagged.
+    public var byTag: [ProjectTotal]
+    /// Whether any block in the window carries a tag, so the tag breakdown only
+    /// appears when there is something to show.
+    public var hasTags: Bool
     public var openCount: Int
     public var runningCount: Int
 
@@ -155,6 +161,10 @@ public enum Reporting {
         // their own rate without touching the project breakdown.
         var perProfileKind: [Int64: [EntryKind: TimeInterval]] = [:]
         var perKind: [EntryKind: TimeInterval] = [:]
+        // Tag labels keyed case-insensitively, so "Meeting" and "meeting" merge.
+        var perTag: [String: TimeInterval] = [:]
+        var tagLabels: [String: String] = [:]
+        var hasTags = false
         // A block with a recorded break has already lost that break from its
         // duration. On such a day the automatic rule steps aside, so nothing is
         // deducted twice.
@@ -167,6 +177,15 @@ public enum Reporting {
             perDay[day, default: 0] += duration
             perProfileKind[entry.profileId, default: [:]][entry.kind, default: 0] += duration
             perKind[entry.kind, default: 0] += duration
+            // Tags attach to work only, like projects and the break rule.
+            if entry.kind == .work, !entry.tags.isEmpty {
+                hasTags = true
+                for tag in entry.tags {
+                    let key = tag.lowercased()
+                    tagLabels[key] = tagLabels[key] ?? tag
+                    perTag[key, default: 0] += duration
+                }
+            }
             // Only work counts towards a project and towards the break rule; travel
             // and commute are their own thing.
             guard entry.kind == .work else { continue }
@@ -262,6 +281,10 @@ public enum Reporting {
             .map { DayTotal(day: $0.key, total: $0.value, breakDeduction: breakPerDay[$0.key] ?? 0) }
             .sorted { $0.day < $1.day }
 
+        let byTag = perTag
+            .map { ProjectTotal(label: tagLabels[$0.key] ?? $0.key, total: $0.value) }
+            .sorted { ($0.total, $1.label) > ($1.total, $0.label) }
+
         return Report(
             range: range,
             total: total,
@@ -272,6 +295,8 @@ public enum Reporting {
             byDay: byDay,
             byProfile: byProfile,
             byKind: byKind,
+            byTag: byTag,
+            hasTags: hasTags,
             openCount: entries.filter { $0.status == .open }.count,
             runningCount: entries.filter { $0.status == .running }.count
         )

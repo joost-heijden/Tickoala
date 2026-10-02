@@ -82,6 +82,41 @@ private struct WorkdaySettings: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+
+        FormSection(title: "Tags") {
+            Toggle("Enable tags on blocks", isOn: $model.tagsEnabled)
+            Text("A free-form label beside the client and project (\"meeting\", \"admin\"). "
+                 + "With this on, every block gets a tag field, the overview shows a tag "
+                 + "breakdown and a tag filter, and the CSV export gains a tags column. "
+                 + "Off by default; tags that arrive with an import are held aside until "
+                 + "you switch this on.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        FormSection(title: "Idle detection") {
+            Toggle("Ask when I have been away from the Mac", isOn: Binding(
+                get: { model.idleThresholdMinutes > 0 },
+                set: { model.idleThresholdMinutes = $0 ? 15 : 0 }
+            ))
+            if model.idleThresholdMinutes > 0 {
+                HStack {
+                    Text("Count as away after")
+                    Spacer()
+                    Stepper(value: $model.idleThresholdMinutes, in: 1...240, step: 5) {
+                        Text("\(model.idleThresholdMinutes) minutes")
+                            .monospacedDigit()
+                    }
+                    .frame(width: 220, alignment: .trailing)
+                }
+            }
+            Text("While a block runs Tickoala watches for keyboard and mouse activity. "
+                 + "When you come back after being away longer than this, it asks whether to "
+                 + "discard that time. The recorded start and end stay unchanged; only the "
+                 + "worked duration drops, exactly like a break. Off by default.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     /// A stored workday time is a minute count; the picker works with a time.

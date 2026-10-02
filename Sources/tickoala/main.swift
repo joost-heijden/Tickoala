@@ -55,6 +55,10 @@ Billing rules (per customer, applied when the invoice is built):
   tickoala billing set --profile <name> [--round 15] [--round-up true|false] [--minimum 1:00] [--evening 25] [--weekend 50] [--evening-start 18:00]
   tickoala billing clear --profile <name>
 
+Retainer (fixed monthly amount per customer, added to the invoice, optionally
+for a fixed term and billed on its own for a support contract):
+  tickoala retainer render-invoices [--month YYYY-MM] [--profile <name>] [--out <dir>]
+
 Retainer (fixed monthly amount per customer, added to the invoice):
   tickoala retainer list
   tickoala retainer set --profile <name> --amount 1500 [--description "Support contract"] [--active true|false]
@@ -72,8 +76,8 @@ Timer:
 
 Correcting blocks:
   tickoala entry list [--period day|week|month] [--date <day>] [--from <time> --to <time>] [--profile <name>]
-  tickoala entry add --profile <name> --number <project number> --start <time> --end <time> [--kind work|travel|commute] [--note "..."]
-  tickoala entry edit --id <n> [--start <time>] [--end <time>] [--number <project number>] [--status completed|open] [--kind work|travel|commute] [--note "..."]
+  tickoala entry add --profile <name> --number <project number> --start <time> --end <time> [--kind work|travel|commute] [--note "..."] [--tag "a,b"]
+  tickoala entry edit --id <n> [--start <time>] [--end <time>] [--number <project number>] [--status completed|open] [--kind work|travel|commute] [--note "..."] [--tag "a,b"]
   tickoala entry delete --id <n>
 
 VAT return (quarterly, per rate):
@@ -86,6 +90,14 @@ Overview and export:
 
 Credit note (reverses an issued invoice, with its own number):
   tickoala credit --number <invoice number> [--out <file.pdf>] [--ubl <file.xml>]
+
+Payments:
+  tickoala invoices [--unpaid] [--overdue] [--json]
+  tickoala paid --number <invoice number>
+  tickoala unpaid --number <invoice number>
+
+Import from another tracker (Toggl Track, Harvest or Clockify CSV export):
+  tickoala import --from toggl|harvest|clockify --file <export.csv> [--profile <name>] [--user <name>] [--dry-run]
 
 Settings:
   tickoala config list
@@ -229,6 +241,15 @@ func run() throws {
 
     case "credit":
         try runCredit(arguments)
+
+    case "invoices":
+        try runInvoices(arguments)
+
+    case "paid", "unpaid":
+        try runSetPaid(arguments, paid: command == "paid")
+
+    case "import":
+        try runImport(arguments)
 
     case "config":
         try runConfig(arguments)
@@ -809,22 +830,76 @@ func runRetainer(_ arguments: Arguments) throws {
     case "set":
         let profile = try resolveProfile(arguments, tracker.store)
         guard let raw = arguments.string("amount"), let cents = Formatting.parseMoneyCents(raw) else {
-            throw CLIError.usage("usage: tickoala retainer set --profile <name> --amount 1500 [--description \"...\"]")
+            throw CLIError.usage("usage: tickoala retainer set --profile <name> --amount 1500 [--description \"...\"] [--ends YYYY-MM-DD] [--recurrence monthly|quarterly|yearly]")
         }
         let active = boolOption(arguments, "active") ?? true
+        let endsAt = try arguments.date("ends", default: nil)
+        var recurrence = RetainerRecurrence.monthly
+        if let raw = arguments.string("recurrence") {
+            guard let parsed = RetainerRecurrence(rawValue: raw.lowercased()) else {
+                throw CLIError.usage("recurrence must be monthly, quarterly or yearly")
+            }
+            recurrence = parsed
+        }
         try tracker.store.setRetainer(
             profileId: profile.id,
             description: arguments.string("description") ?? "Retainer",
             amountCents: cents,
-            active: active
+            active: active,
+            endsAt: endsAt,
+            recurrence: recurrence
         )
-        print("\(profile.name): retainer \(Formatting.money(cents: cents, currency: profile.currency)) per month\(active ? "" : " (inactive)")")
+        let endText = endsAt.map { " until \(Formatting.day($0))" } ?? ""
+        print("\(profile.name): retainer \(Formatting.money(cents: cents, currency: profile.currency)) \(recurrence.label.lowercased())\(endText)\(active ? "" : " (inactive)")")
     case "clear":
         let profile = try resolveProfile(arguments, tracker.store)
         try tracker.store.clearRetainer(profileId: profile.id)
         print("\(profile.name): retainer cleared")
+    case "render-invoices":
+        try runRenderRetainers(arguments, tracker: tracker)
     default:
-        throw CLIError.usage("usage: tickoala retainer list|set|clear")
+        throw CLIError.usage("usage: tickoala retainer list|set|clear|render-invoices")
+    }
+}
+
+/// Writes a fixed-fee invoice (retainer only, no hours) for a period. Without
+/// `--out` nothing is written and it reports what it would do, so a monthly cron
+/// can pre-flight first. With `--profile` it does one client; without, every
+/// client whose retainer covers the month.
+func runRenderRetainers(_ arguments: Arguments, tracker: Tracker) throws {
+    let period: DateRange
+    if let month = arguments.string("month") {
+        guard let anchor = Formatting.parseDate("\(month)-01") else {
+            throw CLIError.usage("cannot read month: '\(month)' (use YYYY-MM)")
+        }
+        period = Reporting.range(.month, containing: anchor)
+    } else {
+        period = Invoicing.previousMonthRange(containing: Date())
+    }
+
+    let profiles: [Profile]
+    if arguments.string("profile") != nil {
+        profiles = [try resolveProfile(arguments, tracker.store)]
+    } else {
+        profiles = try Invoicing.fixedInvoiceCandidates(store: tracker.store, period: period)
+    }
+    guard !profiles.isEmpty else {
+        print("no retainers to bill for \(Formatting.monthName(period.start))")
+        return
+    }
+    let outDir = arguments.string("out").map { ($0 as NSString).expandingTildeInPath }
+    for profile in profiles {
+        guard let invoice = try Invoicing.fixedInvoice(
+            store: tracker.store, profileId: profile.id, period: period
+        ) else { continue }
+        if let outDir {
+            let safe = profile.name.replacingOccurrences(of: "/", with: "-")
+            let url = URL(fileURLWithPath: outDir).appendingPathComponent("invoice-\(invoice.number)-\(safe).pdf")
+            try InvoicePDF.data(for: invoice).write(to: url)
+            print("\(profile.name): invoice \(invoice.number) — \(Formatting.money(cents: invoice.totalCents, currency: invoice.currency)) → \(url.path)")
+        } else {
+            print("\(profile.name): invoice \(invoice.number) — \(Formatting.money(cents: invoice.totalCents, currency: invoice.currency)) (not written; pass --out <dir> to save the PDF)")
+        }
     }
 }
 
@@ -860,7 +935,8 @@ func runEntry(_ arguments: Arguments) throws {
             let profile = try tracker.store.profile(id: entry.profileId)
             let end = entry.endedAt.map(Formatting.clock) ?? "…"
             let kind = entry.kind == .work ? "" : "  [\(entry.kind.rawValue)]"
-            print("\(entry.id)  \(Formatting.day(entry.startedAt))  \(Formatting.clock(entry.startedAt))–\(end)  \(Formatting.duration(entry.duration()))  \(profile?.name ?? "?")  \(project?.label ?? "(no project)")  \(entry.status.rawValue)  \(entry.source.rawValue)\(kind)\(entry.note.map { "  \"\($0)\"" } ?? "")")
+            let tags = entry.tags.isEmpty ? "" : "  [\(Tags.text(entry.tags))]"
+            print("\(entry.id)  \(Formatting.day(entry.startedAt))  \(Formatting.clock(entry.startedAt))–\(end)  \(Formatting.duration(entry.duration()))  \(profile?.name ?? "?")  \(project?.label ?? "(no project)")  \(entry.status.rawValue)  \(entry.source.rawValue)\(kind)\(tags)\(entry.note.map { "  \"\($0)\"" } ?? "")")
         }
     case "add":
         let profile = try resolveProfile(arguments, tracker.store)
@@ -878,6 +954,7 @@ func runEntry(_ arguments: Arguments) throws {
         }
         let entry = try tracker.store.createEntry(
             profileId: profile.id, projectId: projectId, startedAt: start, endedAt: end,
+            tags: Tags.parse(arguments.string("tag")),
             status: .completed, source: .manual, kind: try kindOption(arguments) ?? .work,
             note: arguments.string("note")
         )
@@ -918,6 +995,7 @@ func runEntry(_ arguments: Arguments) throws {
             projectId: projectId,
             startedAt: start,
             endedAt: end,
+            tags: arguments.string("tag").map { Tags.parse($0) },
             status: status,
             kind: try kindOption(arguments),
             note: arguments.string("note").map { Optional($0) }
@@ -1108,6 +1186,112 @@ func runCredit(_ arguments: Arguments) throws {
     print("total \(Formatting.money(cents: credit.totalCents, currency: credit.currency)) (reverses invoice \(original))")
 }
 
+// MARK: - Payments
+
+/// Lists issued invoices with their payment state. `--unpaid` and `--overdue`
+/// narrow it down; `--json` is for scripting.
+func runInvoices(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    var invoices = try tracker.store.issuedInvoices()
+    if arguments.flag("unpaid") {
+        invoices = invoices.filter { !$0.isCredit && !$0.isPaid && $0.totalCents > 0 }
+    }
+    if arguments.flag("overdue") {
+        invoices = invoices.filter { $0.isOverdue() }
+    }
+    if arguments.flag("json") {
+        let items: [[String: Any]] = invoices.map { invoice in
+            var item: [String: Any] = [
+                "number": invoice.number,
+                "customer": invoice.profileName,
+                "totalCents": invoice.totalCents,
+                "currency": invoice.currency.rawValue,
+                "isCredit": invoice.isCredit,
+                "issuedAt": Formatting.day(invoice.issuedAt),
+                "paid": invoice.isPaid,
+                "overdue": invoice.isOverdue(),
+            ]
+            if let due = invoice.dueAt { item["dueAt"] = Formatting.day(due) }
+            if invoice.isOverdue() { item["daysLate"] = invoice.daysLate() }
+            return item
+        }
+        let data = try JSONSerialization.data(withJSONObject: items, options: [.prettyPrinted, .sortedKeys])
+        print(String(data: data, encoding: .utf8) ?? "[]")
+        return
+    }
+    guard !invoices.isEmpty else {
+        print("no invoices")
+        return
+    }
+    for invoice in invoices {
+        let state: String
+        if invoice.isCredit {
+            state = "credit"
+        } else if invoice.isPaid {
+            state = "paid \(invoice.paidAt.map(Formatting.day) ?? "")"
+        } else if invoice.isOverdue() {
+            state = "OVERDUE \(invoice.daysLate())d"
+        } else {
+            state = "open"
+        }
+        let due = invoice.dueAt.map { "  due \(Formatting.day($0))" } ?? ""
+        print("\(invoice.number)  \(Formatting.day(invoice.issuedAt))  \(invoice.profileName)  "
+              + "\(Formatting.money(cents: invoice.totalCents, currency: invoice.currency))  \(state)\(due)")
+    }
+}
+
+/// Marks an invoice paid, or reopens it again.
+func runSetPaid(_ arguments: Arguments, paid: Bool) throws {
+    let tracker = try makeTracker()
+    let number = try arguments.require("number")
+    try tracker.store.setInvoicePaid(number: number, paidAt: paid ? Date() : nil)
+    print("\(number) \(paid ? "marked paid" : "reopened")")
+}
+
+// MARK: - Import
+
+/// Reads a CSV export from another time tracker and writes the blocks into the
+/// database. Clients and projects are created as needed; running it twice does
+/// not duplicate anything.
+func runImport(_ arguments: Arguments) throws {
+    let tracker = try makeTracker()
+    let formatName = try arguments.require("from")
+    guard let format = ImportFormat(rawValue: formatName.lowercased()) else {
+        throw CLIError.usage("unknown format: '\(formatName)' (use toggl, harvest or clockify)")
+    }
+    let file = try arguments.require("file")
+    let text: String
+    if file == "-" {
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        text = String(data: data, encoding: .utf8) ?? ""
+    } else {
+        let path = (file as NSString).expandingTildeInPath
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            throw CLIError.usage("cannot read file: \(file)")
+        }
+        text = contents
+    }
+
+    var entries = try Importer.parse(text, format: format, user: arguments.string("user"))
+    // A chosen client overrides the file's own client column, for an export of
+    // one client or one without a client column at all.
+    if let profile = arguments.string("profile") {
+        entries = entries.map { var entry = $0; entry.client = profile; return entry }
+    }
+
+    if arguments.flag("dry-run") {
+        let clients = Set(entries.map { $0.client.isEmpty ? "?" : $0.client })
+        let days = entries.map { Formatting.day($0.startedAt) }
+        let range = days.isEmpty ? "" : " · \(days.min()!) – \(days.max()!)"
+        print("dry run: \(entries.count) block(s) for \(clients.count) client(s)\(range)")
+        return
+    }
+    let summary = try Importer.apply(
+        entries, to: tracker.store, tagsEnabled: try tracker.store.settings().tagsEnabled
+    )
+    print("imported \(summary.description)")
+}
+
 // MARK: - Settings
 
 func runConfig(_ arguments: Arguments) throws {
@@ -1121,6 +1305,8 @@ func runConfig(_ arguments: Arguments) throws {
         print("workday-start-minutes \(settings.workdayStartMinutes)   automatic check-ins near this time snap to it (minutes since midnight)")
         print("project-prompt        \(settings.projectPrompt.rawValue)   ask for a project on arrival (0 never, 1 first of the day, 2 every arrival)")
         print("budget-warnings       \(settings.budgetWarningsEnabled ? 1 : 0)   warn when a project budget reaches 80% and 100%")
+        print("idle-threshold-minutes \(settings.idleThresholdMinutes)   ask about discarded idle time after this many minutes away (0 = off)")
+        print("tags-enabled          \(settings.tagsEnabled ? 1 : 0)   show and edit tags on blocks (0 off, 1 on)")
     case "set":
         guard let key = arguments.word(2), let raw = arguments.word(3), let value = Int(raw) else {
             throw CLIError.usage("usage: tickoala config set <key> <value>")

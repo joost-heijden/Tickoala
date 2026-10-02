@@ -372,6 +372,85 @@ public enum Invoicing {
         )
     }
 
+    /// A fixed-fee invoice for a client and period, built from the retainer only:
+    /// no hours, one line with the whole retainer amount. Used to bill a support
+    /// contract that does not depend on tracked time. It only builds a document
+    /// when the client actually has a retainer that covers the period, otherwise
+    /// `nil`.
+    public static func fixedInvoice(
+        store: Store,
+        profileId: Int64,
+        period: DateRange,
+        issuedAt: Date = Date(),
+        calendar: Calendar = Formatting.calendar
+    ) throws -> Invoice? {
+        guard let profile = try store.profile(id: profileId),
+              let retainer = try store.retainer(profileId: profileId), retainer.isSet,
+              retainer.coversMonth(containing: period.start, calendar: calendar),
+              retainer.recurrence.billingMonths(calendar: calendar)
+                .contains(calendar.component(.month, from: period.start))
+        else { return nil }
+        let sender = try store.invoiceSettings()
+        let lines = [InvoiceLine(
+            label: retainer.label,
+            seconds: 0,
+            hourlyRateCents: 0,
+            amountCents: retainer.amountCents,
+            quantity: 1,
+            unit: nil,
+            unitRateCents: retainer.amountCents
+        )]
+        let subtotal = retainer.amountCents
+        let vat = Int((Double(subtotal) * Double(max(0, profile.vatRatePercent)) / 100).rounded())
+        let stored = try store.storeInvoice(
+            profileId: profileId,
+            periodStart: period.start,
+            periodEnd: period.end,
+            poNumber: profile.poNumber,
+            issuedAt: issuedAt,
+            totalCents: subtotal + vat,
+            currency: profile.currency
+        )
+        let dueAt = calendar.date(byAdding: .day, value: max(0, sender.paymentTermDays), to: issuedAt) ?? issuedAt
+        return Invoice(
+            number: stored.number,
+            poNumber: stored.poNumber,
+            sender: sender,
+            profile: profile,
+            periodStart: period.start,
+            periodEnd: period.end,
+            issuedAt: issuedAt,
+            dueAt: dueAt,
+            lines: lines,
+            netSeconds: 0,
+            expensesCents: 0,
+            subtotalCents: subtotal,
+            vatRatePercent: profile.vatRatePercent,
+            vatCents: vat,
+            totalCents: subtotal + vat,
+            currency: profile.currency,
+            isCredit: false,
+            creditForNumber: nil
+        )
+    }
+
+    /// The clients whose retainer should be billed for this period's month, in
+    /// name order. Handy for scripting a batch of fixed invoices.
+    public static func fixedInvoiceCandidates(
+        store: Store,
+        period: DateRange,
+        calendar: Calendar = Formatting.calendar
+    ) throws -> [Profile] {
+        try store.profiles().filter { profile in
+            guard let retainer = try store.retainer(profileId: profile.id), retainer.isSet,
+                  retainer.coversMonth(containing: period.start, calendar: calendar),
+                  retainer.recurrence.billingMonths(calendar: calendar)
+                    .contains(calendar.component(.month, from: period.start))
+            else { return false }
+            return true
+        }
+    }
+
     /// The credit note that reverses an issued invoice: the same customer and
     /// period, the same lines with a negative sign, its own number and a
     /// reference to the original. The Belastingdienst wants that reference on any
@@ -760,6 +839,11 @@ extension Store {
         creditFor: String? = nil
     ) throws -> StoredInvoice {
         let start = Int64(periodStart.timeIntervalSince1970)
+        // The due date is fixed when the invoice is stored, so later changing the
+        // payment term does not move invoices that were already sent. A credit
+        // note has nothing to pay, so it falls due on its own issue day.
+        let term = creditFor == nil ? max(0, (try? invoiceSettings().paymentTermDays) ?? 30) : 0
+        let dueAt = Formatting.calendar.date(byAdding: .day, value: term, to: issuedAt) ?? issuedAt
         // A credit never reuses the original's number; only a regular invoice
         // reopens the one it already had for this period.
         if creditFor == nil, let row = try database.query(
@@ -768,12 +852,13 @@ extension Store {
         ).first, let number = row.string("number") {
             let effectivePO = poNumber ?? row.string("po_number")
             try database.run(
-                "UPDATE invoices SET po_number = ?, total_cents = ?, currency = ?, issued_at = ? WHERE id = ?;",
+                "UPDATE invoices SET po_number = ?, total_cents = ?, currency = ?, issued_at = ?, due_at = ? WHERE id = ?;",
                 [
                     effectivePO.map { SQLValue.text($0) } ?? .null,
                     .int(Int64(totalCents)),
                     .text(currency.rawValue),
                     .int(Int64(issuedAt.timeIntervalSince1970)),
+                    .int(Int64(dueAt.timeIntervalSince1970)),
                     row.int("id").map { SQLValue.int($0) } ?? .null,
                 ]
             )
@@ -796,8 +881,8 @@ extension Store {
 
         try database.run(
             """
-            INSERT INTO invoices (profile_id, period_start, period_end, number, po_number, issued_at, total_cents, currency, is_credit, credit_for)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO invoices (profile_id, period_start, period_end, number, po_number, issued_at, due_at, total_cents, currency, is_credit, credit_for)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             [
                 .int(profileId),
@@ -806,6 +891,7 @@ extension Store {
                 .text(number),
                 poNumber.map { SQLValue.text($0) } ?? .null,
                 .int(Int64(issuedAt.timeIntervalSince1970)),
+                .int(Int64(dueAt.timeIntervalSince1970)),
                 .int(Int64(totalCents)),
                 .text(currency.rawValue),
                 .int(creditFor == nil ? 0 : 1),
@@ -834,35 +920,72 @@ extension Store {
         public var isCredit: Bool = false
         /// For a credit note: the number of the invoice it reverses.
         public var creditForNumber: String? = nil
+        /// The day the invoice has to be paid. `nil` on a credit note, and on
+        /// rows issued before the column existed until they are read back.
+        public var dueAt: Date?
+        /// When the customer paid. `nil` while the invoice is still open.
+        public var paidAt: Date?
+
+        /// Has this invoice been paid? Credits are never "paid".
+        public var isPaid: Bool { !isCredit && paidAt != nil }
+
+        /// Is the invoice unpaid and past its due date? Compares whole days, so
+        /// the due day itself is not counted as late.
+        public func isOverdue(now: Date = Date()) -> Bool {
+            guard !isCredit, paidAt == nil, let dueAt else { return false }
+            return Formatting.calendar.startOfDay(for: now) > Formatting.calendar.startOfDay(for: dueAt)
+        }
+
+        /// How many days past due the invoice is; zero when it is not overdue.
+        public func daysLate(now: Date = Date()) -> Int {
+            guard isOverdue(now: now), let dueAt else { return 0 }
+            let calendar = Formatting.calendar
+            let from = calendar.startOfDay(for: dueAt)
+            let to = calendar.startOfDay(for: now)
+            return calendar.dateComponents([.day], from: from, to: to).day ?? 0
+        }
     }
 
     /// Every invoice and credit ever issued, newest month first: when you
-    /// invoiced and whom.
+    /// invoiced and whom, and whether it has been paid.
     public func issuedInvoices() throws -> [IssuedInvoice] {
-        try database.query(
+        let term = max(0, (try? invoiceSettings().paymentTermDays) ?? 30)
+        return try database.query(
             """
             SELECT i.number, i.profile_id, p.name AS profile_name, i.period_start,
-                   i.period_end, i.issued_at, i.total_cents, i.currency, i.po_number,
-                   i.is_credit, i.credit_for
+                   i.period_end, i.issued_at, i.due_at, i.paid_at, i.total_cents,
+                   i.currency, i.po_number, i.is_credit, i.credit_for
             FROM invoices i JOIN profiles p ON p.id = i.profile_id
             ORDER BY i.period_start DESC, i.issued_at DESC, p.name COLLATE NOCASE ASC;
             """
-        ).compactMap(issuedInvoice(from:))
+        ).compactMap { row in
+            issuedInvoice(from: row).map { withDueDate($0, term: term) }
+        }
     }
 
     /// One stored invoice or credit by its number, for rebuilding a document or
     /// checking whether a credit already exists.
     public func issuedInvoice(number: String) throws -> IssuedInvoice? {
-        try database.query(
+        let term = max(0, (try? invoiceSettings().paymentTermDays) ?? 30)
+        return try database.query(
             """
             SELECT i.number, i.profile_id, p.name AS profile_name, i.period_start,
-                   i.period_end, i.issued_at, i.total_cents, i.currency, i.po_number,
-                   i.is_credit, i.credit_for
+                   i.period_end, i.issued_at, i.due_at, i.paid_at, i.total_cents,
+                   i.currency, i.po_number, i.is_credit, i.credit_for
             FROM invoices i JOIN profiles p ON p.id = i.profile_id
             WHERE i.number = ?;
             """,
             [.text(number)]
-        ).first.flatMap(issuedInvoice(from:))
+        ).first.flatMap(issuedInvoice(from:)).map { withDueDate($0, term: term) }
+    }
+
+    /// Rows issued before the due-date column existed get it computed from the
+    /// current payment term, so an old invoice can still be shown as overdue.
+    private func withDueDate(_ item: IssuedInvoice, term: Int) -> IssuedInvoice {
+        guard item.dueAt == nil, !item.isCredit else { return item }
+        var copy = item
+        copy.dueAt = Formatting.calendar.date(byAdding: .day, value: term, to: item.issuedAt)
+        return copy
     }
 
     private func issuedInvoice(from row: Row) -> IssuedInvoice? {
@@ -881,7 +1004,23 @@ extension Store {
             currency: row.string("currency").flatMap(Currency.init(rawValue:)) ?? .eur,
             poNumber: row.string("po_number"),
             isCredit: row.bool("is_credit"),
-            creditForNumber: row.string("credit_for")
+            creditForNumber: row.string("credit_for"),
+            dueAt: row.date("due_at"),
+            paidAt: row.date("paid_at")
+        )
+    }
+
+    /// Records that an invoice was paid (`paidAt` set) or reopens it (`nil`).
+    /// Credits are never marked paid.
+    public func setInvoicePaid(number: String, paidAt: Date?) throws {
+        let existing = try issuedInvoice(number: number)
+        guard existing != nil else { throw TrackerError.invalidRange("unknown invoice: \(number)") }
+        guard existing?.isCredit != true else {
+            throw TrackerError.invalidRange("a credit note has nothing to pay")
+        }
+        try database.run(
+            "UPDATE invoices SET paid_at = ? WHERE number = ?;",
+            [paidAt.map { SQLValue.int(Int64($0.timeIntervalSince1970)) } ?? .null, .text(number)]
         )
     }
 

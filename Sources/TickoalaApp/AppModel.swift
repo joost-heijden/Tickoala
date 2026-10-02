@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreGraphics
 import Foundation
 import SwiftUI
 import TickoalaCore
@@ -88,6 +89,30 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Minutes without keyboard or mouse input before Tickoala treats the return
+    /// as a question: discard that time or keep it? Zero turns the check off.
+    @Published var idleThresholdMinutes = TrackerSettings.default.idleThresholdMinutes {
+        didSet {
+            guard idleThresholdMinutes != oldValue else { return }
+            persistSetting(key: "idle-threshold-minutes", value: idleThresholdMinutes)
+            idleStartedAt = nil
+        }
+    }
+
+    /// Whether tags are shown and editable. Off by default; the tag field,
+    /// overview column, tag breakdown and filter stay hidden until it is on.
+    @Published var tagsEnabled = TrackerSettings.default.tagsEnabled {
+        didSet {
+            guard tagsEnabled != oldValue else { return }
+            persistSetting(key: "tags-enabled", value: tagsEnabled ? 1 : 0)
+            if !tagsEnabled { tagFilter = nil }
+        }
+    }
+
+    /// The tag the overview is filtered on, or `nil` for all blocks. Only used
+    /// when tags are enabled.
+    @Published var tagFilter: String?
+
     // Overview window
     @Published var period: ReportPeriod = .day {
         didSet { reloadOverview() }
@@ -110,6 +135,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var overviewBreak: TimeInterval = 0
     @Published private(set) var overviewByProject: [ProjectTotal] = []
     @Published private(set) var overviewByProfile: [ProfileTotal] = []
+    @Published private(set) var overviewByTag: [ProjectTotal] = []
+    /// Net hours per day, for the chart. Each day carries its per-project split,
+    /// so the chart can show one total bar per day or a stacked one.
+    @Published private(set) var overviewByDayProject: [DayProjectTotal] = []
     @Published private(set) var overviewAmountCents: Int = 0
 
     /// Burn-down per project that has a budget, keyed by project id. Empty when
@@ -133,6 +162,12 @@ final class AppModel: ObservableObject {
     /// A network change while a block runs elsewhere: continue or start new?
     @Published private(set) var pendingNetworkSwitch: NetworkSwitch?
 
+    /// A stretch of idle time on a running block that the user has to rule on:
+    /// discard it from the block or keep it. Nothing is changed until answered.
+    @Published private(set) var pendingIdle: PendingIdle?
+    /// When the current stretch of being away began; cleared on return.
+    private var idleStartedAt: Date?
+
     /// Set on the first weekday of the month when there are hours to invoice; the
     /// menu bar label watches it and opens the invoices window once.
     @Published private(set) var shouldOpenInvoices = false
@@ -140,6 +175,10 @@ final class AppModel: ObservableObject {
     /// Set when the Dock icon is clicked while the app runs; the menu bar label
     /// watches it and brings the Settings window up once.
     @Published private(set) var shouldOpenSettings = false
+
+    /// Set once a day when an invoice has passed its due date; the app delegate
+    /// turns it into a notification.
+    @Published private(set) var overdueAlert: OverdueAlert?
 
     private var tracker: Tracker?
     private var timer: Timer?
@@ -171,6 +210,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// One day's hours for one project, the unit the chart plots.
+    struct DayProjectTotal: Identifiable, Equatable {
+        var day: Date
+        var project: String
+        var seconds: TimeInterval
+        var id: String { "\(day.timeIntervalSince1970)-\(project)" }
+    }
+
     struct WifiProjectSelection: Equatable {
         var profileId: Int64
         var ssid: String
@@ -186,6 +233,32 @@ final class AppModel: ObservableObject {
         var runningLabel: String
         var context: String
         var event: ContextEvent
+    }
+
+    /// A stretch of idle time on a running block, waiting for the user to say
+    /// whether it counts as work.
+    struct PendingIdle: Equatable {
+        var entryId: Int64
+        var profileId: Int64
+        var startedAt: Date
+        var endedAt: Date
+        var seconds: TimeInterval
+    }
+
+    /// An unpaid invoice that has passed its due date, announced once a day.
+    struct OverdueAlert: Equatable {
+        var count: Int
+        var oldestNumber: String
+        var customerName: String
+        var daysLate: Int
+
+        var body: String {
+            let days = daysLate == 1 ? "1 day" : "\(daysLate) days"
+            if count == 1 {
+                return "Invoice \(oldestNumber) for \(customerName) is \(days) overdue."
+            }
+            return "\(count) invoices are unpaid; the oldest, \(oldestNumber) for \(customerName), is \(days) overdue."
+        }
     }
 
     /// A project that just crossed its 80% or 100% budget threshold.
@@ -234,6 +307,8 @@ final class AppModel: ObservableObject {
             workdayStartMinutes = settings.workdayStartMinutes
             projectPrompt = settings.projectPrompt
             showBudgetWarnings = settings.budgetWarningsEnabled
+            idleThresholdMinutes = settings.idleThresholdMinutes
+            tagsEnabled = settings.tagsEnabled
         }
         // A coordinate only becomes a signal when it is near a stored location.
         wifi.resolveLocationContext = { [weak self] latitude, longitude in
@@ -425,6 +500,10 @@ final class AppModel: ObservableObject {
             if pendingNetworkSwitch != nil, try tracker.store.runningEntries().isEmpty {
                 pendingNetworkSwitch = nil
             }
+            // The same for an idle question whose block is gone.
+            if let pending = pendingIdle, (try? tracker.store.entry(id: pending.entryId)) == nil {
+                pendingIdle = nil
+            }
             var active: [Int64: [Project]] = [:]
             var all: [Int64: [Project]] = [:]
             for item in try tracker.store.profiles(includeInactive: false) {
@@ -439,10 +518,72 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = "\(error)"
         }
+        monitorIdle()
         ensureSelectedCustomer()
         followTodayIfNeeded()
         reloadOverview()
         checkInvoiceReminder()
+        checkOverdueReminder()
+    }
+
+    /// Watches how long the Mac has had no keyboard or mouse input. While a block
+    /// runs and the idle time passes the threshold, the moment the user returns is
+    /// turned into a question: discard that stretch or keep it. Nothing is changed
+    /// until the user answers, so the raw block always stays intact.
+    private func monitorIdle(now: Date = Date()) {
+        guard idleThresholdMinutes > 0, let tracker else {
+            idleStartedAt = nil
+            return
+        }
+        // No running block means there is nothing to ask about.
+        guard let running = try? tracker.store.runningEntries().first else {
+            idleStartedAt = nil
+            return
+        }
+        // One open question at a time.
+        guard pendingIdle == nil else { return }
+
+        let idle = Self.systemIdleSeconds()
+        let threshold = TimeInterval(idleThresholdMinutes * 60)
+        if idle >= threshold {
+            // Remember where the absence began; the block keeps counting until
+            // the user has answered.
+            if idleStartedAt == nil { idleStartedAt = now.addingTimeInterval(-idle) }
+            return
+        }
+        // Input is back: close the idle stretch and ask about it.
+        guard let started = idleStartedAt else { return }
+        idleStartedAt = nil
+        let ended = now.addingTimeInterval(-idle)
+        let seconds = max(0, ended.timeIntervalSince(started))
+        guard seconds >= threshold else { return }
+        pendingIdle = PendingIdle(
+            entryId: running.id,
+            profileId: running.profileId,
+            startedAt: started,
+            endedAt: ended,
+            seconds: seconds
+        )
+    }
+
+    /// Seconds since the last keyboard or mouse input, read from the system. This
+    /// needs no permission and nothing leaves the Mac.
+    private static func systemIdleSeconds() -> TimeInterval {
+        let anyInput = CGEventType(rawValue: ~0)!
+        return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
+    }
+
+    /// The idle stretch counts as work; nothing is changed.
+    func keepIdleTime() {
+        pendingIdle = nil
+    }
+
+    /// Takes the idle stretch off the block. The block keeps its start and end;
+    /// only the worked duration drops, exactly like a break.
+    func discardIdleTime() {
+        guard let pending = pendingIdle else { return }
+        pendingIdle = nil
+        perform { try $0.addIdle(entryId: pending.entryId, seconds: pending.seconds) }
     }
 
     /// A pending coalesced refresh, so typing or a held stepper does not reload
@@ -675,11 +816,23 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func setRetainer(profileId: Int64, description: String, amountCents: Int, active: Bool) {
+    func setRetainer(
+        profileId: Int64,
+        description: String,
+        amountCents: Int,
+        active: Bool,
+        endsAt: Date? = nil,
+        recurrence: RetainerRecurrence = .monthly
+    ) {
         guard let tracker else { return }
         do {
             try tracker.store.setRetainer(
-                profileId: profileId, description: description, amountCents: amountCents, active: active
+                profileId: profileId,
+                description: description,
+                amountCents: amountCents,
+                active: active,
+                endsAt: endsAt,
+                recurrence: recurrence
             )
             refreshSoon()
         } catch {
@@ -1194,7 +1347,14 @@ final class AppModel: ObservableObject {
         guard let tracker else { return }
         do {
             let report = try Reporting.report(store: tracker.store, period: period, containing: anchor, profileId: profileFilter)
-            let entries = try tracker.store.entries(from: report.range.start, to: report.range.end, profileId: profileFilter)
+            var entries = try tracker.store.entries(from: report.range.start, to: report.range.end, profileId: profileFilter)
+            // The tag filter narrows the table and the footer totals only; the
+            // tag breakdown keeps every tag, so the filter stays switchable.
+            if tagsEnabled, let tagFilter {
+                entries = entries.filter { entry in
+                    entry.tags.contains { $0.caseInsensitiveCompare(tagFilter) == .orderedSame }
+                }
+            }
             // The automatic deduction belongs to a client-day, not to one block.
             // Show it on the first block of that day, so a day with several blocks
             // does not show the same break more than once. Entries arrive sorted by
@@ -1232,10 +1392,46 @@ final class AppModel: ObservableObject {
             overviewBreak = report.breakDeduction
             overviewByProject = report.byProject
             overviewByProfile = report.byProfile
+            overviewByTag = report.byTag
             overviewAmountCents = report.amountCents
+            overviewByDayProject = try chartRows(store: tracker.store, report: report, entries: entries)
         } catch {
             errorMessage = "\(error)"
         }
+    }
+
+    /// The per-day, per-project hours the chart plots. Built from the same
+    /// entries the table shows, so a tag or customer filter is reflected here too.
+    private func chartRows(
+        store: Store,
+        report: Report,
+        entries: [TimeEntry]
+    ) throws -> [DayProjectTotal] {
+        let calendar = Formatting.calendar
+        var projectCache: [Int64: String] = [:]
+        var grouped: [Date: [String: TimeInterval]] = [:]
+        for entry in entries {
+            guard entry.kind == .work else { continue }
+            let day = calendar.startOfDay(for: entry.startedAt)
+            let label: String
+            if let projectId = entry.projectId {
+                if let cached = projectCache[projectId] {
+                    label = cached
+                } else {
+                    let project = try store.project(id: projectId)
+                    label = project?.label ?? "(no project)"
+                    projectCache[projectId] = label
+                }
+            } else {
+                label = "(no project)"
+            }
+            grouped[day, default: [:]][label, default: 0] += entry.duration()
+        }
+        return grouped
+            .flatMap { day, projects in
+                projects.map { DayProjectTotal(day: day, project: $0.key, seconds: $0.value) }
+            }
+            .sorted { ($0.day, $0.project) < ($1.day, $1.project) }
     }
 
     var overviewRange: DateRange {
@@ -1281,6 +1477,7 @@ final class AppModel: ObservableObject {
         breakStart: Date?,
         breakEnd: Date?,
         note: String,
+        tags: [String]? = nil,
         status: EntryStatus,
         kind: EntryKind = .work
     ) {
@@ -1300,6 +1497,7 @@ final class AppModel: ObservableObject {
                 projectId: .some(projectId),
                 startedAt: start,
                 endedAt: .some(end),
+                tags: tags,
                 status: status,
                 kind: kind,
                 note: .some(note.isEmpty ? nil : note)
@@ -1320,6 +1518,7 @@ final class AppModel: ObservableObject {
                             endedAt: .some(previous.endedAt),
                             breakStartedAt: .some(previous.breakStartedAt),
                             breakEndedAt: .some(previous.breakEndedAt),
+                            tags: previous.tags,
                             status: previous.status,
                             kind: previous.kind,
                             note: .some(previous.note)
@@ -1333,6 +1532,7 @@ final class AppModel: ObservableObject {
                             endedAt: .some(end),
                             breakStartedAt: .some(breakStart),
                             breakEndedAt: .some(breakEnd),
+                            tags: tags,
                             status: status,
                             kind: kind,
                             note: .some(note.isEmpty ? nil : note)
@@ -1384,6 +1584,7 @@ final class AppModel: ObservableObject {
         breakStart: Date? = nil,
         breakEnd: Date? = nil,
         note: String,
+        tags: [String] = [],
         kind: EntryKind = .work
     ) -> Int64? {
         guard let tracker else { return nil }
@@ -1404,7 +1605,7 @@ final class AppModel: ObservableObject {
             let entry = try tracker.store.createEntry(
                 profileId: profileId, projectId: projectId, startedAt: start, endedAt: end,
                 breakStartedAt: breakStart, breakEndedAt: breakEnd,
-                status: .completed, source: .manual, kind: kind, note: note.isEmpty ? nil : note
+                tags: tags, status: .completed, source: .manual, kind: kind, note: note.isEmpty ? nil : note
             )
             record("Add block",
                 perform: { [weak self] in
@@ -1418,6 +1619,7 @@ final class AppModel: ObservableObject {
                         endedAt: entry.endedAt,
                         breakStartedAt: entry.breakStartedAt,
                         breakEndedAt: entry.breakEndedAt,
+                        tags: entry.tags,
                         status: entry.status,
                         source: entry.source,
                         kind: entry.kind,
@@ -1469,6 +1671,8 @@ final class AppModel: ObservableObject {
                             endedAt: previous.endedAt,
                             breakStartedAt: previous.breakStartedAt,
                             breakEndedAt: previous.breakEndedAt,
+                            idleSeconds: previous.idleSeconds,
+                            tags: previous.tags,
                             status: previous.status,
                             source: previous.source,
                             note: previous.note
@@ -1598,6 +1802,36 @@ final class AppModel: ObservableObject {
         } catch {
             errorMessage = "\(error)"
         }
+    }
+
+    /// Records that an invoice was paid, or reopens it again.
+    func setInvoicePaid(_ invoice: Store.IssuedInvoice, paid: Bool) {
+        guard let tracker else { return }
+        do {
+            try tracker.store.setInvoicePaid(number: invoice.number, paidAt: paid ? Date() : nil)
+            refresh()
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    /// Issued invoices that are still open: not paid, not a credit note and with
+    /// something to pay.
+    var outstandingInvoices: [Store.IssuedInvoice] {
+        issuedInvoices().filter { !$0.isCredit && !$0.isPaid && $0.totalCents > 0 }
+    }
+
+    /// Open invoices that are past their due date.
+    var overdueInvoices: [Store.IssuedInvoice] {
+        outstandingInvoices.filter { $0.isOverdue() }
+    }
+
+    /// The open amount per currency. Several currencies are kept apart, since
+    /// they cannot be added up into one figure.
+    var outstandingTotals: [(currency: Currency, cents: Int)] {
+        var totals: [Currency: Int] = [:]
+        for invoice in outstandingInvoices { totals[invoice.currency, default: 0] += invoice.totalCents }
+        return totals.map { ($0.key, $0.value) }.sorted { $0.cents > $1.cents }
     }
 
     /// Builds the invoice for one customer and the invoiced month. Allocates the
@@ -1815,6 +2049,91 @@ final class AppModel: ObservableObject {
     /// The label opened the window; no need to ask again.
     func acknowledgeInvoiceReminder() {
         shouldOpenInvoices = false
+    }
+
+    /// Once a day, announce the oldest invoice that is past its due date. The
+    /// day is remembered, so it is a nudge and not a nag; marking the invoice
+    /// paid clears it.
+    private func checkOverdueReminder() {
+        let overdue = overdueInvoices
+        guard let oldest = overdue.max(by: { $0.daysLate() < $1.daysLate() }) else {
+            if overdueAlert != nil { overdueAlert = nil }
+            return
+        }
+        let key = "overdue-reminder-shown"
+        let today = Formatting.day(Date())
+        guard UserDefaults.standard.string(forKey: key) != today else { return }
+        UserDefaults.standard.set(today, forKey: key)
+        overdueAlert = OverdueAlert(
+            count: overdue.count,
+            oldestNumber: oldest.number,
+            customerName: oldest.profileName,
+            daysLate: oldest.daysLate()
+        )
+    }
+
+    // MARK: - Import
+
+    /// Opens a file picker and imports a Toggl Track, Harvest or Clockify CSV
+    /// export. The picker carries the format and an optional client override; the
+    /// result is shown in an alert. Running it twice skips what is already there.
+    func importEntriesPanel() {
+        guard let tracker else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.commaSeparatedText, .plainText]
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the CSV you exported from your old time tracker"
+
+        let formatPopup = NSPopUpButton()
+        for format in ImportFormat.allCases { formatPopup.addItem(withTitle: format.label) }
+        formatPopup.selectItem(at: 0)
+        let clientField = NSTextField(string: "")
+        clientField.placeholderString = "use the file's client column"
+        clientField.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        let userField = NSTextField(string: "")
+        userField.placeholderString = "everyone in the file"
+        userField.widthAnchor.constraint(equalToConstant: 130).isActive = true
+
+        let stack = NSStackView(views: [
+            NSTextField(labelWithString: "Format:"), formatPopup,
+            NSTextField(labelWithString: "Client:"), clientField,
+            NSTextField(labelWithString: "User:"), userField,
+        ])
+        stack.orientation = .horizontal
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+        panel.accessoryView = stack
+
+        NSApp.activateForUI()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let index = max(0, min(formatPopup.indexOfSelectedItem, ImportFormat.allCases.count - 1))
+        let format = ImportFormat.allCases[index]
+        let override = clientField.stringValue.trimmingCharacters(in: .whitespaces)
+        let user = userField.stringValue.trimmingCharacters(in: .whitespaces)
+
+        do {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            var entries = try Importer.parse(text, format: format, user: user)
+            if !override.isEmpty {
+                entries = entries.map { var entry = $0; entry.client = override; return entry }
+            }
+            let summary = try Importer.apply(
+                entries, to: tracker.store, tagsEnabled: tagsEnabled
+            )
+            refresh()
+            presentAlert(title: "Import complete", message: "\(format.label): \(summary.description).")
+        } catch {
+            errorMessage = "\(error)"
+            presentAlert(title: "Import failed", message: "\(error)")
+        }
+    }
+
+    private func presentAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     /// The Dock icon was clicked while a window was open: show Settings again.

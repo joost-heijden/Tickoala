@@ -408,6 +408,34 @@ public enum EntrySource: String, Sendable {
     /// Supplied by an external helper via the adapter command.
     case controlplane
     case manual
+    /// Brought in from another time tracker with the importer.
+    case imported
+}
+
+/// Free-form labels on a block, alongside the client and project hierarchy:
+/// "meeting", "admin", "research". A tag is a plain word; commas or semicolons
+/// separate them in text, and duplicates (ignoring case) are dropped.
+public enum Tags {
+    public static func parse(_ text: String?) -> [String] {
+        guard let text else { return [] }
+        var seen = Set<String>()
+        var result: [String] = []
+        for piece in text.split(whereSeparator: { $0 == "," || $0 == ";" }) {
+            let tag = piece.trimmingCharacters(in: .whitespaces)
+            guard !tag.isEmpty, seen.insert(tag.lowercased()).inserted else { continue }
+            result.append(tag)
+        }
+        return result
+    }
+
+    /// Stored form: one comma-separated string, or `nil` when there are none.
+    public static func join(_ tags: [String]) -> String? {
+        let cleaned = parse(tags.joined(separator: ","))
+        return cleaned.isEmpty ? nil : cleaned.joined(separator: ",")
+    }
+
+    /// Display form: `a, b`.
+    public static func text(_ tags: [String]) -> String { tags.joined(separator: ", ") }
 }
 
 /// A single work block. Pausing closes a block, resuming starts a new one.
@@ -421,6 +449,16 @@ public struct TimeEntry: Equatable, Identifiable, Sendable {
     public var endedAt: Date?
     public var breakStartedAt: Date?
     public var breakEndedAt: Date?
+    /// Idle time that was discarded on this block, in seconds. Like the break
+    /// deduction it is a calculation on top of the raw block: the recorded start
+    /// and end are never changed, the idle time only lowers the worked duration.
+    public var idleSeconds: TimeInterval
+    /// Free-form labels on the block; see `Tags`.
+    public var tags: [String]
+    /// Tags that came in with an import while the tags feature was off. Kept
+    /// here so switching tags on later does not lose the imported labels.
+    /// Empty in normal use.
+    public var importedTags: [String]
     public var status: EntryStatus
     public var source: EntrySource
     /// Work, travel or commute. Everything recorded before this existed is work.
@@ -437,6 +475,9 @@ public struct TimeEntry: Equatable, Identifiable, Sendable {
         endedAt: Date?,
         breakStartedAt: Date? = nil,
         breakEndedAt: Date? = nil,
+        idleSeconds: TimeInterval = 0,
+        tags: [String] = [],
+        importedTags: [String] = [],
         status: EntryStatus,
         source: EntrySource,
         kind: EntryKind = .work,
@@ -451,6 +492,9 @@ public struct TimeEntry: Equatable, Identifiable, Sendable {
         self.endedAt = endedAt
         self.breakStartedAt = breakStartedAt
         self.breakEndedAt = breakEndedAt
+        self.idleSeconds = max(0, idleSeconds)
+        self.tags = Tags.parse(tags.joined(separator: ","))
+        self.importedTags = Tags.parse(importedTags.joined(separator: ","))
         self.status = status
         self.source = source
         self.kind = kind
@@ -471,10 +515,16 @@ public struct TimeEntry: Equatable, Identifiable, Sendable {
         return max(0, min(end.timeIntervalSince(start), grossDuration()))
     }
 
-    /// Net worked time: the span minus the break. For a running block measured
-    /// up to `now`.
+    /// Discarded idle time on the block, never more than what is left after the
+    /// recorded break. For a running block measured up to `now`.
+    public func idleDuration(now: Date = Date()) -> TimeInterval {
+        max(0, min(idleSeconds, grossDuration(now: now) - breakDuration))
+    }
+
+    /// Net worked time: the span minus the break and any discarded idle time. For
+    /// a running block measured up to `now`.
     public func duration(now: Date = Date()) -> TimeInterval {
-        max(0, grossDuration(now: now) - breakDuration)
+        max(0, grossDuration(now: now) - breakDuration - idleDuration(now: now))
     }
 }
 
@@ -588,12 +638,29 @@ public struct Retainer: Equatable, Sendable {
     public var description: String
     public var amountCents: Int
     public var active: Bool
+    /// The last day the retainer runs, or `nil` for an open-ended one. A dated
+    /// retainer is only billed up to and including this day.
+    public var endsAt: Date?
 
-    public init(profileId: Int64, description: String, amountCents: Int, active: Bool = true) {
+    /// How the retainer recurs when the automatic monthly invoice is generated.
+    /// The retainer is always a whole amount per billable month; this decides
+    /// which months it lands in.
+    public var recurrence: RetainerRecurrence
+
+    public init(
+        profileId: Int64,
+        description: String,
+        amountCents: Int,
+        active: Bool = true,
+        endsAt: Date? = nil,
+        recurrence: RetainerRecurrence = .monthly
+    ) {
         self.profileId = profileId
         self.description = description
         self.amountCents = max(0, amountCents)
         self.active = active
+        self.endsAt = endsAt
+        self.recurrence = recurrence
     }
 
     /// Is there something to put on an invoice? A retainer of zero is not set.
@@ -601,6 +668,44 @@ public struct Retainer: Equatable, Sendable {
 
     public var label: String {
         description.trimmingCharacters(in: .whitespaces).isEmpty ? "Retainer" : description
+    }
+
+    /// Does the retainer cover the month that `date` falls in? Used to decide
+    /// whether the automatic monthly invoice should carry it. An ended retainer
+    /// stops from the month after its last day.
+    public func coversMonth(containing date: Date, calendar: Calendar = Formatting.calendar) -> Bool {
+        guard let endsAt else { return true }
+        let endMonth = calendar.dateInterval(of: .month, for: endsAt)
+        let month = calendar.dateInterval(of: .month, for: date)
+        guard let endMonth, let month else { return date <= endsAt }
+        return month.start <= endMonth.start
+    }
+}
+
+/// How often a retainer recurs. Monthly is the default; quarterly and yearly
+/// suit a support contract that is invoiced a few times a year.
+public enum RetainerRecurrence: String, CaseIterable, Sendable {
+    case monthly
+    case quarterly
+    case yearly
+
+    public var label: String {
+        switch self {
+        case .monthly: return "Monthly"
+        case .quarterly: return "Quarterly"
+        case .yearly: return "Yearly"
+        }
+    }
+
+    /// The months of the year (1–12) in which this recurrence bills. Monthly is
+    /// every month; quarterly starts in January, April, July and October; yearly
+    /// bills in January.
+    public func billingMonths(calendar: Calendar = Formatting.calendar) -> Set<Int> {
+        switch self {
+        case .monthly: return Set(1...12)
+        case .quarterly: return [1, 4, 7, 10]
+        case .yearly: return [1]
+        }
     }
 }
 

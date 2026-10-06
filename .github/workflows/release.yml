@@ -18,6 +18,14 @@ jobs:
           # counter that scripts/build-app.sh writes into the Info.plist.
           fetch-depth: 0
 
+      # Pin the toolchain. The default Xcode on a runner image moves over time,
+      # and a newer SDK once rejected a call that built fine elsewhere (a String
+      # ternary where IntentDialog was required). A fixed version keeps a tagged
+      # release reproducible; bump this deliberately, not by surprise.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
       - name: Build Tickoala.app
         run: ./scripts/build-app.sh release
 

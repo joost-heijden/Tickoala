@@ -88,7 +88,11 @@ struct StopTimerIntent: AppIntent {
                 parts.append("\(profile.name): \(Formatting.duration(entry.duration()))")
             }
         }
-        return .result(dialog: parts.isEmpty ? "Nothing to stop." : "Stopped — \(parts.joined(separator: ", ")).")
+        // Two separate returns, so each dialog is a plain literal: a ternary of
+        // two strings is inferred as `String` and that no longer converts to
+        // `IntentDialog` on newer SDKs.
+        guard !parts.isEmpty else { return .result(dialog: "Nothing to stop.") }
+        return .result(dialog: "Stopped — \(parts.joined(separator: ", ")).")
     }
 }
 

@@ -2476,13 +2476,15 @@ final class AppModel: ObservableObject {
             // Close the live handle so the file can be replaced, then reopen.
             tracker = nil
             try Backup.restore(from: url, to: destination)
-            tracker = Tracker(store: try Store(path: try Store.defaultDatabasePath()))
+            tracker = Tracker(store: try Store(path: destination.path))
             clearOpenQuestions()
             refresh()
             presentAlert(title: "Restored", message: "Your data is back from \(url.lastPathComponent).")
         } catch {
             // Try to reopen the old database so the app keeps working.
-            tracker = try? Tracker(store: try Store(path: try Store.defaultDatabasePath()))
+            if let path = try? Store.defaultDatabasePath(), let store = try? Store(path: path) {
+                tracker = Tracker(store: store)
+            }
             errorMessage = "\(error)"
             presentAlert(title: "Restore failed", message: "\(error)")
         }

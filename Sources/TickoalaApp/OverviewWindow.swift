@@ -351,7 +351,7 @@ struct OverviewWindow: View {
             if let goal = model.overviewGoal {
                 HStack(spacing: 8) {
                     Image(systemName: goal.isReached ? "flag.checkered" : "target")
-                    Text("\(model.period == .day ? "Daily" : "Weekly") goal \(goal.summary)")
+                    Text("\(model.period.goalLabel) goal \(goal.summary)")
                         .lineLimit(1)
                         .fixedSize()
                     ProgressView(value: goal.fraction)

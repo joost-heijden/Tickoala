@@ -38,6 +38,14 @@ func goalChecks() {
             expectEqual(goal.summary, "0:30 of 1:00 · 50%")
         }
 
+        test("a month goal scales the weekly target to the days in the month") {
+            let full = try expectNotNil(Goal(weeklyMinutes: 2400, days: 28, workedSeconds: 0))
+            expectEqual(full.targetSeconds, 4 * 2400 * 60, "28 days is 4 weeks")
+            let long = try expectNotNil(Goal(weeklyMinutes: 2400, days: 31, workedSeconds: 0))
+            expect(long.targetSeconds > full.targetSeconds, "a longer month asks for more")
+            expect(Goal(weeklyMinutes: 0, days: 31, workedSeconds: 0) == nil, "off when no weekly goal")
+        }
+
         test("the goal settings round-trip through the store, off by default") {
             let fixture = try Fixture()
             expectEqual(try fixture.store.settings().dailyGoalMinutes, 0, "off by default")

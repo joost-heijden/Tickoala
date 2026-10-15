@@ -20,6 +20,15 @@ public struct Goal: Equatable, Sendable {
         self.init(targetSeconds: TimeInterval(minutes) * 60, workedSeconds: workedSeconds)
     }
 
+    /// A month target from a weekly one, scaled to the days in the month, so a
+    /// short week shows up as room to catch up later. `nil` when the weekly
+    /// target is off.
+    public init?(weeklyMinutes: Int, days: Int, workedSeconds: TimeInterval) {
+        guard weeklyMinutes > 0, days > 0 else { return nil }
+        let minutes = Int((Double(weeklyMinutes) * Double(days) / 7).rounded())
+        self.init(minutes: minutes, workedSeconds: workedSeconds)
+    }
+
     public var isSet: Bool { targetSeconds > 0 }
 
     /// The fraction of the target reached, capped at 1 so a bar never overflows.

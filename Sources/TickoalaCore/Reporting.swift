@@ -12,6 +12,15 @@ public enum ReportPeriod: String, CaseIterable, Sendable {
         case .month: return "Month"
         }
     }
+
+    /// How the matching goal reads ("Daily", "Weekly", "Monthly").
+    public var goalLabel: String {
+        switch self {
+        case .day: return "Daily"
+        case .week: return "Weekly"
+        case .month: return "Monthly"
+        }
+    }
 }
 
 public struct DateRange: Equatable, Sendable {

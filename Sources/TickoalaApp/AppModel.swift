@@ -572,13 +572,22 @@ final class AppModel: ObservableObject {
     }
 
     /// The goal that fits the overview's shown period, working against the shown
-    /// total so the footer matches what is on screen. A month has no goal.
+    /// total so the footer matches what is on screen. A month's target is the
+    /// weekly one scaled to the days in the month, so a short week shows up as
+    /// room to catch up later in the month. ponytail: derived, add a separate
+    /// monthly setting if the scaled figure is ever wrong for someone.
     var overviewGoal: Goal? {
         switch period {
         case .day: return Goal(minutes: dailyGoalMinutes, workedSeconds: overviewTotal)
         case .week: return Goal(minutes: weeklyGoalMinutes, workedSeconds: overviewTotal)
-        case .month: return nil
+        case .month: return monthGoal
         }
+    }
+
+    private var monthGoal: Goal? {
+        let calendar = Formatting.calendar
+        let days = calendar.dateComponents([.day], from: overviewRange.start, to: overviewRange.end).day ?? 0
+        return Goal(weeklyMinutes: weeklyGoalMinutes, days: days, workedSeconds: overviewTotal)
     }
 
     /// Once per second: finalize delayed stops and refresh the status.
